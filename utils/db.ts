@@ -27,7 +27,8 @@ const DB_NAME = 'AetherOS_Data';
 // v69：见面·剧情条目与糯米机原生预设。正文继续复用 messages 表，避免再造会话存储。
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // v71：角色小红书伪主页；发帖归属与可删除的自由活动日志分离。
-const DB_VERSION = 71;
+// v72：Living World 被动基础层（只存 state / agent state / append-only event ledger，不接入调度）。
+const DB_VERSION = 72;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -79,6 +80,7 @@ const STORE_VR_SETTINGS = 'vr_settings';          // 彼方设置单例：独立
 const STORE_API_CALL_LOG = 'api_call_log';        // 全局 API 调用记录单例（id='log'，保留近 5 天）
 const STORE_WORLDS = 'worlds';                    // 家园·世界定义（成员/NPC/居住/关系/模式）
 const STORE_WORLD_EPISODES = 'world_episodes';    // 家园·演绎历史（每轮一条，index worldId）
+const STORE_LIVING_WORLD = 'living_world';         // Living World 被动基础层（state + append-only events）
 const STORE_LIFE_RECORDS = 'life_records';        // 生活记录：生理期/药盒打卡/锻炼（记账走 bank_transactions）
 const STORE_MED_PLANS = 'med_plans';              // 药盒计划（每天几点吃什么药）
 const STORE_LIFE_SETTINGS = 'life_record_settings'; // 生活记录设置单例（id='main'：周期长度等）
@@ -312,6 +314,17 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains(STORE_WORLD_EPISODES)) {
           const weStore = db.createObjectStore(STORE_WORLD_EPISODES, { keyPath: 'id' });
           weStore.createIndex('worldId', 'worldId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_LIVING_WORLD)) {
+          const lwStore = db.createObjectStore(STORE_LIVING_WORLD, { keyPath: 'id' });
+          lwStore.createIndex('worldId', 'worldId', { unique: false });
+          lwStore.createIndex('kind', 'kind', { unique: false });
+          lwStore.createIndex('worldId_kind', ['worldId', 'kind'], { unique: false });
+      } else {
+          const lwStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_LIVING_WORLD);
+          if (lwStore && !lwStore.indexNames.contains('worldId')) lwStore.createIndex('worldId', 'worldId', { unique: false });
+          if (lwStore && !lwStore.indexNames.contains('kind')) lwStore.createIndex('kind', 'kind', { unique: false });
+          if (lwStore && !lwStore.indexNames.contains('worldId_kind')) lwStore.createIndex('worldId_kind', ['worldId', 'kind'], { unique: false });
       }
 
       createStore(STORE_BANK_TX, { keyPath: 'id' });
@@ -2883,7 +2896,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -2934,6 +2947,7 @@ export const DB = {
           getAllFromStore(STORE_VR_SETTINGS),
           getAllFromStore(STORE_WORLDS),
           getAllFromStore(STORE_WORLD_EPISODES),
+          getAllFromStore(STORE_LIVING_WORLD),
           getAllFromStore(STORE_LIFE_RECORDS),
           getAllFromStore(STORE_MED_PLANS),
           getAllFromStore(STORE_LIFE_SETTINGS),
@@ -2982,6 +2996,7 @@ export const DB = {
           vrSignal: exportSignalLocal(),         // 信号坠落处本机记录（句子归属「你·角色」+ 反复用清单，存 localStorage）
           worlds,
           worldEpisodes,
+          livingWorld,
           worldHomeLocal: exportWorldHomeLocal(), // 家园本机配置：全局 API + 文风收藏（存 localStorage）
           luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
@@ -3027,7 +3042,7 @@ export const DB = {
           STORE_LIFE_SETTINGS,
           STORE_HOTNEWS,
           STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS,
-          STORE_WORLDS, STORE_WORLD_EPISODES,
+          STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIVING_WORLD,
           'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
           'room_plates', 'digest_reports',
           'memory_batches', 'pixel_home_assets', 'pixel_home_layouts'
@@ -3126,6 +3141,7 @@ export const DB = {
           (data as any).vrPostOffice !== undefined,
           data.worlds !== undefined,
           data.worldEpisodes !== undefined,
+          data.livingWorld !== undefined,
           (data as any).worldHomeLocal !== undefined,
           (data as any).luckinLocal !== undefined,
           (data as any).mcdLocal !== undefined,
@@ -3436,6 +3452,10 @@ export const DB = {
           await clearAndAdd(STORE_WORLD_EPISODES, data.worldEpisodes, '家园演绎历史', false);
           data.worldEpisodes = undefined as any;
       }, data.worldEpisodes?.length || 0);
+      await runSection('Living World', data.livingWorld !== undefined, async () => {
+          await clearAndAdd(STORE_LIVING_WORLD, data.livingWorld, 'Living World', false);
+          data.livingWorld = undefined as any;
+      }, data.livingWorld?.length || 0);
       await runSection('家园本机配置', (data as any).worldHomeLocal !== undefined, async () => {
           importWorldHomeLocal((data as any).worldHomeLocal); // 全局 API + 文风收藏
           (data as any).worldHomeLocal = undefined;

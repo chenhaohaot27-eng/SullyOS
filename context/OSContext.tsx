@@ -3743,6 +3743,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // （worldHomeLocal 本机配置也已随导出带走），但这两个 store 之前漏在清单外，
               // 导致导出的备份不含家园数据。
               'worlds', 'world_episodes',
+              // Living World 被动基础层：state + append-only event ledger，无媒体。
+              'living_world',
               // 生活记录（档案 App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions）
               // 导入端 importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录。
               'life_records', 'med_plans', 'life_record_settings'
@@ -4000,6 +4002,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'bank_transactions', 'scheduled_messages', 'memory_batches', 'hotnews_snapshots',
               'character_groups',
               'story_theaters', 'story_theater_presets',
+              'living_world',
               'life_records', 'med_plans', 'life_record_settings'
           ]);
 
@@ -4074,6 +4077,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               vr_presets: 'vrPresets',
               worlds: 'worlds',
               world_episodes: 'worldEpisodes',
+              living_world: 'livingWorld',
               life_records: 'lifeRecords',
               med_plans: 'medPlans',
               life_record_settings: 'lifeRecordSettings',
@@ -4307,6 +4311,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // 家园 —— 键名须与 importFullData 读取的字段（data.worlds / data.worldEpisodes）对齐
                   case 'worlds': backupData.worlds = processedData; break;
                   case 'world_episodes': backupData.worldEpisodes = processedData; break;
+                  case 'living_world': backupData.livingWorld = processedData; break;
               }
 
               await new Promise(resolve => setTimeout(resolve, 10));

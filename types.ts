@@ -1634,6 +1634,45 @@ export interface WorldCardMeta {
     phoneGroup?: string[];
 }
 
+// ============================================================
+// Living World passive foundation
+// ============================================================
+
+export type LivingWorldComputeTier = 'core' | 'standard' | 'ambient';
+
+export interface LivingWorldAgentState {
+    charId: string;
+    worldId: string;
+    currentGoal?: string;
+    pendingIntent?: string;
+    currentContext?: string;
+    focusEntityIds?: string[];
+    computeTier?: LivingWorldComputeTier;
+    updatedAt: number;
+}
+
+export interface LivingWorldState {
+    schemaVersion: number;
+    worldId: string;
+    createdAt: number;
+    updatedAt: number;
+    lastTickAt?: number;
+    agents: LivingWorldAgentState[];
+}
+
+export interface LivingWorldEvent {
+    id: string;
+    worldId: string;
+    timestamp: number;
+    type: string;
+    actorIds: string[];
+    targetIds?: string[];
+    source: 'foreground' | 'manual' | 'cloud' | string;
+    importance?: number;
+    summary: string;
+    refs?: { kind: string; id: string }[];
+}
+
 /** 邮局：一封信收到的回复（留档用）。 */
 export interface VRLetterReply {
     pen: string;
@@ -3761,6 +3800,7 @@ export interface FullBackupData {
     vrSettings?: any[];                        // 彼方设置（独立 API + 调用记录）
     worlds?: WorldProfile[];                   // 家园·世界定义
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
+    livingWorld?: any[];                       // Living World 被动基础层（state + append-only event ledger）
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
