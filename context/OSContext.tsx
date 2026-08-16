@@ -557,6 +557,7 @@ const defaultTheme: OSTheme = {
   ...DEFAULT_PAPER_APPEARANCE,
   wallpaper: DEFAULT_WALLPAPER,
   darkMode: false,
+  bootAnimationEnabled: false,
   preserveCustomIconOutlines: false,
   nowPlayingWidgetLight: true,
 };
