@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { createPortal } from 'react-dom';
 import { Moon, Palette, Sparkle, SquaresFour, Sun, X } from '@phosphor-icons/react';
 import { STORY_THEATER_APPEARANCE_STORAGE_KEY } from '../../../utils/storyTheaterBackup';
+import { STORY_TEXT_PRESENTATION_STORAGE_KEY, type StoryTextPresentation } from '../../../utils/storyTextPresentation';
 import { useOS } from '../../../context/OSContext';
 
 export type StoryColorMode = 'light' | 'dark';
@@ -14,8 +15,10 @@ interface StoryAppearance {
 
 interface StoryThemeContextValue {
     appearance: StoryAppearance;
+    textPresentation: StoryTextPresentation;
     setColor: (value: StoryColorMode) => void;
     setDecor: (value: StoryDecorMode) => void;
+    setTextPresentation: (value: StoryTextPresentation) => void;
 }
 
 const STORAGE_KEY = STORY_THEATER_APPEARANCE_STORAGE_KEY;
@@ -34,6 +37,14 @@ function readAppearance(): StoryAppearance {
         };
     } catch {
         return DEFAULT_APPEARANCE;
+    }
+}
+
+function readTextPresentation(): StoryTextPresentation {
+    try {
+        return localStorage.getItem(STORY_TEXT_PRESENTATION_STORAGE_KEY) === 'original' ? 'original' : 'immersive';
+    } catch {
+        return 'immersive';
     }
 }
 
@@ -152,16 +163,23 @@ body.ios-keyboard-open .story-theme .story-quick-preset { bottom: 112px !importa
 
 export const StoryTheaterThemeProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
     const [appearance, setAppearance] = useState<StoryAppearance>(readAppearance);
+    const [textPresentation, setTextPresentation] = useState<StoryTextPresentation>(readTextPresentation);
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(appearance));
     }, [appearance]);
 
+    useEffect(() => {
+        localStorage.setItem(STORY_TEXT_PRESENTATION_STORAGE_KEY, textPresentation);
+    }, [textPresentation]);
+
     const value = useMemo<StoryThemeContextValue>(() => ({
         appearance,
+        textPresentation,
         setColor: color => setAppearance(current => ({ ...current, color })),
         setDecor: decor => setAppearance(current => ({ ...current, decor })),
-    }), [appearance]);
+        setTextPresentation,
+    }), [appearance, textPresentation]);
 
     return <StoryThemeContext.Provider value={value}>
         <div className={`story-theme story-theme-${appearance.color} story-decor-${appearance.decor} h-full w-full min-h-0`}>
@@ -170,6 +188,8 @@ export const StoryTheaterThemeProvider: React.FC<React.PropsWithChildren> = ({ c
         </div>
     </StoryThemeContext.Provider>;
 };
+
+export const useStoryTextPresentation = (): StoryTextPresentation => useContext(StoryThemeContext)?.textPresentation || 'immersive';
 
 export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ className = '' }) => {
     const context = useContext(StoryThemeContext);
@@ -211,7 +231,7 @@ export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ classN
         };
     }, [closePanel, open, registerBackHandler]);
     if (!context) return null;
-    const { appearance, setColor, setDecor } = context;
+    const { appearance, textPresentation, setColor, setDecor, setTextPresentation } = context;
 
     return <>
         <button type='button' onClick={() => setOpen(true)} className={`w-9 h-9 rounded-full grid place-items-center ${className}`} title='剧情外观' aria-label='剧情外观'>
@@ -237,6 +257,7 @@ export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ classN
                 <div className='mt-5 min-h-0 overflow-y-auto overscroll-contain border-t border-slate-200'>
                     <div className='py-4 flex items-center gap-3'><span className='text-xs font-semibold w-16'>明暗</span><div className='min-w-0 flex-1 grid grid-cols-2 p-1 rounded-xl bg-slate-200'><button onClick={() => setColor('light')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.color === 'light' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><Sun size={14} />浅色</button><button onClick={() => setColor('dark')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.color === 'dark' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><Moon size={14} />深色</button></div></div>
                     <div className='py-4 border-t border-slate-200 flex items-center gap-3'><span className='text-xs font-semibold w-16'>装饰</span><div className='min-w-0 flex-1 grid grid-cols-2 p-1 rounded-xl bg-slate-200'><button onClick={() => setDecor('plain')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.decor === 'plain' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><SquaresFour size={14} />素雅</button><button onClick={() => setDecor('cinema')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.decor === 'cinema' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><Sparkle size={14} />花里胡哨</button></div></div>
+                    <div className='py-4 border-t border-slate-200 flex items-center gap-3'><span className='text-xs font-semibold w-16'>文字呈现</span><div className='min-w-0 flex-1 grid grid-cols-2 p-1 rounded-xl bg-slate-200'><button onClick={() => setTextPresentation('original')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center ${textPresentation === 'original' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}>原文</button><button onClick={() => setTextPresentation('immersive')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center ${textPresentation === 'immersive' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}>沉浸分层</button></div></div>
                 </div>
             </div>
         </div>, document.body)}
