@@ -30,6 +30,7 @@ import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldboo
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
+import { formatContinuityContext, type ContinuitySnapshot } from './continuityContext';
 
 export { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 
@@ -98,6 +99,8 @@ export interface BuildChatPayloadInput {
      * 出现两个钟、两份热搜、两套工具名。
      */
     timelyByWorker?: boolean;
+    /** 普通私聊发送前按数据库实况构建；只承载时间与跨 App 已确认事件，不修改历史。 */
+    continuitySnapshot?: ContinuitySnapshot;
 }
 
 export interface BuildChatPayloadResult {
@@ -355,7 +358,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         userProfile,
         emojis,
         undefined,
-        { useVisionDescriptions },
+        { useVisionDescriptions, includeTimeGapHint: false },
     );
 
     // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
@@ -371,7 +374,12 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         resolvedWorldbookEntries.filter(entry => entry.position === 4),
     );
 
-    // ── 9. 麦当劳小程序上下文（购物车/菜单实时快照 → 易变尾段） ──
+    // ── 9. 跨 App 时间连续性（当前时钟之后、各类临时模式之前） ──
+    if (input.continuitySnapshot) {
+        volatileTail += formatContinuityContext(input.continuitySnapshot, char.timeAwarenessEnabled !== false);
+    }
+
+    // ── 9a. 麦当劳小程序上下文（购物车/菜单实时快照 → 易变尾段） ──
     const mcdActive = !!mcdMiniSnap?.open;
     if (mcdActive) {
         const block = buildMcdMiniAppContextBlock(mcdMiniSnap, userProfile?.name || '用户');

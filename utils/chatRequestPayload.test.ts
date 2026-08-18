@@ -54,6 +54,45 @@ afterEach(() => {
 });
 
 describe('timelyByWorker —— 时效段交给 worker，前端这份不重复烤', () => {
+    it('旧角色缺少 timeAwarenessEnabled 时默认开启时间连续性', async () => {
+        const input = baseInput();
+        expect(input.char.timeAwarenessEnabled).toBeUndefined();
+        const payload = await buildChatRequestPayload({
+            ...input,
+            continuitySnapshot: {
+                now: Date.now(),
+                lastChatAt: Date.now() - 3 * 86_400_000,
+                elapsedSinceChatMs: 3 * 86_400_000,
+                recentCanonicalEvents: [],
+            },
+        });
+        expect(joinMessages(payload.fullMessages)).toContain('距今约 3 天');
+    });
+
+    it('把 continuity 作为历史后的隐藏 system context 注入', async () => {
+        const input = baseInput();
+        const originalUserContent = input.historyMsgs[0].content;
+        const payload = await buildChatRequestPayload({
+            ...input,
+            continuitySnapshot: {
+                now: Date.now(),
+                lastChatAt: Date.now() - 3 * 86_400_000,
+                elapsedSinceChatMs: 3 * 86_400_000,
+                recentCanonicalEvents: [{
+                    source: 'story_theater',
+                    startedAt: Date.now() - 2 * 86_400_000,
+                    title: '西北行前夜',
+                    summary: '明早计划从上海飞往兰州。',
+                }],
+            },
+        });
+        const continuityIndex = payload.fullMessages.findIndex(message => String(message.content).includes('跨 App 时间连续性'));
+        const userIndex = payload.fullMessages.findIndex(message => message.role === 'user');
+        expect(continuityIndex).toBeGreaterThan(userIndex);
+        expect(String(payload.fullMessages[continuityIndex].content)).toContain('明早计划从上海飞往兰州');
+        expect(input.historyMsgs[0].content).toBe(originalUserContent);
+    });
+
     it('ChatApp 格式以简短 TOP 1 规则置于行为规范最前', async () => {
         const payload = await buildChatRequestPayload({ ...baseInput() });
         const systemPrompt = String(payload.fullMessages[0]?.content || '');

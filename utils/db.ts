@@ -663,6 +663,33 @@ export const DB = {
     });
   },
 
+  // 连续性等只需要少量“符合语义的最近消息”时使用。倒序游标会跳过其它 App 写进同一
+  // charId 的记录，收够 limit 即停，避免为了找最后一次普通私聊把全部历史读进内存。
+  getRecentMessagesByCharIdMatching: async (
+    charId: string,
+    limit: number,
+    predicate: (message: Message) => boolean,
+  ): Promise<Message[]> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+      const index = transaction.objectStore(STORE_MESSAGES).index('charId');
+      const collected: Message[] = [];
+      const cursorReq = index.openCursor(IDBKeyRange.only(charId), 'prev');
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor && collected.length < limit) {
+          const message = cursor.value as Message;
+          if (predicate(message)) collected.push(message);
+          cursor.continue();
+        } else {
+          resolve(collected.reverse());
+        }
+      };
+      cursorReq.onerror = () => reject(cursorReq.error);
+    });
+  },
+
   // DateApp 等按来源展示的轻量历史读取：用 charId 索引倒序扫，只收集目标 source 的最近 N 条。
   // 这样不会为了渲染见面阅读模式，把该角色全量聊天（含图片/base64消息）一次性 getAll 进内存。
   getRecentMessagesByCharIdAndSource: async (charId: string, source: string, limit: number): Promise<Message[]> => {

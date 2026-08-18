@@ -1071,7 +1071,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         userProfile: UserProfile,
         emojis: Emoji[],
         processedExcludeIds?: Set<number>,
-        options?: { useVisionDescriptions?: boolean },
+        options?: { useVisionDescriptions?: boolean; includeTimeGapHint?: boolean },
     ) => {
         // Filter Logic
         // 新版上下文范围由 chatContextRange 先按「自适应/拉杆最大范围」取窗；
@@ -1088,7 +1088,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         const charTz = resolveCharTimeZone(char);
 
         let timeGapHint = "";
-        if (historySlice.length >= 2) {
+        if (options?.includeTimeGapHint !== false && historySlice.length >= 2) {
             const currentMsg = historySlice[historySlice.length - 1];
             // Skip proactive hint messages when computing time gap — find last REAL message
             let lastRealMsg: Message | undefined;

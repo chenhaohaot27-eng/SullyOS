@@ -72,6 +72,7 @@ import {
     resolveContextRangeMode,
     type ContextRangeMode,
 } from '../utils/chatContextRange';
+import { formatMessageDateSeparator, isSameLocalMessageDay, shouldShowMessageDateSeparator } from '../utils/messageDateSeparator';
 
 const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
 /** 即时对话那一轮回复「推送陆续到齐」的宽限时间，也就是自动合成的补扫窗口有多长（见下面的 auto-TTS effect）。 */
@@ -3425,13 +3426,17 @@ const Chat: React.FC = () => {
                 {displayMessages.map((m, i) => {
                     const prevMessage = i > 0 ? displayMessages[i - 1] : null;
                     const nextMessage = i < displayMessages.length - 1 ? displayMessages[i + 1] : null;
+                    const showDateSeparator = shouldShowMessageDateSeparator(displayMessages, i);
+                    const sameDayAsNext = !!nextMessage && isSameLocalMessageDay(m.timestamp, nextMessage.timestamp);
                     const messageGroupGapMs = 30 * 60 * 1000;
                     const breaksWithPrevious =
                         !prevMessage ||
+                        showDateSeparator ||
                         prevMessage.role !== m.role ||
                         Math.abs(m.timestamp - prevMessage.timestamp) > messageGroupGapMs;
                     const breaksWithNext =
                         !nextMessage ||
+                        !sameDayAsNext ||
                         nextMessage.role !== m.role ||
                         Math.abs(nextMessage.timestamp - m.timestamp) > messageGroupGapMs;
                     const suppressEntranceAnimation = streamPreviewHandoverIdsRef.current.has(m.id);
@@ -3446,8 +3451,13 @@ const Chat: React.FC = () => {
                     const showToolTrace = !!toolTraceText
                         && !(pushMessageId && (nextMessage?.metadata as any)?.activeMsg2?.messageId === pushMessageId);
                     return (
+                        <React.Fragment key={m.id || i}>
+                        {showDateSeparator && <div className='my-5 flex items-center gap-3 px-6' role='separator' aria-label={formatMessageDateSeparator(m.timestamp)}>
+                            <span className='h-px min-w-0 flex-1 bg-slate-300/60' />
+                            <time className='shrink-0 text-[10px] font-medium text-slate-400' dateTime={new Date(m.timestamp).toISOString()}>{formatMessageDateSeparator(m.timestamp)}</time>
+                            <span className='h-px min-w-0 flex-1 bg-slate-300/60' />
+                        </div>}
                         <div
-                            key={m.id || i}
                             id={`chat-msg-${m.id}`}
                             className={[
                                 flashMsgId === m.id ? 'ring-2 ring-yellow-300 bg-yellow-50/40 rounded-2xl mx-2' : '',
@@ -3507,6 +3517,7 @@ const Chat: React.FC = () => {
                             </div>
                         )}
                         </div>
+                        </React.Fragment>
                     );
                 })}
                 
