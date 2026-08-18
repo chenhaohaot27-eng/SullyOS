@@ -1,28 +1,35 @@
 /**
  * 聊天语音条：什么时候合成、合成完要不要立刻响。
  *
- * 一句话版本：角色开了「收到就自动播放」，AI 的语音消息才会自己合成并响；
- * 没开就只留一条空语音条，用户点了才合成，合成完直接播。
+ * 一句话版本：合法 AI 语音只要功能与 TTS 都可用就提前合成；
+ * 「收到就自动播放」只决定合成完成后要不要立即响。
  */
 
 /**
  * AI 消息到达后要不要顺手把语音合成出来。
  *
- * 只认「收到就自动播放」这一个开关：没开的话合出来也不会响，等于替用户白花一次 TTS 调用
- * （还占着额度和时间）。空语音条照常显示，想听点一下就合成——那条路走的是下面的手动分支，
- * 合完立刻播，体验上只多等一次合成。
+ * 生成和播放必须解耦：关闭自动播放时仍提前生成，让用户第一次点击语音条即可播放。
  */
 export function shouldAutoGenerateVoice(opts: {
-  /** 角色的「收到就自动播放」开关，未设置视作关 */
-  autoPlayEnabled?: boolean;
+  voiceEnabled?: boolean;
+  hasVoiceTag?: boolean;
+  ttsReady?: boolean;
+  hasVoiceData?: boolean;
+  loading?: boolean;
+  failed?: boolean;
 }): boolean {
-  return !!opts.autoPlayEnabled;
+  return !!opts.voiceEnabled
+    && !!opts.hasVoiceTag
+    && !!opts.ttsReady
+    && !opts.hasVoiceData
+    && !opts.loading
+    && !opts.failed;
 }
 
 /**
  * 语音合成完要不要立刻响。两条规则各有来由，别合并简化：
- *  - AI 自动发来的语音，跟着「收到就自动播放」走（也只有开了这个开关才会自动合成）。
- *  - 用户主动要的语音（长按「转换语音」、点还没合成的空语音条），无论开关怎么设都播——
+ *  - AI 自动生成的语音，是否立即播放只跟「收到就自动播放」走。
+ *  - 用户主动要的语音（长按「转换语音」、点尚未生成的 fallback 语音条），无论开关怎么设都播——
  *    他点这一下的意思就是「我现在要听」，还要再点一次播放属于白跑一趟。
  */
 export function shouldAutoPlayGeneratedVoice(opts: {

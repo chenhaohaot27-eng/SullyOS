@@ -46,6 +46,22 @@ const quotedUserMsg = {
     timestamp: Date.now() - 1000,
 };
 
+describe('renderAndPersist 语音复读防线', () => {
+    it('合法语音后紧跟完全相同文字时只落语音消息，保留不同文字', async () => {
+        const charId = `c-voice-dedupe-${Date.now()}`;
+        const raw = '<语音>我现在过去接你。</语音>\n我现在过去接你。\n你先别出门。';
+
+        await applyAssistantPostProcessing(raw, makeCtx(charId, []));
+
+        const texts = (await DB.getRecentMessagesByCharId(charId, 50))
+            .filter(m => m.role === 'assistant' && m.type === 'text');
+        expect(texts.map(m => m.content)).toEqual([
+            '<语音>我现在过去接你。</语音>',
+            '你先别出门。',
+        ]);
+    }, 20000);
+});
+
 describe('renderAndPersist 引用解析', () => {
     it('[[QUOTE:]] 单独成行 (后跟 SEND_EMOJI + 正文) 时引用顺延到第一条文字气泡', async () => {
         const charId = `c-quote-${Date.now()}`;

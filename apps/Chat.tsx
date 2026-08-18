@@ -382,6 +382,9 @@ const Chat: React.FC = () => {
     // 消息会被反复重试、每次再弹一个「语音生成失败」。只挡自动那条路：用户自己点「转换语音」
     // 照样能重试（换了网络/补了 key 之后就该能成）。换角色时清空。
     const voiceFailedRef = useRef<Set<number>>(new Set());
+    // React state 更新不是同步的；用 ref 立即占位，避免即时推送扫描窗在下一次 render 前
+    // 对同一条语音重复发起 TTS。
+    const voiceInFlightRef = useRef<Set<number>>(new Set());
     // Track blob: URLs we created so we can revoke them on character switch / unmount.
     const voiceBlobUrlsRef = useRef<Set<string>>(new Set());
     // We warn the user at most once (per character) that MiniMax voice isn't configured —
@@ -480,7 +483,7 @@ const Chat: React.FC = () => {
     };
 
     const handleManualTts = async (msg: Message, autoTriggered = false) => {
-        if (voiceLoading.has(msg.id)) return;
+        if (voiceInFlightRef.current.has(msg.id) || voiceLoading.has(msg.id)) return;
         if (voiceDataMap[msg.id]) {
             if (autoTriggered) return;
             // 手动点「转换语音」= 用户要求重新生成（典型场景：编辑了消息内容后）。
@@ -518,6 +521,7 @@ const Chat: React.FC = () => {
             return;
         }
 
+        voiceInFlightRef.current.add(msg.id);
         setVoiceLoading(prev => new Set(prev).add(msg.id));
         try {
             let spokenText: string;
@@ -606,6 +610,7 @@ const Chat: React.FC = () => {
             voiceFailedRef.current.add(msg.id);
             addToast(`语音生成失败: ${err?.message || '未知错误'}`, 'error');
         } finally {
+            voiceInFlightRef.current.delete(msg.id);
             setVoiceLoading(prev => { const next = new Set(prev); next.delete(msg.id); return next; });
         }
     };
@@ -670,21 +675,21 @@ const Chat: React.FC = () => {
         const typingJustEnded = wasTyping && !isTyping;
         const inInstantWindow = Date.now() < instantVoiceScanUntilRef.current;
         if (!typingJustEnded && !inInstantWindow) return;
-        if (!char.chatVoiceEnabled) return;
-        // 关着「收到就自动播放」就别提前合成（理由见 shouldAutoGenerateVoice）：
-        // 空语音条照常出现，用户点了才合成、合成完直接播。
-        if (!shouldAutoGenerateVoice({ autoPlayEnabled: char.chatVoiceAutoPlay })) return;
-        if (!characterHasVoice(char, apiConfig)) return;
         // Scan recent assistant messages for unprocessed <语音> tags
         for (let i = messages.length - 1; i >= 0; i--) {
             const msg = messages[i];
             // Stop scanning once we hit a non-assistant message (end of current AI response batch)
             if (msg.role !== 'assistant') break;
             if (msg.type !== 'text') continue;
-            if (voiceDataMap[msg.id] || voiceLoading.has(msg.id)) continue;
-            // 合成失败过就别再自动重试了：扫描窗里每来一条消息都重扫一遍，
-            // 同一条会一路重试到窗口关闭，还每次弹一个失败提示。用户手点不受影响。
-            if (voiceFailedRef.current.has(msg.id)) continue;
+            const parsedVoice = parseVoiceOutput(msg.content);
+            if (!shouldAutoGenerateVoice({
+                voiceEnabled: char.chatVoiceEnabled,
+                hasVoiceTag: parsedVoice.hasVoiceTag && parsedVoice.speech.length >= 2,
+                ttsReady: isMinimaxReady(),
+                hasVoiceData: !!voiceDataMap[msg.id],
+                loading: voiceLoading.has(msg.id) || voiceInFlightRef.current.has(msg.id),
+                failed: voiceFailedRef.current.has(msg.id),
+            })) continue;
             handleManualTts(msg, true);
         }
     }, [isTyping, instantChatPending, messages]); // eslint-disable-line react-hooks/exhaustive-deps

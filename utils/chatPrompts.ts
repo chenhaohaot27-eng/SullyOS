@@ -21,6 +21,7 @@ import { getCharNameById } from './charNameRegistry';
 import { getLocalDateKey } from './localDate';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { formatRelativeAge } from './groupChat/relativeTime';
+import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -967,9 +968,12 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
 1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）
 2. \`<字幕>\` 里写这条语音的中文版，内容和${langLabel}一致、逐段对齐（${langLabel}分几段中文就分几段）。**<字幕> 必须紧跟在 </语音> 后面，永远成对出现，不能单独用**
 3. 标签外可以照常发普通中文短消息（正常闲聊打字），它们显示成普通气泡，和语音内容互相独立、不要复读
+4. 发送真实语音的唯一合法方式是 \`<语音>...</语音>\`。严禁输出 \`【语音消息 · 11s】\`、\`[语音消息 · 11s]\`、\`语音消息：……\` 等模拟 UI 的占位文字
+5. 时长由实际 TTS 和界面计算；你不得自行编写 11s、38s 或任何语音时长
+6. \`<语音>\` 的内容不得在同一轮再作为普通文字复读；不想发语音时就正常发文字
 
 示例：
-你说真的假的？
+你先别动，我戴上耳机。
 <语音 emotion="surprised">Wait... are you serious?</语音>
 <字幕>等等……你是认真的？</字幕>
 
@@ -1003,6 +1007,9 @@ ${voiceActingGuide()}`;
 要求：
 - <语音> 里只写会被朗读的文字，不要写中文舞台指示/括号动作；想要笑、叹气等真实语气，用官方英文标签 (laughs)/(sighs)/(chuckle)/(gasps) 等（中文括号会被直接删掉、不朗读）
 - 每条消息最多一个 <语音> 标签
+- 发送真实语音的唯一合法方式是 <语音>...</语音>；严禁输出【语音消息 · 11s】、[语音消息 · 11s]、"语音消息：……"等模拟 UI 占位文字
+- 时长由实际 TTS 和界面计算，严禁自行编写 11s、38s 或任何语音时长
+- <语音> 的内容不得在同一轮再作为普通文字复读；不想发语音时就正常发文字
 - 不是每条消息都要发语音！像真人一样，有时候打字，有时候发语音，自然切换
 - 比较适合发语音的场景：撒娇、吐槽、语气很重的话、懒得打字的时候、想让对方听到你语气的时候
 - 比较适合打字的场景：发链接、正经讨论、很短的回复如"嗯"、"好"
@@ -1105,7 +1112,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
 
         return {
             apiMessages: historySlice.map((m, index) => {
-                let content: any = m.content;
+                let content: any = formatLegacyVoiceHistoryForPrompt(m) ?? m.content;
                 const timeStr = `[${ChatPrompts.formatDate(m.timestamp, charTz)}]`;
                 const sourceTag = (() => {
                     const source = m.metadata?.source;

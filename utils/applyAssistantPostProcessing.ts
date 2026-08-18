@@ -53,6 +53,7 @@ import { getLocalDateKey } from './localDate';
 import { normalizeAssistantActionFormatting } from './assistantActionFormat';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
+import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceHistory';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -680,6 +681,9 @@ export async function applyAssistantPostProcessing(
         let content = ChatParser.sanitize(rawContent, { keepCitations: true });
         content = content.replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, '').trim();
         if (!content) return;
+        // Native voice and an identical plain-text echo must not become two bubbles.
+        // Different text remains untouched.
+        const voiceTexts = collectVoiceTexts(content);
 
         const hasTranslationTags = /<翻译>\s*<原文>[\s\S]*?<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/.test(content);
         let globalMsgIndex = 0;
@@ -701,6 +705,7 @@ export async function applyAssistantPostProcessing(
                     const chunks = ChatParser.chunkText(cleaned);
                     for (const chunk of chunks) {
                         if (!chunk) continue;
+                        if (isDuplicateVoiceTranscriptChunk(chunk, voiceTexts)) continue;
                         const replyData = globalMsgIndex === 0 ? aiReplyTarget : undefined;
                         await typingPause(Math.min(Math.max(chunk.length * 50, 500), 2000));
                         await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: chunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
@@ -762,6 +767,7 @@ export async function applyAssistantPostProcessing(
 
                     for (let i = 0; i < allChunks.length; i++) {
                         let chunk = allChunks[i];
+                        if (isDuplicateVoiceTranscriptChunk(chunk, voiceTexts)) continue;
                         const delay = Math.min(Math.max(chunk.length * 50, 500), 2000);
                         await typingPause(delay);
 
