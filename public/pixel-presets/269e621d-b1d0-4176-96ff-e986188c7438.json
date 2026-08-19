@@ -3,6 +3,25 @@
   "name": "白沙湾 · Mo Art Studio 整屋预设",
   "author": "SullyOS Personal",
   "replaceRoomCatalog": true,
+  "mapLayout": {
+    "version": 1,
+    "title": "白沙湾 · Mo Art Studio",
+    "subtitle": "临海艺术住宅 / 建筑剖切总览",
+    "width": 24,
+    "height": 22,
+    "seaEdge": "bottom",
+    "rooms": [
+      { "roomId": "baishawan_front_garden", "x": 0, "y": 13, "width": 5, "height": 5, "level": 1, "kind": "outdoor", "accent": "#7aa38a", "previewAssetIds": ["bsh_sign", "bsh_gate", "bsh_siren", "bsh_plant"] },
+      { "roomId": "baishawan_creation_hall", "x": 5, "y": 9, "width": 11, "height": 9, "level": 1, "kind": "indoor", "accent": "#8caec8", "previewAssetIds": ["bsh_canvas_blue", "bsh_ladder", "bsh_sea_sofa", "bsh_fireplace", "bsh_tub"] },
+      { "roomId": "baishawan_kitchen_dining", "x": 16, "y": 11, "width": 5, "height": 7, "level": 1, "kind": "indoor", "accent": "#c8b58c", "previewAssetIds": ["bsh_island", "bsh_dining", "bsh_arch_window"] },
+      { "roomId": "baishawan_stardome_bedroom", "x": 7, "y": 0, "width": 9, "height": 8, "level": 2, "kind": "indoor", "shape": "dome", "accent": "#817db0", "previewAssetIds": ["bsh_dome", "bsh_bed", "bsh_curtains", "bsh_arch_window"] },
+      { "roomId": "baishawan_formal_bathroom", "x": 16, "y": 4, "width": 5, "height": 4, "level": 2, "kind": "indoor", "accent": "#9fc7cf", "previewAssetIds": ["bsh_bath_suite", "bsh_shower", "bsh_mirror"] },
+      { "roomId": "baishawan_dressing_room", "x": 16, "y": 0, "width": 5, "height": 4, "level": 2, "kind": "indoor", "accent": "#b9a9c5", "previewAssetIds": ["bsh_wardrobe", "bsh_mirror", "bsh_clothing"] },
+      { "roomId": "baishawan_guest_room", "x": 1, "y": 3, "width": 6, "height": 5, "level": 2, "kind": "indoor", "accent": "#a9bcc8", "previewAssetIds": ["bsh_bed", "bsh_curtains", "bsh_worktable"] },
+      { "roomId": "baishawan_art_storage", "x": 1, "y": 9, "width": 4, "height": 4, "level": 1, "kind": "utility", "accent": "#9a8874", "previewAssetIds": ["bsh_shelves", "bsh_canvas_stack", "bsh_crates", "bsh_paint_cart"] },
+      { "roomId": "baishawan_seaside_terrace", "x": 5, "y": 18, "width": 16, "height": 3, "level": 1, "kind": "terrace", "accent": "#5fa1b5", "previewAssetIds": ["bsh_railing", "bsh_outdoor_lounge", "bsh_outdoor_table", "bsh_plant"] }
+    ]
+  },
   "createdAt": 1787155200000,
   "rooms": [
     {

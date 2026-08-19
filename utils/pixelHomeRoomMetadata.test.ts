@@ -96,6 +96,16 @@ describe('Pixel Home per-character room metadata', () => {
       name: '自定义房屋',
       author: 'test',
       createdAt: 1,
+      mapLayout: {
+        version: 1,
+        title: '自定义剖切图',
+        width: 12,
+        height: 8,
+        rooms: [{
+          roomId: 'creative_hall', x: 0, y: 0, width: 12, height: 8,
+          kind: 'indoor', previewAssetIds: ['asset-easel'],
+        }],
+      },
       rooms: [{
         roomId: 'creative_hall',
         name: '创作大厅',
@@ -121,6 +131,7 @@ describe('Pixel Home per-character room metadata', () => {
     });
     const state = await getOrCreateHomeState('preset-char');
     expect(state.roomMetadata).toEqual([{ id: 'creative_hall', name: '创作大厅', order: 0, width: 12, height: 8 }]);
+    expect(state.mapLayout).toMatchObject({ title: '自定义剖切图', rooms: [{ roomId: 'creative_hall' }] });
     expect(state.rooms[0]).toMatchObject({
       roomId: 'creative_hall',
       furniture: [{ slotId: 'easel', assetId: 'asset-easel' }],

@@ -11,6 +11,8 @@ import type { PixelHomeState, PixelHomeTheme, PixelAsset } from './types';
 import { DEFAULT_HOME_THEME, decodeColorField } from './types';
 import type { MemoryRoom } from '../../utils/memoryPalace/types';
 import { displayPixelRoomName, isLegacyPixelRoomCatalog } from './roomTemplates';
+import { pixelHomeMapLayoutMatchesRooms } from './mapLayout';
+import PixelHomeDollhouse from './PixelHomeDollhouse';
 
 interface Props {
   homeState: PixelHomeState;
@@ -231,8 +233,18 @@ const PixelHomeMap: React.FC<Props> = ({ homeState, assets, charSprite, userName
     onUpdateTheme({ ...theme, ...patch });
   }, [theme, onUpdateTheme]);
 
-  // 自定义目录（如白沙湾九房）直接显示 metadata 卡片，不再落入硬编码七室平面图。
+  // 自定义目录有总图配置时显示 Dollhouse；缺失时仍回退到 Phase 5 房间卡片。
   if (!isLegacyPixelRoomCatalog(homeState.roomMetadata)) {
+    if (pixelHomeMapLayoutMatchesRooms(homeState.mapLayout, homeState.roomMetadata)) {
+      return (
+        <PixelHomeDollhouse
+          homeState={homeState}
+          assets={assets}
+          userName={userName}
+          onEnterRoom={onEnterRoom}
+        />
+      );
+    }
     return (
       <CustomRoomCatalog
         homeState={homeState}

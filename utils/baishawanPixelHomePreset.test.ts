@@ -16,10 +16,13 @@ const expectedRooms = [
   '衣帽间', '客房', '画材储藏室', '临海平台',
 ];
 
-vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+const fetchMock = vi.fn(async (): Promise<any> => ({ ok: false }));
+vi.stubGlobal('fetch', fetchMock);
 
 describe('白沙湾 · Mo Art Studio 整屋 preset', () => {
   beforeEach(async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ ok: false });
     localStorage.clear();
     await DB.deleteDB();
   });
@@ -32,6 +35,11 @@ describe('白沙湾 · Mo Art Studio 整屋 preset', () => {
     expect(outputJson).toBe(publicJson);
     expect(preset.version).toBe(1);
     expect(preset.replaceRoomCatalog).toBe(true);
+    expect(preset.mapLayout?.rooms).toHaveLength(9);
+    expect(new Set(preset.mapLayout?.rooms.map(room => room.roomId))).toEqual(new Set(preset.rooms.map(room => room.roomId)));
+    expect(preset.mapLayout?.rooms.find(room => room.roomId === 'baishawan_stardome_bedroom')?.shape).toBe('dome');
+    expect(preset.mapLayout?.rooms.find(room => room.roomId === 'baishawan_creation_hall')).toMatchObject({ width: 11, height: 9 });
+    expect(preset.mapLayout?.rooms.find(room => room.roomId === 'baishawan_seaside_terrace')?.kind).toBe('terrace');
     expect(preset.rooms.map(room => room.name)).toEqual(expectedRooms);
     expect(preset.rooms.map(room => room.order)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
     expect(new Set(preset.rooms.map(room => room.roomId)).size).toBe(9);
@@ -65,6 +73,7 @@ describe('白沙湾 · Mo Art Studio 整屋 preset', () => {
     const state = await getOrCreateHomeState('fresh-character');
     expect(state.roomMetadata.map(room => room.name)).toEqual(expectedRooms);
     expect(state.rooms).toHaveLength(9);
+    expect(state.mapLayout?.rooms).toHaveLength(9);
     expect(state.rooms.reduce((count, room) => count + room.furniture.length, 0)).toBe(85);
     const assets = await PixelAssetDB.getAll();
     expect(assets).toHaveLength(38);
@@ -75,7 +84,11 @@ describe('白沙湾 · Mo Art Studio 整屋 preset', () => {
       userName: '用户',
       onEnterRoom: vi.fn(),
     }));
-    expect((html.match(/data-custom-room=/g) || [])).toHaveLength(9);
+    expect((html.match(/data-dollhouse-room=/g) || [])).toHaveLength(9);
+    expect(html).toContain('data-dollhouse-map="true"');
+    expect(html).toContain('data-dollhouse-room="baishawan_creation_hall"');
+    expect(html).toContain('data-dollhouse-room="baishawan_stardome_bedroom"');
+    expect(html).not.toContain('data-custom-room=');
     for (const name of expectedRooms) expect(html).toContain(name);
     expect(html).not.toContain('个人房');
 
@@ -97,5 +110,23 @@ describe('白沙湾 · Mo Art Studio 整屋 preset', () => {
     const otherAfter = await getOrCreateHomeState('other-character');
     expect(otherAfter.roomMetadata).toEqual(otherBefore.roomMetadata);
     expect(otherAfter.rooms).toEqual(otherBefore.rooms);
+  });
+
+  it('旧 importer 已导入的白沙湾可从角色内置 preset 自动补齐总图', async () => {
+    const preset = JSON.parse(readFileSync(publicPath, 'utf8')) as PixelHomePreset;
+    const oldImporterPreset = { ...preset, mapLayout: undefined };
+    const charId = '269e621d-b1d0-4176-96ff-e986188c7438';
+    expect((await importPreset(JSON.stringify(oldImporterPreset), charId)).success).toBe(true);
+    expect(await PixelRoomDB.getMapLayoutForChar(charId)).toBeUndefined();
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => preset });
+    const upgraded = await getOrCreateHomeState(charId);
+
+    expect(upgraded.mapLayout?.title).toBe('白沙湾 · Mo Art Studio');
+    expect(upgraded.mapLayout?.rooms).toHaveLength(9);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`pixel-presets/${charId}.json`),
+      { cache: 'no-store' },
+    );
   });
 });

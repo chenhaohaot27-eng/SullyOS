@@ -1567,7 +1567,7 @@ async function removeQueuedRequest(id) {
 }
 
 // worker/sw-keep-alive.ts
-var SW_VERSION = "1.16.0";
+var SW_VERSION = "1.17.0";
 var PING_INTERVAL = 15e3;
 var MAX_MANUAL_ALIVE_MS = 5 * 6e4;
 var ACTIVE_MSG_DB_NAME = "ActiveMsg";
@@ -2090,5 +2090,16 @@ sw.addEventListener("install", () => {
   void sw.skipWaiting();
 });
 sw.addEventListener("activate", (event) => {
-  event.waitUntil(sw.clients.claim());
+  event.waitUntil((async () => {
+    await sw.clients.claim();
+    const clients = await sw.clients.matchAll({ type: "window", includeUncontrolled: true });
+    await Promise.allSettled(clients.map((client) => "navigate" in client ? client.navigate(client.url) : Promise.resolve()));
+  })());
+});
+sw.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.method !== "GET" || request.mode !== "navigate") return;
+  event.respondWith(
+    fetch(request, { cache: "no-store" }).catch(() => fetch(request))
+  );
 });

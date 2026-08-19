@@ -83,6 +83,39 @@ export interface PixelRoomMetadata {
   height: number;
 }
 
+// ─── 可选整屋总平面图 ─────────────────────────
+
+export type PixelHomeMapRoomKind = 'indoor' | 'outdoor' | 'terrace' | 'utility';
+export type PixelHomeMapRoomShape = 'rect' | 'dome';
+
+/**
+ * 只描述某个已有房间在总图上的位置与视觉语义。
+ * 家具仍从 PixelRoomLayout 读取，不在总图里复制任何房间数据。
+ */
+export interface PixelHomeMapRoom {
+  roomId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  level?: number;
+  kind?: PixelHomeMapRoomKind;
+  shape?: PixelHomeMapRoomShape;
+  accent?: string;
+  /** 可选的总图预览素材引用；只存 assetId，不复制素材或家具。 */
+  previewAssetIds?: string[];
+}
+
+export interface PixelHomeMapLayout {
+  version: 1;
+  title?: string;
+  subtitle?: string;
+  width: number;
+  height: number;
+  seaEdge?: 'top' | 'right' | 'bottom' | 'left';
+  rooms: PixelHomeMapRoom[];
+}
+
 // ─── 整个家园状态 ─────────────────────────────────────
 
 export interface PixelHomeTheme {
@@ -120,6 +153,8 @@ export interface PixelHomeState {
   roomMetadata: PixelRoomMetadata[];
   rooms: PixelRoomLayout[];
   lastLLMDecoration: number;
+  /** 自定义家园可选总图；缺失时继续使用旧七室图或房间卡片。 */
+  mapLayout?: PixelHomeMapLayout;
   /** 全局主题色（外围墙体 + 背景）；不设置时用 DEFAULT_HOME_THEME */
   theme?: PixelHomeTheme;
 }
@@ -159,6 +194,8 @@ export interface PixelHomePreset {
   createdAt: number;
   /** 整屋包可替换当前角色的房间目录；旧 preset 缺省为合并，保持兼容。 */
   replaceRoomCatalog?: boolean;
+  /** 可选整屋总图；旧 preset 缺失时行为不变。 */
+  mapLayout?: PixelHomeMapLayout;
   rooms: PixelRoomPreset[];
   assets: PixelAssetPreset[];   // 包含的像素资产（用到的才导出）
 }

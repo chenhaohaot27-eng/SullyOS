@@ -69,6 +69,7 @@ export async function exportPreset(
     name: presetName,
     author,
     createdAt: Date.now(),
+    mapLayout: homeState.mapLayout,
     rooms,
     assets,
   };
@@ -142,6 +143,7 @@ export async function importPreset(
       room && typeof room.roomId === 'string' && room.roomId.trim()
     ));
     await PixelRoomDB.mergePresetRooms(charId, validRooms, preset.replaceRoomCatalog === true);
+    if (preset.mapLayout) await PixelRoomDB.saveMapLayoutForChar(charId, preset.mapLayout);
 
     // 导入房间布局
     let roomsImported = 0;

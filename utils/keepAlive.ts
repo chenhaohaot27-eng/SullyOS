@@ -11,13 +11,33 @@
  */
 
 let registered = false;
+let updateChecksInstalled = false;
+
+function installUpdateChecks(scope: string): void {
+  if (updateChecksInstalled) return;
+  updateChecksInstalled = true;
+  const requestUpdate = () => {
+    if (document.visibilityState === 'hidden') return;
+    void navigator.serviceWorker.getRegistration(scope)
+      .then(registration => registration?.update())
+      .catch(() => { /* 更新检查失败不影响当前会话 */ });
+  };
+  window.addEventListener('pageshow', requestUpdate);
+  document.addEventListener('visibilitychange', requestUpdate);
+}
 
 async function ensureRegistered(): Promise<void> {
   if (registered || !('serviceWorker' in navigator)) return;
   try {
     const base = import.meta.env.BASE_URL || '/';
     const scriptUrl = base + 'sw-keep-alive.js';
-    const reg = await navigator.serviceWorker.register(scriptUrl, { scope: base });
+    const reg = await navigator.serviceWorker.register(scriptUrl, {
+      scope: base,
+      // SW 是应用更新入口，不允许 Safari 用 HTTP 缓存跳过字节检查。
+      updateViaCache: 'none',
+    });
+    installUpdateChecks(base);
+    await reg.update().catch(() => { /* 离线时继续使用当前 worker */ });
     await navigator.serviceWorker.ready;
     registered = true;
     console.log('[KeepAlive] Service Worker registered', reg.scope);
