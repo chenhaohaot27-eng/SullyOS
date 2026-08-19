@@ -1,0 +1,1586 @@
+{
+  "version": 1,
+  "name": "白沙湾 · Mo Art Studio 整屋预设",
+  "author": "SullyOS Personal",
+  "replaceRoomCatalog": true,
+  "createdAt": 1787155200000,
+  "rooms": [
+    {
+      "roomId": "baishawan_front_garden",
+      "name": "前庭花园",
+      "order": 0,
+      "width": 12,
+      "height": 7,
+      "furniture": [
+        {
+          "slotId": "bsh_item_001",
+          "assetId": "bsh_sign",
+          "x": 22,
+          "y": 16,
+          "scale": 1.15,
+          "rotation": -2,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_002",
+          "assetId": "bsh_gate",
+          "x": 50,
+          "y": 34,
+          "scale": 2.15,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_003",
+          "assetId": "bsh_siren",
+          "x": 78,
+          "y": 49,
+          "scale": 1.25,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_004",
+          "assetId": "bsh_path",
+          "x": 51,
+          "y": 75,
+          "scale": 2.5,
+          "rotation": -3,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_005",
+          "assetId": "bsh_plant",
+          "x": 13,
+          "y": 57,
+          "scale": 1.1,
+          "rotation": -5,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_006",
+          "assetId": "bsh_plant",
+          "x": 91,
+          "y": 63,
+          "scale": 1.25,
+          "rotation": 7,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_007",
+          "assetId": "bsh_flower",
+          "x": 25,
+          "y": 72,
+          "scale": 1.1,
+          "rotation": -6,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_008",
+          "assetId": "bsh_flower",
+          "x": 81,
+          "y": 78,
+          "scale": 1.25,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_009",
+          "assetId": "bsh_lantern",
+          "x": 66,
+          "y": 62,
+          "scale": 0.8,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false
+        }
+      ],
+      "wallColor": "#eef2ed",
+      "floorColor": "#b9b7aa",
+      "ambiance": "黑色花园门后，白色墙面、蓝紫花叶与浅石板路被海风吹得微微凌乱。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_creation_hall",
+      "name": "一楼创作大厅",
+      "order": 1,
+      "width": 16,
+      "height": 10,
+      "furniture": [
+        {
+          "slotId": "bsh_item_010",
+          "assetId": "bsh_arch_window",
+          "x": 17,
+          "y": 19,
+          "scale": 1.9,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_011",
+          "assetId": "bsh_arch_window",
+          "x": 84,
+          "y": 19,
+          "scale": 1.9,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_012",
+          "assetId": "bsh_canvas_blue",
+          "x": 58,
+          "y": 29,
+          "scale": 2.15,
+          "rotation": -2,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_013",
+          "assetId": "bsh_ladder",
+          "x": 68,
+          "y": 42,
+          "scale": 1.75,
+          "rotation": 3,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_014",
+          "assetId": "bsh_easel",
+          "x": 47,
+          "y": 56,
+          "scale": 1.35,
+          "rotation": -5,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_015",
+          "assetId": "bsh_easel",
+          "x": 58,
+          "y": 65,
+          "scale": 1.05,
+          "rotation": 6,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_016",
+          "assetId": "bsh_paint_cart",
+          "x": 39,
+          "y": 68,
+          "scale": 1.05,
+          "rotation": -4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_017",
+          "assetId": "bsh_palette",
+          "x": 48,
+          "y": 76,
+          "scale": 0.78,
+          "rotation": 11,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_018",
+          "assetId": "bsh_worktable",
+          "x": 52,
+          "y": 86,
+          "scale": 1.55,
+          "rotation": -1,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_019",
+          "assetId": "bsh_stool",
+          "x": 64,
+          "y": 82,
+          "scale": 0.75,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_020",
+          "assetId": "bsh_clutter",
+          "x": 42,
+          "y": 91,
+          "scale": 1.05,
+          "rotation": -8,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_021",
+          "assetId": "bsh_clutter",
+          "x": 69,
+          "y": 91,
+          "scale": 0.8,
+          "rotation": 7,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_022",
+          "assetId": "bsh_sea_sofa",
+          "x": 16,
+          "y": 69,
+          "scale": 1.55,
+          "rotation": 2,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_023",
+          "assetId": "bsh_coffee",
+          "x": 17,
+          "y": 82,
+          "scale": 0.95,
+          "rotation": -3,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_024",
+          "assetId": "bsh_books",
+          "x": 10,
+          "y": 84,
+          "scale": 0.68,
+          "rotation": -8,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_025",
+          "assetId": "bsh_fireplace",
+          "x": 86,
+          "y": 55,
+          "scale": 1.45,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_026",
+          "assetId": "bsh_tub",
+          "x": 83,
+          "y": 83,
+          "scale": 1.45,
+          "rotation": -2,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_027",
+          "assetId": "bsh_plant",
+          "x": 94,
+          "y": 75,
+          "scale": 0.9,
+          "rotation": 5,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_028",
+          "assetId": "bsh_canvas_stack",
+          "x": 72,
+          "y": 70,
+          "scale": 0.85,
+          "rotation": 8,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        }
+      ],
+      "wallColor": "#f4f1ea",
+      "floorColor": "#b7a994",
+      "ambiance": "挑高的白色艺术大厅直面海湾；沙发、绘画、壁炉与开放浴缸自然分区，画材保持天才艺术家的随手凌乱。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_kitchen_dining",
+      "name": "厨房餐区",
+      "order": 2,
+      "width": 11,
+      "height": 7,
+      "furniture": [
+        {
+          "slotId": "bsh_item_029",
+          "assetId": "bsh_cabinet",
+          "x": 18,
+          "y": 26,
+          "scale": 1.6,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_030",
+          "assetId": "bsh_arch_window",
+          "x": 82,
+          "y": 22,
+          "scale": 1.35,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_031",
+          "assetId": "bsh_island",
+          "x": 46,
+          "y": 59,
+          "scale": 1.55,
+          "rotation": -1,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_032",
+          "assetId": "bsh_dining",
+          "x": 79,
+          "y": 71,
+          "scale": 1.3,
+          "rotation": 3,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_033",
+          "assetId": "bsh_plant",
+          "x": 93,
+          "y": 59,
+          "scale": 0.72,
+          "rotation": -4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_034",
+          "assetId": "bsh_books",
+          "x": 73,
+          "y": 78,
+          "scale": 0.48,
+          "rotation": 7,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_035",
+          "assetId": "bsh_palette",
+          "x": 52,
+          "y": 68,
+          "scale": 0.43,
+          "rotation": -8,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_036",
+          "assetId": "bsh_stool",
+          "x": 35,
+          "y": 76,
+          "scale": 0.7,
+          "rotation": -2,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_037",
+          "assetId": "bsh_stool",
+          "x": 56,
+          "y": 78,
+          "scale": 0.68,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        }
+      ],
+      "wallColor": "#f2f0e9",
+      "floorColor": "#aeb7b5",
+      "ambiance": "开放厨房连接餐区，浅色柜体与海蓝石材克制安静，桌上留着没收完的书与杯子。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_stardome_bedroom",
+      "name": "星空穹顶卧室",
+      "order": 3,
+      "width": 13,
+      "height": 8,
+      "furniture": [
+        {
+          "slotId": "bsh_item_038",
+          "assetId": "bsh_dome",
+          "x": 50,
+          "y": 16,
+          "scale": 3.7,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_039",
+          "assetId": "bsh_arch_window",
+          "x": 84,
+          "y": 30,
+          "scale": 1.45,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_040",
+          "assetId": "bsh_curtains",
+          "x": 82,
+          "y": 34,
+          "scale": 1.55,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_041",
+          "assetId": "bsh_bed",
+          "x": 50,
+          "y": 67,
+          "scale": 1.8,
+          "rotation": -1,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_042",
+          "assetId": "bsh_sea_sofa",
+          "x": 18,
+          "y": 76,
+          "scale": 0.95,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_043",
+          "assetId": "bsh_coffee",
+          "x": 20,
+          "y": 87,
+          "scale": 0.62,
+          "rotation": -3,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_044",
+          "assetId": "bsh_books",
+          "x": 66,
+          "y": 84,
+          "scale": 0.55,
+          "rotation": 9,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_045",
+          "assetId": "bsh_lantern",
+          "x": 72,
+          "y": 67,
+          "scale": 0.82,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_046",
+          "assetId": "bsh_clutter",
+          "x": 43,
+          "y": 91,
+          "scale": 0.55,
+          "rotation": -4,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        }
+      ],
+      "wallColor": "#e9e8ed",
+      "floorColor": "#85889b",
+      "ambiance": "床上方是蓝紫星空玻璃穹顶，海雾纱帘垂落到地面，夜色与海光在室内交叠。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_formal_bathroom",
+      "name": "正式浴室",
+      "order": 4,
+      "width": 9,
+      "height": 7,
+      "furniture": [
+        {
+          "slotId": "bsh_item_047",
+          "assetId": "bsh_arch_window",
+          "x": 48,
+          "y": 20,
+          "scale": 1.35,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_048",
+          "assetId": "bsh_shower",
+          "x": 18,
+          "y": 48,
+          "scale": 1.4,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_049",
+          "assetId": "bsh_bath_suite",
+          "x": 57,
+          "y": 69,
+          "scale": 1.55,
+          "rotation": -2,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_050",
+          "assetId": "bsh_mirror",
+          "x": 82,
+          "y": 39,
+          "scale": 1.05,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_051",
+          "assetId": "bsh_plant",
+          "x": 85,
+          "y": 74,
+          "scale": 0.72,
+          "rotation": 5,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_052",
+          "assetId": "bsh_palette",
+          "x": 53,
+          "y": 84,
+          "scale": 0.38,
+          "rotation": 12,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        }
+      ],
+      "wallColor": "#f3f2ef",
+      "floorColor": "#9fb6bd",
+      "ambiance": "正式浴室以白色石材、雾蓝玻璃和黄铜细节为主，与创作大厅那只开放浴缸分工明确。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_dressing_room",
+      "name": "衣帽间",
+      "order": 5,
+      "width": 9,
+      "height": 6,
+      "furniture": [
+        {
+          "slotId": "bsh_item_053",
+          "assetId": "bsh_wardrobe",
+          "x": 22,
+          "y": 35,
+          "scale": 1.8,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_054",
+          "assetId": "bsh_wardrobe",
+          "x": 72,
+          "y": 35,
+          "scale": 1.8,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_055",
+          "assetId": "bsh_mirror",
+          "x": 50,
+          "y": 47,
+          "scale": 1.25,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_056",
+          "assetId": "bsh_clothing",
+          "x": 48,
+          "y": 70,
+          "scale": 1.35,
+          "rotation": -3,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_057",
+          "assetId": "bsh_stool",
+          "x": 73,
+          "y": 82,
+          "scale": 0.65,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_058",
+          "assetId": "bsh_books",
+          "x": 27,
+          "y": 84,
+          "scale": 0.48,
+          "rotation": -9,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        }
+      ],
+      "wallColor": "#eeeae6",
+      "floorColor": "#8d8178",
+      "ambiance": "整墙衣柜与落地镜之间留着随手搭下的衣服，蓝灰与紫色呼应海面暮光。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_guest_room",
+      "name": "客房",
+      "order": 6,
+      "width": 10,
+      "height": 7,
+      "furniture": [
+        {
+          "slotId": "bsh_item_059",
+          "assetId": "bsh_arch_window",
+          "x": 72,
+          "y": 24,
+          "scale": 1.55,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_060",
+          "assetId": "bsh_curtains",
+          "x": 72,
+          "y": 31,
+          "scale": 1.35,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_061",
+          "assetId": "bsh_bed",
+          "x": 43,
+          "y": 67,
+          "scale": 1.45,
+          "rotation": 1,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_062",
+          "assetId": "bsh_worktable",
+          "x": 82,
+          "y": 71,
+          "scale": 0.75,
+          "rotation": -2,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_063",
+          "assetId": "bsh_stool",
+          "x": 82,
+          "y": 83,
+          "scale": 0.55,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_064",
+          "assetId": "bsh_plant",
+          "x": 15,
+          "y": 72,
+          "scale": 0.82,
+          "rotation": -5,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_065",
+          "assetId": "bsh_books",
+          "x": 62,
+          "y": 84,
+          "scale": 0.5,
+          "rotation": 7,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_066",
+          "assetId": "bsh_lantern",
+          "x": 22,
+          "y": 62,
+          "scale": 0.72,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false
+        }
+      ],
+      "wallColor": "#f1efec",
+      "floorColor": "#a9a3a0",
+      "ambiance": "客房保持清爽但不刻意：高拱窗、蓝白床铺和海雾纱帘，为偶尔留宿的人保留安静。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_art_storage",
+      "name": "画材储藏室",
+      "order": 7,
+      "width": 10,
+      "height": 7,
+      "furniture": [
+        {
+          "slotId": "bsh_item_067",
+          "assetId": "bsh_shelves",
+          "x": 18,
+          "y": 31,
+          "scale": 1.7,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_068",
+          "assetId": "bsh_shelves",
+          "x": 79,
+          "y": 31,
+          "scale": 1.7,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_069",
+          "assetId": "bsh_canvas_stack",
+          "x": 47,
+          "y": 64,
+          "scale": 1.25,
+          "rotation": -7,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_070",
+          "assetId": "bsh_canvas_stack",
+          "x": 63,
+          "y": 73,
+          "scale": 1,
+          "rotation": 8,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_071",
+          "assetId": "bsh_crates",
+          "x": 25,
+          "y": 80,
+          "scale": 1.2,
+          "rotation": 3,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_072",
+          "assetId": "bsh_crates",
+          "x": 80,
+          "y": 82,
+          "scale": 1.05,
+          "rotation": -5,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_073",
+          "assetId": "bsh_paint_cart",
+          "x": 49,
+          "y": 84,
+          "scale": 0.85,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_074",
+          "assetId": "bsh_ladder",
+          "x": 92,
+          "y": 55,
+          "scale": 1.05,
+          "rotation": 2,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_075",
+          "assetId": "bsh_clutter",
+          "x": 56,
+          "y": 91,
+          "scale": 0.75,
+          "rotation": -4,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        }
+      ],
+      "wallColor": "#e7e1d8",
+      "floorColor": "#766b62",
+      "ambiance": "画布、颜料、笔刷与木箱密集收纳，仍保留祁煜找得到东西的个人秩序。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    },
+    {
+      "roomId": "baishawan_seaside_terrace",
+      "name": "临海平台",
+      "order": 8,
+      "width": 14,
+      "height": 7,
+      "furniture": [
+        {
+          "slotId": "bsh_item_076",
+          "assetId": "bsh_railing",
+          "x": 50,
+          "y": 16,
+          "scale": 3.1,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_077",
+          "assetId": "bsh_outdoor_lounge",
+          "x": 34,
+          "y": 65,
+          "scale": 1.55,
+          "rotation": -2,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_078",
+          "assetId": "bsh_outdoor_table",
+          "x": 37,
+          "y": 82,
+          "scale": 0.85,
+          "rotation": 3,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        },
+        {
+          "slotId": "bsh_item_079",
+          "assetId": "bsh_outdoor_lounge",
+          "x": 75,
+          "y": 68,
+          "scale": 1.2,
+          "rotation": 4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_080",
+          "assetId": "bsh_plant",
+          "x": 10,
+          "y": 63,
+          "scale": 0.95,
+          "rotation": -6,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_081",
+          "assetId": "bsh_plant",
+          "x": 92,
+          "y": 61,
+          "scale": 1.05,
+          "rotation": 7,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_082",
+          "assetId": "bsh_flower",
+          "x": 18,
+          "y": 83,
+          "scale": 0.78,
+          "rotation": -4,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_083",
+          "assetId": "bsh_lantern",
+          "x": 58,
+          "y": 66,
+          "scale": 0.78,
+          "rotation": 0,
+          "placedBy": "user",
+          "isDefault": false
+        },
+        {
+          "slotId": "bsh_item_084",
+          "assetId": "bsh_canvas_blue",
+          "x": 87,
+          "y": 49,
+          "scale": 0.9,
+          "rotation": 8,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "back"
+        },
+        {
+          "slotId": "bsh_item_085",
+          "assetId": "bsh_clutter",
+          "x": 72,
+          "y": 87,
+          "scale": 0.55,
+          "rotation": 6,
+          "placedBy": "user",
+          "isDefault": false,
+          "zOrder": "front"
+        }
+      ],
+      "wallColor": "#dce8ec",
+      "floorColor": "#8c9ba0",
+      "ambiance": "玻璃栏杆外就是白沙湾海面，户外沙发、矮桌、植物与灯具适合看潮汐和晾未干的画。",
+      "wallFillMode": "tile",
+      "wallOffsetX": 50,
+      "wallOffsetY": 50,
+      "floorFillMode": "tile",
+      "floorOffsetX": 50,
+      "floorOffsetY": 50
+    }
+  ],
+  "assets": [
+    {
+      "id": "bsh_sign",
+      "name": "Mo Art Studio 门牌",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22140%22%20height%3D%2248%22%20viewBox%3D%220%200%20140%2048%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%223%22%20y%3D%223%22%20width%3D%22134%22%20height%3D%2242%22%20rx%3D%223%22%20fill%3D%22%23f6f1e8%22%20stroke%3D%22%23172033%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%22120%22%20height%3D%2228%22%20fill%3D%22%23d9e8f2%22%2F%3E%3Ctext%20x%3D%2270%22%20y%3D%2223%22%20text-anchor%3D%22middle%22%20font-family%3D%22monospace%22%20font-size%3D%2212%22%20font-weight%3D%22bold%22%20fill%3D%22%23172033%22%3EMO%20ART%3C%2Ftext%3E%3Ctext%20x%3D%2270%22%20y%3D%2235%22%20text-anchor%3D%22middle%22%20font-family%3D%22monospace%22%20font-size%3D%229%22%20fill%3D%22%234979a8%22%3ESTUDIO%3C%2Ftext%3E%3C%2Fsvg%3E",
+      "pixelSize": 140,
+      "palette": [
+        "#f6f1e8",
+        "#172033",
+        "#4979a8"
+      ],
+      "width": 140,
+      "height": 48
+    },
+    {
+      "id": "bsh_gate",
+      "name": "黑色花园门",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22120%22%20height%3D%2292%22%20viewBox%3D%220%200%20120%2092%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%225%22%20y%3D%2210%22%20width%3D%2210%22%20height%3D%2280%22%20fill%3D%22%2310131b%22%2F%3E%3Crect%20x%3D%22105%22%20y%3D%2210%22%20width%3D%2210%22%20height%3D%2280%22%20fill%3D%22%2310131b%22%2F%3E%3Crect%20x%3D%2215%22%20y%3D%2225%22%20width%3D%2290%22%20height%3D%228%22%20fill%3D%22%2310131b%22%2F%3E%3Crect%20x%3D%2215%22%20y%3D%2275%22%20width%3D%2290%22%20height%3D%228%22%20fill%3D%22%2310131b%22%2F%3E%3Cpath%20d%3D%22M18%2075V36Q30%2010%2045%2036V75M45%2075V36Q60%208%2075%2036V75M75%2075V36Q90%2010%20102%2036V75%22%20fill%3D%22none%22%20stroke%3D%22%23293247%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2258%22%20y%3D%2253%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%235f87a8%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 120,
+      "palette": [
+        "#10131b",
+        "#293247",
+        "#5f87a8"
+      ],
+      "width": 120,
+      "height": 92
+    },
+    {
+      "id": "bsh_siren",
+      "name": "看书的塞壬雕像",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2276%22%20height%3D%22110%22%20viewBox%3D%220%200%2076%20110%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%2215%22%20y%3D%2299%22%20width%3D%2248%22%20height%3D%228%22%20fill%3D%22%23526f79%22%2F%3E%3Crect%20x%3D%2221%22%20y%3D%2291%22%20width%3D%2236%22%20height%3D%228%22%20fill%3D%22%238fc6c5%22%2F%3E%3Ccircle%20cx%3D%2238%22%20cy%3D%2224%22%20r%3D%2213%22%20fill%3D%22%23d8eee8%22%20stroke%3D%22%23526f79%22%20stroke-width%3D%224%22%2F%3E%3Cpath%20d%3D%22M25%2018L17%205L31%2012M51%2018L59%205L45%2012%22%20fill%3D%22%238fc6c5%22%20stroke%3D%22%23526f79%22%20stroke-width%3D%223%22%2F%3E%3Cpath%20d%3D%22M27%2038L18%2063L30%2072L24%2091H52L46%2072L58%2063L49%2038Z%22%20fill%3D%22%238fc6c5%22%20stroke%3D%22%23526f79%22%20stroke-width%3D%224%22%2F%3E%3Cpath%20d%3D%22M22%2051L38%2058L54%2051L50%2072L38%2066L26%2072Z%22%20fill%3D%22%23f3e4bd%22%20stroke%3D%22%23b79c72%22%20stroke-width%3D%223%22%2F%3E%3Cpath%20d%3D%22M33%2081L18%2089M43%2081L58%2089%22%20stroke%3D%22%23526f79%22%20stroke-width%3D%225%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 110,
+      "palette": [
+        "#8fc6c5",
+        "#d8eee8",
+        "#526f79",
+        "#b79c72"
+      ],
+      "width": 76,
+      "height": 110
+    },
+    {
+      "id": "bsh_plant",
+      "name": "海风阔叶植物",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2262%22%20height%3D%2292%22%20viewBox%3D%220%200%2062%2092%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%2219%22%20y%3D%2267%22%20width%3D%2225%22%20height%3D%2220%22%20fill%3D%22%23c7a97d%22%20stroke%3D%22%235e4d3b%22%20stroke-width%3D%224%22%2F%3E%3Cpath%20d%3D%22M31%2068V25M30%2043L14%2025M32%2050L49%2030%22%20stroke%3D%22%23234f49%22%20stroke-width%3D%225%22%2F%3E%3Cellipse%20cx%3D%2213%22%20cy%3D%2223%22%20rx%3D%2212%22%20ry%3D%227%22%20fill%3D%22%234f8a6d%22%20transform%3D%22rotate(25%2013%2023)%22%2F%3E%3Cellipse%20cx%3D%2248%22%20cy%3D%2228%22%20rx%3D%2213%22%20ry%3D%227%22%20fill%3D%22%2383b58d%22%20transform%3D%22rotate(-30%2048%2028)%22%2F%3E%3Cellipse%20cx%3D%2231%22%20cy%3D%2217%22%20rx%3D%228%22%20ry%3D%2215%22%20fill%3D%22%234f8a6d%22%2F%3E%3Cellipse%20cx%3D%2219%22%20cy%3D%2245%22%20rx%3D%2213%22%20ry%3D%227%22%20fill%3D%22%2383b58d%22%20transform%3D%22rotate(15%2019%2045)%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 92,
+      "palette": [
+        "#234f49",
+        "#4f8a6d",
+        "#83b58d",
+        "#c7a97d"
+      ],
+      "width": 62,
+      "height": 92
+    },
+    {
+      "id": "bsh_flower",
+      "name": "蓝紫花丛",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2286%22%20height%3D%2262%22%20viewBox%3D%220%200%2086%2062%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%2215%22%20y%3D%2243%22%20width%3D%2256%22%20height%3D%2213%22%20rx%3D%225%22%20fill%3D%22%236e5b4a%22%2F%3E%3Cpath%20d%3D%22M22%2046L27%2020M38%2045L39%2013M53%2045L59%2020M66%2045L71%2017%22%20stroke%3D%22%23294f46%22%20stroke-width%3D%224%22%2F%3E%3Crect%20x%3D%2220%22%20y%3D%2216%22%20width%3D%2214%22%20height%3D%2212%22%20fill%3D%22%23718ad1%22%2F%3E%3Crect%20x%3D%2232%22%20y%3D%227%22%20width%3D%2215%22%20height%3D%2213%22%20fill%3D%22%239c78c4%22%2F%3E%3Crect%20x%3D%2251%22%20y%3D%2215%22%20width%3D%2215%22%20height%3D%2213%22%20fill%3D%22%23718ad1%22%2F%3E%3Crect%20x%3D%2264%22%20y%3D%2210%22%20width%3D%2214%22%20height%3D%2213%22%20fill%3D%22%239c78c4%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 86,
+      "palette": [
+        "#294f46",
+        "#587b69",
+        "#718ad1",
+        "#9c78c4"
+      ],
+      "width": 86,
+      "height": 62
+    },
+    {
+      "id": "bsh_path",
+      "name": "浅色石板路",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%2258%22%20viewBox%3D%220%200%20160%2058%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M6%2050L22%2030L47%2034L61%2012L91%2018L107%205L152%2016L145%2051Z%22%20fill%3D%22%239ca3a3%22%20opacity%3D%22.45%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2233%22%20width%3D%2233%22%20height%3D%2218%22%20fill%3D%22%23e6e0d4%22%20stroke%3D%22%238b9295%22%20stroke-width%3D%223%22%2F%3E%3Crect%20x%3D%2252%22%20y%3D%2218%22%20width%3D%2238%22%20height%3D%2224%22%20fill%3D%22%23c9c5ba%22%20stroke%3D%22%238b9295%22%20stroke-width%3D%223%22%2F%3E%3Crect%20x%3D%22101%22%20y%3D%229%22%20width%3D%2248%22%20height%3D%2228%22%20fill%3D%22%23e6e0d4%22%20stroke%3D%22%238b9295%22%20stroke-width%3D%223%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 160,
+      "palette": [
+        "#c9c5ba",
+        "#e6e0d4",
+        "#8b9295"
+      ],
+      "width": 160,
+      "height": 58
+    },
+    {
+      "id": "bsh_canvas_blue",
+      "name": "巨型蓝色画布",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22104%22%20height%3D%22138%22%20viewBox%3D%220%200%20104%20138%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2296%22%20height%3D%22130%22%20fill%3D%22%23f3eee3%22%20stroke%3D%22%2320314c%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2212%22%20y%3D%2212%22%20width%3D%2280%22%20height%3D%22114%22%20fill%3D%22%231c5d9b%22%2F%3E%3Cpath%20d%3D%22M12%2091L35%2058L54%2077L72%2038L92%2055V126H12Z%22%20fill%3D%22%234aa5d8%22%2F%3E%3Cpath%20d%3D%22M12%20111L31%2094L49%20104L67%2084L92%2096V126H12Z%22%20fill%3D%22%2311284d%22%2F%3E%3Crect%20x%3D%2220%22%20y%3D%2220%22%20width%3D%2218%22%20height%3D%229%22%20fill%3D%22%23c9eff5%22%2F%3E%3Crect%20x%3D%2270%22%20y%3D%2268%22%20width%3D%2213%22%20height%3D%228%22%20fill%3D%22%239d79c7%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 138,
+      "palette": [
+        "#11284d",
+        "#1c5d9b",
+        "#4aa5d8",
+        "#c9eff5"
+      ],
+      "width": 104,
+      "height": 138
+    },
+    {
+      "id": "bsh_ladder",
+      "name": "超高画梯",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2264%22%20height%3D%22154%22%20viewBox%3D%220%200%2064%20154%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M15%20149L27%207M49%20149L37%207%22%20stroke%3D%22%238e704b%22%20stroke-width%3D%227%22%2F%3E%3Cpath%20d%3D%22M22%20126H45M21%20104H43M23%2082H41M25%2060H39M27%2038H37M28%2018H36%22%20stroke%3D%22%23ede0bf%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%223%22%20y%3D%22144%22%20width%3D%2223%22%20height%3D%227%22%20fill%3D%22%23d9c39a%22%2F%3E%3Crect%20x%3D%2239%22%20y%3D%22144%22%20width%3D%2223%22%20height%3D%227%22%20fill%3D%22%23d9c39a%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 154,
+      "palette": [
+        "#d9c39a",
+        "#8e704b",
+        "#ede0bf"
+      ],
+      "width": 64,
+      "height": 154
+    },
+    {
+      "id": "bsh_easel",
+      "name": "画架",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2286%22%20height%3D%22112%22%20viewBox%3D%220%200%2086%20112%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M42%207L17%20105M42%207L69%20105M42%2063L42%20108%22%20stroke%3D%22%23714f35%22%20stroke-width%3D%227%22%2F%3E%3Crect%20x%3D%2215%22%20y%3D%2225%22%20width%3D%2255%22%20height%3D%2258%22%20fill%3D%22%23e5d3b2%22%20stroke%3D%22%23b28a5d%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M20%2068L37%2043L49%2057L65%2035V78H20Z%22%20fill%3D%22%23547eb7%22%2F%3E%3Crect%20x%3D%228%22%20y%3D%2282%22%20width%3D%2270%22%20height%3D%227%22%20fill%3D%22%23714f35%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 112,
+      "palette": [
+        "#714f35",
+        "#b28a5d",
+        "#e5d3b2",
+        "#547eb7"
+      ],
+      "width": 86,
+      "height": 112
+    },
+    {
+      "id": "bsh_paint_cart",
+      "name": "颜料车",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2294%22%20height%3D%2276%22%20viewBox%3D%220%200%2094%2076%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%228%22%20y%3D%2222%22%20width%3D%2278%22%20height%3D%2242%22%20fill%3D%22%235f7894%22%20stroke%3D%22%2327374d%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%2215%22%20y%3D%229%22%20width%3D%2212%22%20height%3D%2224%22%20fill%3D%22%23c85c5c%22%2F%3E%3Crect%20x%3D%2233%22%20y%3D%225%22%20width%3D%2211%22%20height%3D%2228%22%20fill%3D%22%23e5c05b%22%2F%3E%3Crect%20x%3D%2250%22%20y%3D%2212%22%20width%3D%2213%22%20height%3D%2221%22%20fill%3D%22%23527f73%22%2F%3E%3Crect%20x%3D%2268%22%20y%3D%227%22%20width%3D%2211%22%20height%3D%2226%22%20fill%3D%22%238b6ab1%22%2F%3E%3Cpath%20d%3D%22M15%2045H79%22%20stroke%3D%22%2327374d%22%20stroke-width%3D%225%22%2F%3E%3Ccircle%20cx%3D%2222%22%20cy%3D%2268%22%20r%3D%227%22%20fill%3D%22%2327374d%22%2F%3E%3Ccircle%20cx%3D%2272%22%20cy%3D%2268%22%20r%3D%227%22%20fill%3D%22%2327374d%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 94,
+      "palette": [
+        "#27374d",
+        "#5f7894",
+        "#e5c05b",
+        "#c85c5c"
+      ],
+      "width": 94,
+      "height": 76
+    },
+    {
+      "id": "bsh_palette",
+      "name": "笔刷与调色盘",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2282%22%20height%3D%2252%22%20viewBox%3D%220%200%2082%2052%22%20shape-rendering%3D%22crispEdges%22%3E%3Cellipse%20cx%3D%2234%22%20cy%3D%2229%22%20rx%3D%2229%22%20ry%3D%2220%22%20fill%3D%22%23bd8b5b%22%20stroke%3D%22%235d4633%22%20stroke-width%3D%224%22%2F%3E%3Ccircle%20cx%3D%2227%22%20cy%3D%2220%22%20r%3D%225%22%20fill%3D%22%23efcf63%22%2F%3E%3Ccircle%20cx%3D%2242%22%20cy%3D%2218%22%20r%3D%225%22%20fill%3D%22%235a94c9%22%2F%3E%3Ccircle%20cx%3D%2249%22%20cy%3D%2232%22%20r%3D%225%22%20fill%3D%22%23b9679e%22%2F%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2235%22%20r%3D%226%22%20fill%3D%22%23f0eee3%22%2F%3E%3Cpath%20d%3D%22M57%2044L74%205M63%2046L79%2013%22%20stroke%3D%22%236c4b31%22%20stroke-width%3D%224%22%2F%3E%3Cpath%20d%3D%22M72%207L78%201M77%2015L81%208%22%20stroke%3D%22%23d9e4e5%22%20stroke-width%3D%224%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 82,
+      "palette": [
+        "#bd8b5b",
+        "#efcf63",
+        "#5a94c9",
+        "#b9679e"
+      ],
+      "width": 82,
+      "height": 52
+    },
+    {
+      "id": "bsh_worktable",
+      "name": "长工作桌",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22160%22%20height%3D%2272%22%20viewBox%3D%220%200%20160%2072%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%224%22%20y%3D%2212%22%20width%3D%22152%22%20height%3D%2220%22%20fill%3D%22%23d6ba91%22%20stroke%3D%22%235f4636%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%2214%22%20y%3D%2232%22%20width%3D%229%22%20height%3D%2236%22%20fill%3D%22%235f4636%22%2F%3E%3Crect%20x%3D%22137%22%20y%3D%2232%22%20width%3D%229%22%20height%3D%2236%22%20fill%3D%22%235f4636%22%2F%3E%3Crect%20x%3D%2238%22%20y%3D%225%22%20width%3D%2231%22%20height%3D%2211%22%20fill%3D%22%23f1eee6%22%2F%3E%3Crect%20x%3D%2273%22%20y%3D%227%22%20width%3D%2218%22%20height%3D%229%22%20fill%3D%22%235a89bc%22%2F%3E%3Crect%20x%3D%2298%22%20y%3D%224%22%20width%3D%2236%22%20height%3D%2212%22%20fill%3D%22%23293447%22%2F%3E%3Cpath%20d%3D%22M31%2038H127%22%20stroke%3D%22%23997455%22%20stroke-width%3D%225%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 160,
+      "palette": [
+        "#5f4636",
+        "#997455",
+        "#d6ba91",
+        "#293447"
+      ],
+      "width": 160,
+      "height": 72
+    },
+    {
+      "id": "bsh_sea_sofa",
+      "name": "海景沙发",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22158%22%20height%3D%2276%22%20viewBox%3D%220%200%20158%2076%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%2212%22%20y%3D%2227%22%20width%3D%22134%22%20height%3D%2238%22%20rx%3D%228%22%20fill%3D%22%235f83a8%22%20stroke%3D%22%232a4564%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%223%22%20y%3D%2220%22%20width%3D%2225%22%20height%3D%2246%22%20rx%3D%227%22%20fill%3D%22%232a4564%22%2F%3E%3Crect%20x%3D%22130%22%20y%3D%2220%22%20width%3D%2225%22%20height%3D%2246%22%20rx%3D%227%22%20fill%3D%22%232a4564%22%2F%3E%3Crect%20x%3D%2234%22%20y%3D%2231%22%20width%3D%2239%22%20height%3D%2228%22%20fill%3D%22%239ec3d5%22%2F%3E%3Crect%20x%3D%2282%22%20y%3D%2231%22%20width%3D%2239%22%20height%3D%2228%22%20fill%3D%22%23eee9dc%22%2F%3E%3Crect%20x%3D%2218%22%20y%3D%2265%22%20width%3D%2210%22%20height%3D%228%22%20fill%3D%22%2319283b%22%2F%3E%3Crect%20x%3D%22132%22%20y%3D%2265%22%20width%3D%2210%22%20height%3D%228%22%20fill%3D%22%2319283b%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 158,
+      "palette": [
+        "#2a4564",
+        "#5f83a8",
+        "#9ec3d5",
+        "#eee9dc"
+      ],
+      "width": 158,
+      "height": 76
+    },
+    {
+      "id": "bsh_coffee",
+      "name": "低矮茶几",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22105%22%20height%3D%2248%22%20viewBox%3D%220%200%20105%2048%22%20shape-rendering%3D%22crispEdges%22%3E%3Cellipse%20cx%3D%2252%22%20cy%3D%2218%22%20rx%3D%2246%22%20ry%3D%2214%22%20fill%3D%22%23c3d6d7%22%20stroke%3D%22%2326384b%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M25%2027L20%2045M79%2027L84%2045%22%20stroke%3D%22%2326384b%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2241%22%20y%3D%227%22%20width%3D%2223%22%20height%3D%226%22%20fill%3D%22%237797a5%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 105,
+      "palette": [
+        "#26384b",
+        "#7797a5",
+        "#c3d6d7"
+      ],
+      "width": 105,
+      "height": 48
+    },
+    {
+      "id": "bsh_fireplace",
+      "name": "壁炉",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22104%22%20height%3D%22106%22%20viewBox%3D%220%200%20104%20106%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%2296%22%20height%3D%2296%22%20fill%3D%22%23eee7db%22%20stroke%3D%22%23334154%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2218%22%20y%3D%2239%22%20width%3D%2268%22%20height%3D%2252%22%20fill%3D%22%23334154%22%2F%3E%3Cpath%20d%3D%22M35%2085Q26%2066%2044%2059Q45%2043%2057%2057Q75%2063%2068%2085Z%22%20fill%3D%22%23e97949%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2223%22%20width%3D%2284%22%20height%3D%2213%22%20fill%3D%22%23b7a99b%22%2F%3E%3Crect%20x%3D%220%22%20y%3D%220%22%20width%3D%22104%22%20height%3D%2212%22%20fill%3D%22%23d8cec0%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 106,
+      "palette": [
+        "#eee7db",
+        "#b7a99b",
+        "#334154",
+        "#e97949"
+      ],
+      "width": 104,
+      "height": 106
+    },
+    {
+      "id": "bsh_tub",
+      "name": "开放式大浴缸",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22152%22%20height%3D%2276%22%20viewBox%3D%220%200%20152%2076%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M8%2024H144L133%2064H22Z%22%20fill%3D%22%23f5f1e9%22%20stroke%3D%22%235b7c91%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M20%2029H132L126%2045H27Z%22%20fill%3D%22%23a8c9d3%22%2F%3E%3Cpath%20d%3D%22M116%2024V9H132V29%22%20fill%3D%22none%22%20stroke%3D%22%23c5a886%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M27%2064L21%2073M127%2064L133%2073%22%20stroke%3D%22%235b7c91%22%20stroke-width%3D%226%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 152,
+      "palette": [
+        "#f5f1e9",
+        "#a8c9d3",
+        "#5b7c91",
+        "#c5a886"
+      ],
+      "width": 152,
+      "height": 76
+    },
+    {
+      "id": "bsh_arch_window",
+      "name": "高拱窗",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22102%22%20height%3D%22142%22%20viewBox%3D%220%200%20102%20142%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M8%20134V53Q8%208%2051%208Q94%208%2094%2053V134Z%22%20fill%3D%22%237db2d0%22%20stroke%3D%22%23e9eef1%22%20stroke-width%3D%228%22%2F%3E%3Cpath%20d%3D%22M51%2012V134M12%2061H90M12%2096H90%22%20stroke%3D%22%23315b7d%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M15%2050Q51%2015%2087%2050%22%20fill%3D%22none%22%20stroke%3D%22%23b69bd1%22%20stroke-width%3D%224%22%2F%3E%3Cpath%20d%3D%22M16%20116L35%2094L50%20107L70%2078L90%20103V134H16Z%22%20fill%3D%22%23244d6f%22%20opacity%3D%22.7%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 142,
+      "palette": [
+        "#e9eef1",
+        "#7db2d0",
+        "#315b7d",
+        "#b69bd1"
+      ],
+      "width": 102,
+      "height": 142
+    },
+    {
+      "id": "bsh_island",
+      "name": "厨房岛台",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22156%22%20height%3D%2282%22%20viewBox%3D%220%200%20156%2082%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%227%22%20y%3D%2213%22%20width%3D%22142%22%20height%3D%2219%22%20fill%3D%22%23f2eee7%22%20stroke%3D%22%2346637b%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%2218%22%20y%3D%2232%22%20width%3D%22120%22%20height%3D%2242%22%20fill%3D%22%239db7c6%22%20stroke%3D%22%2346637b%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%2234%22%20y%3D%2240%22%20width%3D%2228%22%20height%3D%2228%22%20fill%3D%22%23dbe5e7%22%2F%3E%3Crect%20x%3D%2293%22%20y%3D%2239%22%20width%3D%2231%22%20height%3D%2211%22%20fill%3D%22%23d2b47d%22%2F%3E%3Ccircle%20cx%3D%22109%22%20cy%3D%2226%22%20r%3D%228%22%20fill%3D%22%2346637b%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 156,
+      "palette": [
+        "#f2eee7",
+        "#46637b",
+        "#9db7c6",
+        "#d2b47d"
+      ],
+      "width": 156,
+      "height": 82
+    },
+    {
+      "id": "bsh_dining",
+      "name": "餐桌与椅子",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22148%22%20height%3D%2288%22%20viewBox%3D%220%200%20148%2088%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%2229%22%20y%3D%2221%22%20width%3D%2290%22%20height%3D%2243%22%20rx%3D%224%22%20fill%3D%22%23e0c9a4%22%20stroke%3D%22%235f4638%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%226%22%20y%3D%2227%22%20width%3D%2222%22%20height%3D%2231%22%20fill%3D%22%23647d91%22%2F%3E%3Crect%20x%3D%22120%22%20y%3D%2227%22%20width%3D%2222%22%20height%3D%2231%22%20fill%3D%22%23647d91%22%2F%3E%3Crect%20x%3D%2241%22%20y%3D%224%22%20width%3D%2226%22%20height%3D%2216%22%20fill%3D%22%23647d91%22%2F%3E%3Crect%20x%3D%2282%22%20y%3D%224%22%20width%3D%2226%22%20height%3D%2216%22%20fill%3D%22%23647d91%22%2F%3E%3Crect%20x%3D%2241%22%20y%3D%2265%22%20width%3D%2226%22%20height%3D%2217%22%20fill%3D%22%23647d91%22%2F%3E%3Crect%20x%3D%2282%22%20y%3D%2265%22%20width%3D%2226%22%20height%3D%2217%22%20fill%3D%22%23647d91%22%2F%3E%3Ccircle%20cx%3D%2274%22%20cy%3D%2239%22%20r%3D%2210%22%20fill%3D%22%23ad855f%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 148,
+      "palette": [
+        "#5f4638",
+        "#ad855f",
+        "#e0c9a4",
+        "#647d91"
+      ],
+      "width": 148,
+      "height": 88
+    },
+    {
+      "id": "bsh_bed",
+      "name": "蓝白大床",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22158%22%20height%3D%22100%22%20viewBox%3D%220%200%20158%20100%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%228%22%20y%3D%2223%22%20width%3D%22142%22%20height%3D%2268%22%20rx%3D%228%22%20fill%3D%22%238facbf%22%20stroke%3D%22%23465e82%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2216%22%20y%3D%2230%22%20width%3D%2255%22%20height%3D%2226%22%20fill%3D%22%23f1eee8%22%2F%3E%3Crect%20x%3D%2287%22%20y%3D%2230%22%20width%3D%2255%22%20height%3D%2226%22%20fill%3D%22%23f1eee8%22%2F%3E%3Cpath%20d%3D%22M17%2062Q79%2048%20142%2063V87H17Z%22%20fill%3D%22%23465e82%22%2F%3E%3Crect%20x%3D%220%22%20y%3D%2212%22%20width%3D%2212%22%20height%3D%2284%22%20fill%3D%22%23b79aca%22%2F%3E%3Crect%20x%3D%22146%22%20y%3D%2212%22%20width%3D%2212%22%20height%3D%2284%22%20fill%3D%22%23b79aca%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 158,
+      "palette": [
+        "#f1eee8",
+        "#8facbf",
+        "#465e82",
+        "#b79aca"
+      ],
+      "width": 158,
+      "height": 100
+    },
+    {
+      "id": "bsh_curtains",
+      "name": "海雾纱帘",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22126%22%20height%3D%22142%22%20viewBox%3D%220%200%20126%20142%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M7%208H119%22%20stroke%3D%22%2394abc0%22%20stroke-width%3D%227%22%2F%3E%3Cpath%20d%3D%22M13%2012Q34%2035%2022%20133H54Q45%2047%2059%2013Z%22%20fill%3D%22%23e9eef1%22%20opacity%3D%22.9%22%2F%3E%3Cpath%20d%3D%22M67%2013Q82%2048%2072%20133H106Q94%2035%20113%2012Z%22%20fill%3D%22%23cddbe3%22%20opacity%3D%22.85%22%2F%3E%3Cpath%20d%3D%22M22%20133H54M72%20133H106%22%20stroke%3D%22%2394abc0%22%20stroke-width%3D%225%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 142,
+      "palette": [
+        "#e9eef1",
+        "#cddbe3",
+        "#94abc0"
+      ],
+      "width": 126,
+      "height": 142
+    },
+    {
+      "id": "bsh_dome",
+      "name": "星空玻璃穹顶",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22184%22%20height%3D%2294%22%20viewBox%3D%220%200%20184%2094%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M5%2087Q18%208%2092%207Q166%208%20179%2087Z%22%20fill%3D%22%23151b3b%22%20stroke%3D%22%23d8e9f0%22%20stroke-width%3D%226%22%2F%3E%3Cpath%20d%3D%22M92%209V87M35%2035L60%2087M149%2035L124%2087M12%2068H172%22%20stroke%3D%22%23334f7f%22%20stroke-width%3D%224%22%2F%3E%3Crect%20x%3D%2242%22%20y%3D%2233%22%20width%3D%225%22%20height%3D%225%22%20fill%3D%22%23d8e9f0%22%2F%3E%3Crect%20x%3D%2275%22%20y%3D%2220%22%20width%3D%224%22%20height%3D%224%22%20fill%3D%22%238f75ba%22%2F%3E%3Crect%20x%3D%22118%22%20y%3D%2227%22%20width%3D%226%22%20height%3D%226%22%20fill%3D%22%23d8e9f0%22%2F%3E%3Crect%20x%3D%22137%22%20y%3D%2249%22%20width%3D%224%22%20height%3D%224%22%20fill%3D%22%238f75ba%22%2F%3E%3Crect%20x%3D%2287%22%20y%3D%2243%22%20width%3D%225%22%20height%3D%225%22%20fill%3D%22%23d8e9f0%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 184,
+      "palette": [
+        "#151b3b",
+        "#334f7f",
+        "#8f75ba",
+        "#d8e9f0"
+      ],
+      "width": 184,
+      "height": 94
+    },
+    {
+      "id": "bsh_wardrobe",
+      "name": "整墙衣柜",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22120%22%20height%3D%22146%22%20viewBox%3D%220%200%20120%20146%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%225%22%20y%3D%224%22%20width%3D%22110%22%20height%3D%22137%22%20fill%3D%22%23e9e3da%22%20stroke%3D%22%2333475d%22%20stroke-width%3D%226%22%2F%3E%3Cpath%20d%3D%22M42%208V137M79%208V137%22%20stroke%3D%22%23718295%22%20stroke-width%3D%225%22%2F%3E%3Ccircle%20cx%3D%2234%22%20cy%3D%2272%22%20r%3D%224%22%20fill%3D%22%23b7a58f%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2272%22%20r%3D%224%22%20fill%3D%22%23b7a58f%22%2F%3E%3Ccircle%20cx%3D%2271%22%20cy%3D%2272%22%20r%3D%224%22%20fill%3D%22%23b7a58f%22%2F%3E%3Ccircle%20cx%3D%2287%22%20cy%3D%2272%22%20r%3D%224%22%20fill%3D%22%23b7a58f%22%2F%3E%3Crect%20x%3D%2215%22%20y%3D%22117%22%20width%3D%2290%22%20height%3D%2212%22%20fill%3D%22%23d0c8bc%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 146,
+      "palette": [
+        "#e9e3da",
+        "#718295",
+        "#33475d",
+        "#b7a58f"
+      ],
+      "width": 120,
+      "height": 146
+    },
+    {
+      "id": "bsh_mirror",
+      "name": "落地镜",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2272%22%20height%3D%22140%22%20viewBox%3D%220%200%2072%20140%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M9%20129V36Q9%208%2036%208Q63%208%2063%2036V129Z%22%20fill%3D%22%23dce9ec%22%20stroke%3D%22%23b89d73%22%20stroke-width%3D%226%22%2F%3E%3Cpath%20d%3D%22M20%2039Q36%2018%2052%2039V116H20Z%22%20fill%3D%22%237592a3%22%20opacity%3D%22.45%22%2F%3E%3Crect%20x%3D%2220%22%20y%3D%22130%22%20width%3D%2233%22%20height%3D%227%22%20fill%3D%22%23b89d73%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 140,
+      "palette": [
+        "#dce9ec",
+        "#7592a3",
+        "#b89d73"
+      ],
+      "width": 72,
+      "height": 140
+    },
+    {
+      "id": "bsh_bath_suite",
+      "name": "正式浴室设施",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22152%22%20height%3D%22112%22%20viewBox%3D%220%200%20152%20112%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%225%22%20y%3D%2254%22%20width%3D%2266%22%20height%3D%2239%22%20rx%3D%229%22%20fill%3D%22%23f5f3ee%22%20stroke%3D%22%23526f85%22%20stroke-width%3D%225%22%2F%3E%3Cellipse%20cx%3D%2238%22%20cy%3D%2255%22%20rx%3D%2232%22%20ry%3D%2214%22%20fill%3D%22%239fc3cf%22%2F%3E%3Cpath%20d%3D%22M38%2044V25H59M59%2025V39%22%20fill%3D%22none%22%20stroke%3D%22%23c7ad83%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%2291%22%20y%3D%2220%22%20width%3D%2247%22%20height%3D%2272%22%20rx%3D%228%22%20fill%3D%22%23f5f3ee%22%20stroke%3D%22%23526f85%22%20stroke-width%3D%225%22%2F%3E%3Cellipse%20cx%3D%22114%22%20cy%3D%2287%22%20rx%3D%2227%22%20ry%3D%2215%22%20fill%3D%22%239fc3cf%22%2F%3E%3Crect%20x%3D%2298%22%20y%3D%2294%22%20width%3D%2234%22%20height%3D%2212%22%20fill%3D%22%23f5f3ee%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 152,
+      "palette": [
+        "#f5f3ee",
+        "#9fc3cf",
+        "#526f85",
+        "#c7ad83"
+      ],
+      "width": 152,
+      "height": 112
+    },
+    {
+      "id": "bsh_shower",
+      "name": "玻璃淋浴间",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2288%22%20height%3D%22140%22%20viewBox%3D%220%200%2088%20140%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%227%22%20y%3D%228%22%20width%3D%2274%22%20height%3D%22124%22%20fill%3D%22%23b7d3dd%22%20opacity%3D%22.35%22%20stroke%3D%22%237897a8%22%20stroke-width%3D%226%22%2F%3E%3Cpath%20d%3D%22M45%2011V129%22%20stroke%3D%22%237897a8%22%20stroke-width%3D%224%22%2F%3E%3Ccircle%20cx%3D%2258%22%20cy%3D%2269%22%20r%3D%224%22%20fill%3D%22%23d8edf1%22%2F%3E%3Cpath%20d%3D%22M22%2028H51Q60%2028%2060%2038M22%2028V48%22%20fill%3D%22none%22%20stroke%3D%22%237897a8%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M28%2053L25%2063M37%2053L34%2066M46%2053L44%2063%22%20stroke%3D%22%23d8edf1%22%20stroke-width%3D%223%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 140,
+      "palette": [
+        "#d8edf1",
+        "#7897a8",
+        "#b7d3dd"
+      ],
+      "width": 88,
+      "height": 140
+    },
+    {
+      "id": "bsh_canvas_stack",
+      "name": "画布叠放",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22116%22%20height%3D%2298%22%20viewBox%3D%220%200%20116%2098%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%228%22%20y%3D%2228%22%20width%3D%2275%22%20height%3D%2261%22%20fill%3D%22%23eee7da%22%20stroke%3D%22%23b4a38c%22%20stroke-width%3D%225%22%20transform%3D%22rotate(-8%2045%2058)%22%2F%3E%3Crect%20x%3D%2232%22%20y%3D%2210%22%20width%3D%2276%22%20height%3D%2269%22%20fill%3D%22%23eee7da%22%20stroke%3D%22%23293e56%22%20stroke-width%3D%225%22%20transform%3D%22rotate(7%2070%2045)%22%2F%3E%3Cpath%20d%3D%22M42%2061L57%2041L70%2053L91%2028V70H42Z%22%20fill%3D%22%23466f9a%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 116,
+      "palette": [
+        "#eee7da",
+        "#b4a38c",
+        "#466f9a",
+        "#293e56"
+      ],
+      "width": 116,
+      "height": 98
+    },
+    {
+      "id": "bsh_crates",
+      "name": "画材箱",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22118%22%20height%3D%2278%22%20viewBox%3D%220%200%20118%2078%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%225%22%20y%3D%2224%22%20width%3D%2255%22%20height%3D%2248%22%20fill%3D%22%23b38658%22%20stroke%3D%22%237a583b%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M10%2031L55%2065M55%2031L10%2065%22%20stroke%3D%22%23e0bb79%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%2257%22%20y%3D%227%22%20width%3D%2256%22%20height%3D%2262%22%20fill%3D%22%237a583b%22%20stroke%3D%22%2332465b%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M63%2014L107%2061M107%2014L63%2061%22%20stroke%3D%22%23b38658%22%20stroke-width%3D%225%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 118,
+      "palette": [
+        "#7a583b",
+        "#b38658",
+        "#e0bb79",
+        "#32465b"
+      ],
+      "width": 118,
+      "height": 78
+    },
+    {
+      "id": "bsh_shelves",
+      "name": "画材储藏架",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22132%22%20height%3D%22136%22%20viewBox%3D%220%200%20132%20136%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%225%22%20y%3D%225%22%20width%3D%22122%22%20height%3D%22126%22%20fill%3D%22%2380644b%22%20stroke%3D%22%233a4655%22%20stroke-width%3D%226%22%2F%3E%3Cpath%20d%3D%22M10%2043H122M10%2082H122%22%20stroke%3D%22%233a4655%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2217%22%20y%3D%2217%22%20width%3D%2213%22%20height%3D%2224%22%20fill%3D%22%236d86a2%22%2F%3E%3Crect%20x%3D%2235%22%20y%3D%2212%22%20width%3D%2212%22%20height%3D%2229%22%20fill%3D%22%23c46b69%22%2F%3E%3Crect%20x%3D%2253%22%20y%3D%2221%22%20width%3D%2229%22%20height%3D%2220%22%20fill%3D%22%23c6a36f%22%2F%3E%3Crect%20x%3D%2289%22%20y%3D%2214%22%20width%3D%2220%22%20height%3D%2227%22%20fill%3D%22%23eee6d7%22%2F%3E%3Crect%20x%3D%2216%22%20y%3D%2253%22%20width%3D%2237%22%20height%3D%2225%22%20fill%3D%22%23c6a36f%22%2F%3E%3Crect%20x%3D%2261%22%20y%3D%2250%22%20width%3D%2212%22%20height%3D%2228%22%20fill%3D%22%236d86a2%22%2F%3E%3Crect%20x%3D%2280%22%20y%3D%2258%22%20width%3D%2234%22%20height%3D%2220%22%20fill%3D%22%23b97c62%22%2F%3E%3Crect%20x%3D%2218%22%20y%3D%2294%22%20width%3D%2228%22%20height%3D%2231%22%20fill%3D%22%23eee6d7%22%2F%3E%3Crect%20x%3D%2253%22%20y%3D%2291%22%20width%3D%2257%22%20height%3D%2234%22%20fill%3D%22%236d86a2%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 136,
+      "palette": [
+        "#3a4655",
+        "#80644b",
+        "#c6a36f",
+        "#6d86a2"
+      ],
+      "width": 132,
+      "height": 136
+    },
+    {
+      "id": "bsh_outdoor_lounge",
+      "name": "临海户外沙发",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22158%22%20height%3D%2278%22%20viewBox%3D%220%200%20158%2078%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%2210%22%20y%3D%2231%22%20width%3D%22138%22%20height%3D%2237%22%20rx%3D%226%22%20fill%3D%22%23f2eee5%22%20stroke%3D%22%23637d94%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%222%22%20y%3D%2222%22%20width%3D%2224%22%20height%3D%2247%22%20fill%3D%22%23637d94%22%2F%3E%3Crect%20x%3D%22132%22%20y%3D%2222%22%20width%3D%2224%22%20height%3D%2247%22%20fill%3D%22%23637d94%22%2F%3E%3Crect%20x%3D%2231%22%20y%3D%2235%22%20width%3D%2241%22%20height%3D%2227%22%20fill%3D%22%23a8c7cf%22%2F%3E%3Crect%20x%3D%2283%22%20y%3D%2235%22%20width%3D%2239%22%20height%3D%2227%22%20fill%3D%22%23786b78%22%2F%3E%3Cpath%20d%3D%22M23%2069L17%2077M137%2069L143%2077%22%20stroke%3D%22%23637d94%22%20stroke-width%3D%225%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 158,
+      "palette": [
+        "#f2eee5",
+        "#637d94",
+        "#a8c7cf",
+        "#786b78"
+      ],
+      "width": 158,
+      "height": 78
+    },
+    {
+      "id": "bsh_outdoor_table",
+      "name": "临海小桌",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2292%22%20height%3D%2264%22%20viewBox%3D%220%200%2092%2064%22%20shape-rendering%3D%22crispEdges%22%3E%3Cellipse%20cx%3D%2246%22%20cy%3D%2218%22%20rx%3D%2239%22%20ry%3D%2214%22%20fill%3D%22%23a7bdc3%22%20stroke%3D%22%23364a5b%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M46%2031V60M23%2060H69%22%20stroke%3D%22%23364a5b%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2238%22%20y%3D%225%22%20width%3D%2217%22%20height%3D%2210%22%20fill%3D%22%23e3d3b5%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 92,
+      "palette": [
+        "#364a5b",
+        "#a7bdc3",
+        "#e3d3b5"
+      ],
+      "width": 92,
+      "height": 64
+    },
+    {
+      "id": "bsh_railing",
+      "name": "临海玻璃栏杆",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22184%22%20height%3D%2262%22%20viewBox%3D%220%200%20184%2062%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M5%2010H179M5%2054H179M12%2010V57M55%2010V57M98%2010V57M141%2010V57M176%2010V57%22%20stroke%3D%22%2345657a%22%20stroke-width%3D%225%22%2F%3E%3Crect%20x%3D%2214%22%20y%3D%2215%22%20width%3D%2238%22%20height%3D%2234%22%20fill%3D%22%239ec4d1%22%20opacity%3D%22.45%22%2F%3E%3Crect%20x%3D%2257%22%20y%3D%2215%22%20width%3D%2238%22%20height%3D%2234%22%20fill%3D%22%23e4f1f2%22%20opacity%3D%22.35%22%2F%3E%3Crect%20x%3D%22100%22%20y%3D%2215%22%20width%3D%2238%22%20height%3D%2234%22%20fill%3D%22%239ec4d1%22%20opacity%3D%22.45%22%2F%3E%3Crect%20x%3D%22143%22%20y%3D%2215%22%20width%3D%2230%22%20height%3D%2234%22%20fill%3D%22%23e4f1f2%22%20opacity%3D%22.35%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 184,
+      "palette": [
+        "#45657a",
+        "#9ec4d1",
+        "#e4f1f2"
+      ],
+      "width": 184,
+      "height": 62
+    },
+    {
+      "id": "bsh_clutter",
+      "name": "颜料与草稿凌乱堆",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22118%22%20height%3D%2242%22%20viewBox%3D%220%200%20118%2042%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%224%22%20y%3D%2225%22%20width%3D%2258%22%20height%3D%2211%22%20fill%3D%22%23e6dfd1%22%20transform%3D%22rotate(-5%2030%2030)%22%2F%3E%3Crect%20x%3D%2229%22%20y%3D%2215%22%20width%3D%2255%22%20height%3D%2210%22%20fill%3D%22%23e6dfd1%22%20transform%3D%22rotate(7%2055%2020)%22%2F%3E%3Ccircle%20cx%3D%2291%22%20cy%3D%2229%22%20r%3D%2211%22%20fill%3D%22%234f78a7%22%2F%3E%3Ccircle%20cx%3D%22106%22%20cy%3D%2230%22%20r%3D%228%22%20fill%3D%22%23c86868%22%2F%3E%3Cpath%20d%3D%22M11%2030L47%207M18%2035L59%205%22%20stroke%3D%22%23d6b75d%22%20stroke-width%3D%224%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 118,
+      "palette": [
+        "#e6dfd1",
+        "#4f78a7",
+        "#c86868",
+        "#d6b75d"
+      ],
+      "width": 118,
+      "height": 42
+    },
+    {
+      "id": "bsh_books",
+      "name": "随手放下的书",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2278%22%20height%3D%2247%22%20viewBox%3D%220%200%2078%2047%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%225%22%20y%3D%2230%22%20width%3D%2268%22%20height%3D%2212%22%20fill%3D%22%23354b67%22%2F%3E%3Crect%20x%3D%2212%22%20y%3D%2218%22%20width%3D%2259%22%20height%3D%2212%22%20fill%3D%22%23b56c6c%22%2F%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%2261%22%20height%3D%2211%22%20fill%3D%22%23d6c19b%22%2F%3E%3Cpath%20d%3D%22M12%2010H55M20%2022H63M14%2034H62%22%20stroke%3D%22%23eee7d8%22%20stroke-width%3D%223%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 78,
+      "palette": [
+        "#354b67",
+        "#b56c6c",
+        "#d6c19b",
+        "#eee7d8"
+      ],
+      "width": 78,
+      "height": 47
+    },
+    {
+      "id": "bsh_clothing",
+      "name": "衣架与随手搭衣",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22126%22%20height%3D%22132%22%20viewBox%3D%220%200%20126%20132%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M14%2012H112M24%2012V125M102%2012V125M9%20125H39M87%20125H117%22%20stroke%3D%22%2333465b%22%20stroke-width%3D%227%22%2F%3E%3Cpath%20d%3D%22M42%2029L56%2018L70%2029L63%2034L79%2085H34L49%2034Z%22%20fill%3D%22%23738dab%22%2F%3E%3Cpath%20d%3D%22M73%2031L85%2021L98%2031L92%2036L107%2091H65L80%2036Z%22%20fill%3D%22%239c78a6%22%20opacity%3D%22.9%22%2F%3E%3Crect%20x%3D%2229%22%20y%3D%2299%22%20width%3D%2252%22%20height%3D%2220%22%20fill%3D%22%23c7b08d%22%20transform%3D%22rotate(-5%2055%20109)%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 132,
+      "palette": [
+        "#33465b",
+        "#c7b08d",
+        "#738dab",
+        "#9c78a6"
+      ],
+      "width": 126,
+      "height": 132
+    },
+    {
+      "id": "bsh_cabinet",
+      "name": "厨房整墙柜",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22146%22%20height%3D%22128%22%20viewBox%3D%220%200%20146%20128%22%20shape-rendering%3D%22crispEdges%22%3E%3Crect%20x%3D%225%22%20y%3D%225%22%20width%3D%22136%22%20height%3D%22117%22%20fill%3D%22%23e8e4dc%22%20stroke%3D%22%23344b60%22%20stroke-width%3D%226%22%2F%3E%3Cpath%20d%3D%22M49%209V118M96%209V118M9%2065H137%22%20stroke%3D%22%2371889a%22%20stroke-width%3D%225%22%2F%3E%3Ccircle%20cx%3D%2240%22%20cy%3D%2236%22%20r%3D%224%22%20fill%3D%22%23b99f73%22%2F%3E%3Ccircle%20cx%3D%2258%22%20cy%3D%2236%22%20r%3D%224%22%20fill%3D%22%23b99f73%22%2F%3E%3Ccircle%20cx%3D%2287%22%20cy%3D%2236%22%20r%3D%224%22%20fill%3D%22%23b99f73%22%2F%3E%3Ccircle%20cx%3D%22105%22%20cy%3D%2236%22%20r%3D%224%22%20fill%3D%22%23b99f73%22%2F%3E%3Crect%20x%3D%2219%22%20y%3D%2277%22%20width%3D%2231%22%20height%3D%2230%22%20fill%3D%22%2371889a%22%2F%3E%3Crect%20x%3D%2260%22%20y%3D%2277%22%20width%3D%2266%22%20height%3D%2214%22%20fill%3D%22%23b99f73%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 146,
+      "palette": [
+        "#e8e4dc",
+        "#71889a",
+        "#344b60",
+        "#b99f73"
+      ],
+      "width": 146,
+      "height": 128
+    },
+    {
+      "id": "bsh_lantern",
+      "name": "海风落地灯",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2254%22%20height%3D%2294%22%20viewBox%3D%220%200%2054%2094%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20d%3D%22M27%2010V81M12%2084H42%22%20stroke%3D%22%2326394d%22%20stroke-width%3D%226%22%2F%3E%3Cpath%20d%3D%22M10%209H44L37%2035H17Z%22%20fill%3D%22%23e6cf8e%22%20stroke%3D%22%2326394d%22%20stroke-width%3D%224%22%2F%3E%3Crect%20x%3D%2220%22%20y%3D%2215%22%20width%3D%2214%22%20height%3D%2214%22%20fill%3D%22%23f5e7b0%22%2F%3E%3Crect%20x%3D%2220%22%20y%3D%2250%22%20width%3D%2214%22%20height%3D%228%22%20fill%3D%22%238facbf%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 94,
+      "palette": [
+        "#26394d",
+        "#e6cf8e",
+        "#8facbf"
+      ],
+      "width": 54,
+      "height": 94
+    },
+    {
+      "id": "bsh_stool",
+      "name": "沾颜料的高脚凳",
+      "pixelImage": "data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2262%22%20height%3D%2286%22%20viewBox%3D%220%200%2062%2086%22%20shape-rendering%3D%22crispEdges%22%3E%3Cellipse%20cx%3D%2231%22%20cy%3D%2216%22%20rx%3D%2224%22%20ry%3D%2212%22%20fill%3D%22%239a7555%22%20stroke%3D%22%234c3b33%22%20stroke-width%3D%225%22%2F%3E%3Cpath%20d%3D%22M18%2026L10%2081M44%2026L52%2081M14%2059H48%22%20stroke%3D%22%234c3b33%22%20stroke-width%3D%226%22%2F%3E%3Crect%20x%3D%2217%22%20y%3D%2210%22%20width%3D%229%22%20height%3D%226%22%20fill%3D%22%234f7fa8%22%2F%3E%3Crect%20x%3D%2234%22%20y%3D%2215%22%20width%3D%228%22%20height%3D%225%22%20fill%3D%22%23b96d8e%22%2F%3E%3C%2Fsvg%3E",
+      "pixelSize": 86,
+      "palette": [
+        "#4c3b33",
+        "#9a7555",
+        "#4f7fa8",
+        "#b96d8e"
+      ],
+      "width": 62,
+      "height": 86
+    }
+  ]
+}

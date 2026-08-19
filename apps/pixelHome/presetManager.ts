@@ -9,7 +9,7 @@ import type {
   PixelHomePreset, PixelRoomPreset, PixelAssetPreset,
   PixelHomeState, PixelRoomLayout, PixelAsset,
 } from './types';
-import { PixelLayoutDB, PixelAssetDB } from './pixelHomeDb';
+import { PixelLayoutDB, PixelAssetDB, PixelRoomDB } from './pixelHomeDb';
 import { confirmExportSafety } from '../../utils/exportGuard';
 
 // ─── 导出 ────────────────────────────────────────────
@@ -29,19 +29,27 @@ export async function exportPreset(
   }
 
   // 导出房间（去掉 charId）
-  const rooms: PixelRoomPreset[] = homeState.rooms.map(r => ({
-    roomId: r.roomId,
-    furniture: r.furniture,
-    wallColor: r.wallColor,
-    floorColor: r.floorColor,
-    ambiance: r.ambiance,
-    wallFillMode: r.wallFillMode,
-    wallOffsetX: r.wallOffsetX,
-    wallOffsetY: r.wallOffsetY,
-    floorFillMode: r.floorFillMode,
-    floorOffsetX: r.floorOffsetX,
-    floorOffsetY: r.floorOffsetY,
-  }));
+  const metadataById = new Map(homeState.roomMetadata.map(room => [room.id, room]));
+  const rooms: PixelRoomPreset[] = homeState.rooms.map(r => {
+    const metadata = metadataById.get(r.roomId);
+    return {
+      roomId: r.roomId,
+      name: metadata?.name,
+      order: metadata?.order,
+      width: metadata?.width,
+      height: metadata?.height,
+      furniture: r.furniture,
+      wallColor: r.wallColor,
+      floorColor: r.floorColor,
+      ambiance: r.ambiance,
+      wallFillMode: r.wallFillMode,
+      wallOffsetX: r.wallOffsetX,
+      wallOffsetY: r.wallOffsetY,
+      floorFillMode: r.floorFillMode,
+      floorOffsetX: r.floorOffsetX,
+      floorOffsetY: r.floorOffsetY,
+    };
+  });
 
   // 导出用到的资产（精简，去掉 originalImage 节省空间）
   const assets: PixelAssetPreset[] = allAssets
@@ -129,16 +137,22 @@ export async function importPreset(
       }
     }
 
+    // 先合并房间目录：新 preset 可创建任意房间；旧 v1 preset 无 metadata 时仍按原七室兼容。
+    const validRooms = preset.rooms.filter(room => (
+      room && typeof room.roomId === 'string' && room.roomId.trim()
+    ));
+    await PixelRoomDB.mergePresetRooms(charId, validRooms, preset.replaceRoomCatalog === true);
+
     // 导入房间布局
     let roomsImported = 0;
-    for (const presetRoom of preset.rooms) {
+    for (const presetRoom of validRooms) {
       const layout: PixelRoomLayout = {
         roomId: presetRoom.roomId,
         charId,
-        furniture: presetRoom.furniture,
-        wallColor: presetRoom.wallColor,
-        floorColor: presetRoom.floorColor,
-        ambiance: presetRoom.ambiance,
+        furniture: Array.isArray(presetRoom.furniture) ? presetRoom.furniture : [],
+        wallColor: presetRoom.wallColor || '#f1e4d0',
+        floorColor: presetRoom.floorColor || '#b69b78',
+        ambiance: presetRoom.ambiance || '',
         wallFillMode: presetRoom.wallFillMode,
         wallOffsetX: presetRoom.wallOffsetX,
         wallOffsetY: presetRoom.wallOffsetY,

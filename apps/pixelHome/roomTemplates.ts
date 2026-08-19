@@ -5,7 +5,7 @@
  * 槽位数量和分类固定，但位置可由用户/角色调整。
  */
 
-import type { RoomSlotDef } from './types';
+import type { PixelRoomMetadata, RoomSlotDef } from './types';
 import type { MemoryRoom } from '../../utils/memoryPalace/types';
 
 export const ROOM_SLOTS: Record<MemoryRoom, RoomSlotDef[]> = {
@@ -112,6 +112,17 @@ export const ALL_ROOMS: MemoryRoom[] = [
   'living_room', 'bedroom', 'study', 'attic', 'self_room', 'user_room', 'windowsill',
 ];
 
+export function isLegacyPixelRoomId(roomId: string): roomId is MemoryRoom {
+  return (ALL_ROOMS as string[]).includes(roomId);
+}
+
+/** 只有未经扩展的原七室目录才使用旧平面图；任意自定义目录改用响应式入口。 */
+export function isLegacyPixelRoomCatalog(rooms: PixelRoomMetadata[]): boolean {
+  if (rooms.length !== ALL_ROOMS.length) return false;
+  const ids = new Set(rooms.map(room => room.id));
+  return ALL_ROOMS.every(roomId => ids.has(roomId));
+}
+
 // ─── 房间尺寸（格子数，俯瞰图+编辑器共用）─────────
 
 export const ROOM_SIZES: Record<MemoryRoom, { w: number; h: number }> = {
@@ -123,3 +134,26 @@ export const ROOM_SIZES: Record<MemoryRoom, { w: number; h: number }> = {
   user_room:   { w: 5, h: 4 },
   windowsill:  { w: 10, h: 3 },
 };
+
+export const DEFAULT_PIXEL_ROOM_METADATA: PixelRoomMetadata[] = ALL_ROOMS.map((id, order) => ({
+  id,
+  name: ROOM_META[id].name,
+  order,
+  width: ROOM_SIZES[id].w,
+  height: ROOM_SIZES[id].h,
+}));
+
+export function displayPixelRoomName(room: PixelRoomMetadata, userName?: string): string {
+  if (room.id === 'user_room' && room.name === ROOM_META.user_room.name && userName) {
+    return `${userName}的房`;
+  }
+  return room.name;
+}
+
+export function defaultPixelRoomMetadata(roomId: string, order: number): PixelRoomMetadata {
+  if (isLegacyPixelRoomId(roomId)) {
+    const size = ROOM_SIZES[roomId];
+    return { id: roomId, name: ROOM_META[roomId].name, order, width: size.w, height: size.h };
+  }
+  return { id: roomId, name: roomId, order, width: 6, height: 5 };
+}

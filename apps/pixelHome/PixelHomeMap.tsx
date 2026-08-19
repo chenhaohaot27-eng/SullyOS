@@ -1,5 +1,5 @@
 /**
- * Pixel Home — 7房间俯瞰地图
+ * Pixel Home — 兼容旧七室平面图的房间入口
  *
  * 星露谷风格俯视平面图。
  * 客厅最大，用户房和个人房相邻。
@@ -10,14 +10,14 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import type { PixelHomeState, PixelHomeTheme, PixelAsset } from './types';
 import { DEFAULT_HOME_THEME, decodeColorField } from './types';
 import type { MemoryRoom } from '../../utils/memoryPalace/types';
-import { ROOM_META, ROOM_SIZES } from './roomTemplates';
+import { displayPixelRoomName, isLegacyPixelRoomCatalog } from './roomTemplates';
 
 interface Props {
   homeState: PixelHomeState;
   assets: PixelAsset[];
   charSprite?: string;
   userName: string;
-  onEnterRoom: (roomId: MemoryRoom) => void;
+  onEnterRoom: (roomId: string) => void;
   /** 修改全局主题色（外围墙体/背景）。父层负责落盘。 */
   onUpdateTheme?: (theme: PixelHomeTheme) => void;
 }
@@ -69,6 +69,10 @@ const PixelHomeMap: React.FC<Props> = ({ homeState, assets, charSprite, userName
   const WALL_BORDER_LIGHT = theme.wallBorderLight || WALL_BORDER_LIGHT_FALLBACK;
   const BG_COLOR = theme.bgColor || BG_COLOR_FALLBACK;
   const CORRIDOR_STEP = theme.corridorStep || DEFAULT_HOME_THEME.corridorStep;
+  const roomMetadataById = new Map(homeState.roomMetadata.map(room => [room.id, room]));
+  const activeFloorPlan = FLOOR_PLAN.filter(room => roomMetadataById.has(room.roomId));
+  const orderedRooms = [...homeState.roomMetadata].sort((a, b) => a.order - b.order);
+  const floorPlanKey = activeFloorPlan.map(room => room.roomId).join('|');
 
   const [themePanelOpen, setThemePanelOpen] = useState(false);
   const [scale, setScale] = useState(1);
@@ -123,7 +127,8 @@ const PixelHomeMap: React.FC<Props> = ({ homeState, assets, charSprite, userName
     // 每隔 12~20 秒有概率换个房间；避免永远只待在客厅
     const roomSwitchTimer = setInterval(() => {
       if (Math.random() < 0.55) {
-        const nextIdx = Math.floor(Math.random() * FLOOR_PLAN.length);
+        if (activeFloorPlan.length === 0) return;
+        const nextIdx = Math.floor(Math.random() * activeFloorPlan.length);
         charPosRef.current = { x: 50, y: 60 };
         charTargetRef.current = { x: 50, y: 60 };
         setCharPos({ roomIdx: nextIdx, x: 50, y: 60 });
@@ -131,7 +136,7 @@ const PixelHomeMap: React.FC<Props> = ({ homeState, assets, charSprite, userName
     }, 12000 + Math.random() * 8000);
 
     return () => { clearInterval(stepTimer); clearInterval(targetTimer); clearInterval(roomSwitchTimer); };
-  }, []);
+  }, [floorPlanKey]);
 
   // wheel
   useEffect(() => {
@@ -216,15 +221,27 @@ const PixelHomeMap: React.FC<Props> = ({ homeState, assets, charSprite, userName
   }, []);
 
   // 获取房间显示名
-  const getRoomName = (roomId: MemoryRoom) => {
-    if (roomId === 'user_room') return `${userName}的房`;
-    return ROOM_META[roomId].name;
+  const getRoomName = (roomId: string) => {
+    const room = roomMetadataById.get(roomId);
+    return room ? displayPixelRoomName(room, userName) : roomId;
   };
 
   const updateTheme = useCallback((patch: Partial<PixelHomeTheme>) => {
     if (!onUpdateTheme) return;
     onUpdateTheme({ ...theme, ...patch });
   }, [theme, onUpdateTheme]);
+
+  // 自定义目录（如白沙湾九房）直接显示 metadata 卡片，不再落入硬编码七室平面图。
+  if (!isLegacyPixelRoomCatalog(homeState.roomMetadata)) {
+    return (
+      <CustomRoomCatalog
+        homeState={homeState}
+        assets={assets}
+        userName={userName}
+        onEnterRoom={onEnterRoom}
+      />
+    );
+  }
 
   return (
     <div
@@ -274,8 +291,7 @@ const PixelHomeMap: React.FC<Props> = ({ homeState, assets, charSprite, userName
         transformOrigin: 'center center',
       }}>
         <div className="relative" style={{ width: totalW, height: totalH }}>
-          {FLOOR_PLAN.map(({ roomId, x, y, w, h }, idx) => {
-            const meta = ROOM_META[roomId];
+          {activeFloorPlan.map(({ roomId, x, y, w, h }, idx) => {
             const style = ROOM_STYLE[roomId];
             const roomLayout = homeState.rooms.find(r => r.roomId === roomId);
             const px = x * CELL + WALL_THICK + 10;
@@ -463,10 +479,78 @@ const PixelHomeMap: React.FC<Props> = ({ homeState, assets, charSprite, userName
 
           {/* 走廊/楼梯：连接相邻房间之间 1 格空隙。y 坐标要跟 FLOOR_PLAN 同步：
                窗台 0..2 | 间隙 3 | 卧室/书房 4..8 | 间隙 9 | 客厅 10..15 | 间隙 16 | 个人/用户 17..20 | 间隙 21 | 阁楼 22..25 */}
-          <Corridor x={4} y1={3}  y2={4}  border={WALL_BORDER} step={CORRIDOR_STEP} />
-          <Corridor x={4} y1={9}  y2={10} border={WALL_BORDER} step={CORRIDOR_STEP} />
-          <Corridor x={4} y1={16} y2={17} border={WALL_BORDER} step={CORRIDOR_STEP} />
-          <Corridor x={4} y1={21} y2={22} border={WALL_BORDER} step={CORRIDOR_STEP} />
+          {activeFloorPlan.length === FLOOR_PLAN.length && (
+            <>
+              <Corridor x={4} y1={3}  y2={4}  border={WALL_BORDER} step={CORRIDOR_STEP} />
+              <Corridor x={4} y1={9}  y2={10} border={WALL_BORDER} step={CORRIDOR_STEP} />
+              <Corridor x={4} y1={16} y2={17} border={WALL_BORDER} step={CORRIDOR_STEP} />
+              <Corridor x={4} y1={21} y2={22} border={WALL_BORDER} step={CORRIDOR_STEP} />
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 任意数量房间的统一入口；旧七室继续显示原平面图。 */}
+      <div data-room="room-entry-list" className="absolute inset-x-2 bottom-2 z-[60] overflow-x-auto no-scrollbar"
+        onPointerDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+        <div className="flex min-w-max gap-1.5 rounded-xl border border-slate-700/70 bg-slate-900/90 p-2 shadow-xl backdrop-blur-sm">
+          {orderedRooms.map(room => (
+            <button key={room.id} onClick={() => onEnterRoom(room.id)}
+              className="shrink-0 rounded-lg bg-slate-700/90 px-3 py-2 text-[11px] font-bold text-slate-100 active:scale-95">
+              {displayPixelRoomName(room, userName)}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CustomRoomCatalog: React.FC<Pick<Props, 'homeState' | 'assets' | 'userName' | 'onEnterRoom'>> = ({
+  homeState, assets, userName, onEnterRoom,
+}) => {
+  const rooms = [...homeState.roomMetadata].sort((a, b) => a.order - b.order);
+  const layouts = new Map(homeState.rooms.map(layout => [layout.roomId, layout]));
+  const assetMap = new Map(assets.map(asset => [asset.id, asset]));
+
+  return (
+    <div className="h-full overflow-y-auto bg-gradient-to-b from-slate-900 via-slate-900 to-sky-950 px-3 py-4 no-scrollbar">
+      <div className="mx-auto max-w-3xl pb-5">
+        <div className="mb-3 px-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-300/70">Room Catalog</p>
+          <p className="mt-1 text-xs text-slate-400">选择房间进入查看与布置</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {rooms.map(room => {
+            const layout = layouts.get(room.id);
+            const previews = (layout?.furniture || [])
+              .map(item => item.assetId ? assetMap.get(item.assetId) : undefined)
+              .filter((asset): asset is PixelAsset => !!asset)
+              .slice(0, 3);
+            return (
+              <button key={room.id} data-custom-room={room.id} onClick={() => onEnterRoom(room.id)}
+                className="min-h-36 overflow-hidden rounded-2xl border border-sky-200/15 bg-white/[0.07] p-3 text-left shadow-lg backdrop-blur-sm transition active:scale-[0.98]">
+                <div className="mb-3 flex h-14 items-end justify-center gap-1 overflow-hidden rounded-xl bg-gradient-to-b from-sky-200/10 to-indigo-400/10 px-2 pt-2">
+                  {previews.length > 0 ? previews.map(asset => (
+                    <img key={asset.id} src={asset.pixelImage} alt=""
+                      className="h-12 max-w-[31%] object-contain drop-shadow-md"
+                      style={{ imageRendering: 'pixelated' }} />
+                  )) : <span className="pb-4 text-xl text-sky-100/40">◇</span>}
+                </div>
+                <span className="block text-sm font-bold leading-tight text-slate-100">
+                  {displayPixelRoomName(room, userName)}
+                </span>
+                <span className="mt-1 block text-[10px] text-slate-400">
+                  {room.width} × {room.height} · {layout?.furniture.length || 0} 件家具
+                </span>
+                {layout?.ambiance && (
+                  <span className="mt-2 block line-clamp-2 text-[10px] leading-relaxed text-slate-500">
+                    {layout.ambiance}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

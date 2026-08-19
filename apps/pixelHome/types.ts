@@ -2,8 +2,6 @@
  * Pixel Home — 像素家园类型定义
  */
 
-import type { MemoryRoom } from '../../utils/memoryPalace/types';
-
 // ─── 像素资产 ─────────────────────────────────────────
 
 export interface PixelAsset {
@@ -55,7 +53,7 @@ export interface PlacedFurniture {
 // ─── 单个房间布局 ─────────────────────────────────────
 
 export interface PixelRoomLayout {
-  roomId: MemoryRoom;
+  roomId: string;
   charId: string;
   furniture: PlacedFurniture[];
   /** 墙颜色：空字符串 = 用房间默认；以 "data:" 开头 = 图片纹理；以 "#" 开头 = 纯色；其它视为空 */
@@ -74,6 +72,15 @@ export interface PixelRoomLayout {
   floorFillMode?: 'tile' | 'stretch';
   floorOffsetX?: number;
   floorOffsetY?: number;
+}
+
+/** 每角色独立的房间目录；布局与家具仍保存在 PixelRoomLayout。 */
+export interface PixelRoomMetadata {
+  id: string;
+  name: string;
+  order: number;
+  width: number;
+  height: number;
 }
 
 // ─── 整个家园状态 ─────────────────────────────────────
@@ -110,6 +117,7 @@ export function decodeColorField(v: string | undefined | null):
 
 export interface PixelHomeState {
   charId: string;
+  roomMetadata: PixelRoomMetadata[];
   rooms: PixelRoomLayout[];
   lastLLMDecoration: number;
   /** 全局主题色（外围墙体 + 背景）；不设置时用 DEFAULT_HOME_THEME */
@@ -122,7 +130,7 @@ export type DecorationActionType = 'move' | 'recolor' | 'rescale' | 'set_wall' |
 
 export interface DecorationAction {
   type: DecorationActionType;
-  roomId: MemoryRoom;
+  roomId: string;
   slotId?: string;
   x?: number;
   y?: number;
@@ -140,7 +148,7 @@ export interface DecorationDiff {
 
 // ─── 视图状态 ─────────────────────────────────────────
 
-export type PixelHomeViewMode = 'map' | 'room' | 'generator' | 'library' | 'charEditor' | 'dive';
+export type PixelHomeViewMode = 'map' | 'room' | 'rooms' | 'generator' | 'library' | 'charEditor' | 'dive';
 
 // ─── 房屋预设（导入/导出）─────────────────────────────
 
@@ -149,13 +157,20 @@ export interface PixelHomePreset {
   name: string;
   author: string;
   createdAt: number;
+  /** 整屋包可替换当前角色的房间目录；旧 preset 缺省为合并，保持兼容。 */
+  replaceRoomCatalog?: boolean;
   rooms: PixelRoomPreset[];
   assets: PixelAssetPreset[];   // 包含的像素资产（用到的才导出）
 }
 
 /** 房间预设（去掉 charId，便于跨角色导入） */
 export interface PixelRoomPreset {
-  roomId: MemoryRoom;
+  roomId: string;
+  /** v1 向后兼容扩展：旧 preset 没有这些字段时按旧七室或通用默认值补齐。 */
+  name?: string;
+  order?: number;
+  width?: number;
+  height?: number;
   furniture: PlacedFurniture[];
   wallColor: string;
   floorColor: string;
