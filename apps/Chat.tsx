@@ -49,7 +49,8 @@ import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
 import { synthesizeSpeechDetailed, characterHasVoice } from '../utils/ttsRouter';
 import { shouldAutoGenerateVoice, shouldAutoPlayGeneratedVoice } from '../utils/voicePlayback';
-import { fetchBlobForShare, shareOrDownloadBlob } from '../utils/shareExport';
+import { fetchBlobForShare, shareOrDownloadBlob, shareOrDownloadFile } from '../utils/shareExport';
+import { buildEmojiRuntimeDiagnostic } from '../utils/emojiRuntimeDiagnostic';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { resolveFishAudioApiKey, stripFishMarkupForDisplay, cleanTextForTtsFish } from '../utils/fishAudioTts';
 import { resolveTtsProvider } from '../utils/ttsProvider';
@@ -124,6 +125,26 @@ const Chat: React.FC = () => {
     const [activeCategory, setActiveCategory] = useState<string>('default');
     const [newCategoryName, setNewCategoryName] = useState('');
     const [newEmojiName, setNewEmojiName] = useState(''); // 表情包重命名输入框
+
+    const handleExportEmojiDiagnostic = useCallback(async () => {
+        try {
+            const [currentEmojis, currentCategories] = await Promise.all([
+                DB.getEmojis(),
+                DB.getEmojiCategories(),
+            ]);
+            const report = await buildEmojiRuntimeDiagnostic(currentEmojis, currentCategories);
+            await shareOrDownloadFile({
+                content: JSON.stringify(report, null, 2),
+                fileName: 'emoji_runtime_diagnostic.json',
+                mimeType: 'application/json',
+                shareTitle: '导出表情诊断',
+            });
+            addToast(`表情诊断已生成（${currentEmojis.length} 条）`, 'success');
+        } catch (error: any) {
+            console.error('[emoji] runtime diagnostic failed', error);
+            addToast(error?.message || '表情诊断导出失败', 'error');
+        }
+    }, [addToast]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastMsgIdRef = useRef<number | null>(null);
@@ -3182,6 +3203,7 @@ const Chat: React.FC = () => {
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
+                onExportEmojiDiagnostic={handleExportEmojiDiagnostic}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}
                 onToggleTranslation={() => { const next = !translationEnabled; setTranslationEnabled(next); localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next)); if (next) { trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' }); } if (!next) { setShowingTargetIds(new Set()); } }}

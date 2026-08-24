@@ -51,6 +51,7 @@ import {
 } from './agenticTools';
 import { getLocalDateKey } from './localDate';
 import { normalizeAssistantActionFormatting } from './assistantActionFormat';
+import { resolveEmojiByModelReference } from './emojiResolver';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
 import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceHistory';
@@ -625,20 +626,19 @@ export async function applyAssistantPostProcessing(
             return merged;
         };
 
-        // 表情按模型写的位置原地插发。名字在表情库里找不到时落一条降级文本气泡，不静默丢：
-        // 后台主动消息会把每个 [[SEND_EMOJI]] 切成独立一条 push，找不到就是整条 0 气泡，而
-        // 系统横幅和未读数照常 +1 —— 用户点进去空空如也。名字对不上有两条常见来路：模型自己
-        // 编了个不存在的名字，或者用户在上次打包之后删了 / 改名了这个表情。
-        // 降级文案跟横幅那边（sanitizeIntoSegments 的 [表情：x]）对齐，锁屏看到什么点进去就是什么。
-        const sendEmojiBubble = async (name: string): Promise<void> => {
-            await typingPause(Math.random() * 500 + 300);
-            const foundEmoji = emojis.find(e => e.name === name);
-            if (foundEmoji) {
-                await persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: foundEmoji.url, metadata: takeMeta(mcdInheritMeta) } as any);
-            } else {
-                console.warn('[emoji] 表情库里没有这个名字，落降级文本气泡', { name, charId: char.id });
-                await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: `[表情：${name}]`, metadata: takeMeta(mcdInheritMeta) } as any);
+        // 表情按模型写的位置原地插发；无法安全解析时跳过，不伪装成文本气泡。
+        const sendEmojiBubble = async (rawName: string): Promise<void> => {
+            const resolution = resolveEmojiByModelReference(rawName, emojis);
+            if (!resolution.emoji?.url) {
+                console.warn('[emoji] 无法安全匹配模型表情引用，已跳过', {
+                    rawName,
+                    reason: resolution.emoji ? 'missing-url' : resolution.reason,
+                    charId: char.id,
+                });
+                return;
             }
+            await typingPause(Math.random() * 500 + 300);
+            await persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: resolution.emoji.url, metadata: takeMeta(mcdInheritMeta) } as any);
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         };
 

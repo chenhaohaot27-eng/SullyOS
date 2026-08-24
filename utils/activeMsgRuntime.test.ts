@@ -23,6 +23,7 @@ import {
   resolveInboxPersistTimestamp,
   revokeSwallowedSelfLogEntry,
   runInstantChatStatusCheck,
+  shouldSuppressUnresolvedEmojiOnlyDelivery,
   cancelLateEmotionPoll,
   describeMultipartFailure,
   handleInstantErrorPushMessage,
@@ -44,6 +45,47 @@ import { ActiveMsgStore } from './activeMsgStore';
 import { AMSG_SELF_LOG_KEY, amsgStateNamespace } from './amsgFirePack';
 import { CHAT_GEN_EVENTS } from './chatGenEvents';
 import { DB } from './db';
+
+describe('AMSG2 未解析表情的未读抑制', () => {
+  const emojis = [{ name: '求抱抱', url: 'blob:hug' }];
+
+  it('整条只有无法解析的表情时抑制空消息未读', () => {
+    expect(shouldSuppressUnresolvedEmojiOnlyDelivery('[[SEND_EMOJI: 不存在]]', emojis)).toBe(true);
+    expect(shouldSuppressUnresolvedEmojiOnlyDelivery('[表情：不存在]', emojis)).toBe(true);
+  });
+
+  it('有可解析表情或正文时不抑制正常送达', () => {
+    expect(shouldSuppressUnresolvedEmojiOnlyDelivery('[[SEND_EMOJI: 求抱抱]]', emojis)).toBe(false);
+    expect(shouldSuppressUnresolvedEmojiOnlyDelivery('我来了\n[[SEND_EMOJI: 不存在]]', emojis)).toBe(false);
+  });
+
+  it('真 flush：不落空气泡，送达事件标记 suppressUnread', async () => {
+    (globalThis as any).window ??= { dispatchEvent: () => true };
+    const charId = `char-emoji-miss-${Date.now()}`;
+    const messageId = `msg-emoji-miss-${Date.now()}`;
+    await DB.saveCharacter({ id: charId, name: '表情角色' } as any);
+    await ActiveMsgStore.saveInboxMessage({
+      messageId,
+      charId,
+      charName: '表情角色',
+      body: '[[SEND_EMOJI: 不存在的名字]]',
+      messageType: 'text',
+      receivedAt: Date.now(),
+    } as any);
+    const events: any[] = [];
+    const dispatch = vi.spyOn(window, 'dispatchEvent').mockImplementation((event: any) => {
+      events.push(event);
+      return true;
+    });
+
+    await flushInboxToChat();
+
+    expect((await DB.getRecentMessagesByCharId(charId, 20)).filter(m => m.role === 'assistant')).toHaveLength(0);
+    const received = events.find(event => event?.type === 'active-msg-received');
+    expect(received?.detail?.suppressUnread).toBe(true);
+    dispatch.mockRestore();
+  }, 20000);
+});
 
 // resolveFireExpireDecision 是从「防穿帮闸·客户端兜底」吞没闸抽出来的 get-or-compute
 // helper（带 TTL 清扫），单测把闸的关键不变量钉住，防回归：

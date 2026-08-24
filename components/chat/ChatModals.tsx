@@ -7,6 +7,8 @@ import EmotionSettingsPanel from './EmotionSettingsPanel';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
 import { trackEvent } from '../../utils/analytics';
+import EmojiImage from './EmojiImage';
+import { DownloadSimple } from '@phosphor-icons/react';
 
 interface ChatModalsProps {
     modalType: string;
@@ -79,6 +81,7 @@ interface ChatModalsProps {
     onDeleteMessage: () => void;
     onCopyMessage: () => void;
     onDeleteEmoji: () => void;
+    onExportEmojiDiagnostic: () => Promise<void>;
     onDeleteCategory: () => void;
     // Category Visibility
     allCharacters?: CharacterProfile[];
@@ -244,6 +247,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     onBgUpload, onRemoveBg, onClearHistory,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
     onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
+    onExportEmojiDiagnostic,
     allCharacters = [], onSaveCategoryVisibility,
     translationEnabled, onToggleTranslation, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
@@ -261,6 +265,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     const [visibilitySelection, setVisibilitySelection] = useState<Set<string>>(new Set());
     const [historyPage, setHistoryPage] = useState(0);
     const [historySearch, setHistorySearch] = useState('');
+    const [isExportingEmojiDiagnostic, setIsExportingEmojiDiagnostic] = useState(false);
     const longPressTimerRef = useRef<number | null>(null);
     const longPressTriggeredRef = useRef(false);
     const HISTORY_PAGE_SIZE = 50;
@@ -965,11 +970,11 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     {Array.isArray(selectedEmoji) ? (
                         <div className="flex flex-wrap justify-center gap-2 max-h-48 overflow-y-auto no-scrollbar w-full px-2">
                             {selectedEmoji.map((e: any, idx: number) => (
-                                <img key={idx} src={e.url} className="w-16 h-16 object-contain rounded-xl border border-slate-200" />
+                                <EmojiImage key={idx} src={e.url} className="w-16 h-16 object-contain rounded-xl border border-slate-200" />
                             ))}
                         </div>
                     ) : (
-                        selectedEmoji && <img src={selectedEmoji.url} className="w-24 h-24 object-contain rounded-xl border" />
+                        selectedEmoji && <EmojiImage src={selectedEmoji.url} className="w-24 h-24 object-contain rounded-xl border" />
                     )}
                     <p className="text-center text-sm text-slate-500">
                         {Array.isArray(selectedEmoji) ? `确定要删除这 ${selectedEmoji.length} 个表情包吗？` : "确定要删除这个表情包吗？"}
@@ -982,7 +987,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 <div className="flex flex-col items-center gap-4 py-1">
                     {selectedEmoji && !Array.isArray(selectedEmoji) && (
                         <div className="flex flex-col items-center gap-2">
-                            <img src={selectedEmoji.url} className="w-20 h-20 object-contain rounded-xl border border-slate-200" />
+                            <EmojiImage src={selectedEmoji.url} className="w-20 h-20 object-contain rounded-xl border border-slate-200" />
                             <span className="text-sm font-medium text-slate-600 max-w-[12rem] truncate">{selectedEmoji.name}</span>
                         </div>
                     )}
@@ -995,6 +1000,19 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                 <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
                             </svg>
                             修改名称
+                        </button>
+                        <button
+                            onClick={async () => {
+                                if (isExportingEmojiDiagnostic) return;
+                                setIsExportingEmojiDiagnostic(true);
+                                try { await onExportEmojiDiagnostic(); }
+                                finally { setIsExportingEmojiDiagnostic(false); }
+                            }}
+                            disabled={isExportingEmojiDiagnostic}
+                            className="w-full py-3 bg-sky-50 text-sky-700 font-medium rounded-2xl active:bg-sky-100 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                        >
+                            <DownloadSimple className="w-5 h-5" weight="bold" />
+                            {isExportingEmojiDiagnostic ? '正在逐个检测…' : '导出表情诊断'}
                         </button>
                         <button
                             onClick={() => setModalType('delete-emoji')}

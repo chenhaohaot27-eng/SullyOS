@@ -5,7 +5,15 @@ describe('normalizeAssistantActionFormatting', () => {
     it('修复单括号与展示态表情，并保持规范标签幂等', () => {
         expect(normalize('[SEND_EMOJI: 开心]')).toBe('[[SEND_EMOJI: 开心]]');
         expect(normalize('[表情：小狗泪丧]')).toBe('[[SEND_EMOJI: 小狗泪丧]]');
+        expect(normalize('[表情: 小狗泪丧]')).toBe('[[SEND_EMOJI: 小狗泪丧]]');
+        expect(normalize('[表情包：小狗泪丧]')).toBe('[[SEND_EMOJI: 小狗泪丧]]');
+        expect(normalize('[表情包: 小狗泪丧]')).toBe('[[SEND_EMOJI: 小狗泪丧]]');
         expect(normalize('[[SEND_EMOJI: 开心]]')).toBe('[[SEND_EMOJI: 开心]]');
+    });
+
+    it('不把自然语言里的括号片段当成表情意图', () => {
+        expect(normalize('他只是引用了[表情：求抱抱]这几个字'))
+            .toBe('他只是引用了[表情：求抱抱]这几个字');
     });
 
     it('修复转账 ACTION 的单括号，不碰普通转账叙述', () => {

@@ -19,6 +19,7 @@ import { exportMcpLocal, importMcpLocal } from './mcpClient';
 import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgStore';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
+import { normalizeEmojiRecords } from './emojiImageCompat';
 
 const DB_NAME = 'AetherOS_Data';
 // v67：两条并行线各自用掉了 v65/v66（A线: blob_assets + 生活记录；B线: room_plates 门牌 + digest_reports 消化日志），
@@ -1020,7 +1021,7 @@ export const DB = {
       const transaction = db.transaction(STORE_EMOJIS, 'readonly');
       const store = transaction.objectStore(STORE_EMOJIS);
       const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => resolve(normalizeEmojiRecords(request.result || []));
       request.onerror = () => reject(request.error);
     });
   },
@@ -3343,7 +3344,7 @@ export const DB = {
           data.customThemes = undefined as any;
       }, data.customThemes?.length || 0);
       await runSection('表情包', data.savedEmojis !== undefined, async () => {
-          await mergeStore(STORE_EMOJIS, data.savedEmojis, '表情包', true);
+          await mergeStore(STORE_EMOJIS, normalizeEmojiRecords(data.savedEmojis || []), '表情包', true);
           data.savedEmojis = undefined as any;
       }, data.savedEmojis?.length || 0);
       await runSection('表情分类', data.emojiCategories !== undefined, async () => {

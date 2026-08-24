@@ -46,6 +46,8 @@ import { evaluateEmotionBackground } from '../hooks/useChatAI';
 import { CHAT_GEN_EVENTS, setChatViewSnapshot } from '../utils/chatGenEvents';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
 import { ChatPrompts } from '../utils/chatPrompts';
+import { normalizeAssistantActionFormatting } from '../utils/assistantActionFormat';
+import { resolveEmojiByModelReference } from '../utils/emojiResolver';
 import { extractHtmlBlocks } from '../utils/htmlPrompt';
 import { mergePalaceFragmentsIntoMemories } from '../utils/memoryPalace/pipeline';
 import {
@@ -86,7 +88,7 @@ interface ProactiveQueueEntry {
 }
 
 const normalizeProactiveAiContent = (raw: string): string => {
-  let cleaned = raw;
+  let cleaned = normalizeAssistantActionFormatting(raw);
   cleaned = cleaned.replace(/\[(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*(.*?)\]/g, '[[SEND_EMOJI: $1]]');
   cleaned = cleaned.replace(
     /(^|\n)\s*(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*([^\n]+?)(?=\s*(?:\n|$))/g,
@@ -1863,8 +1865,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       let awayActiveMsgCount = 0;
 
       const handler = (e: Event) => {
-          const { charId, charName, body } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string };
+          const { charId, charName, body, suppressUnread } = (e as CustomEvent).detail as {
+              charId: string;
+              charName: string;
+              body?: string;
+              suppressUnread?: boolean;
+          };
           setLastMsgTimestamp(Date.now());
+          if (suppressUnread) return;
 
           const isChattingWithThisChar = activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId;
           if (!isChattingWithThisChar) {
@@ -2347,24 +2355,33 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // 把每对原文/译文落成一条 text 消息,内容用 `\n%%BILINGUAL%%\n` 串联供渲染端识别。
                   const hasTranslationTags = /<翻译>\s*<原文>[\s\S]*?<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/.test(aiContent);
 
+                  const sendEmojiBubble = async (rawName: string): Promise<boolean> => {
+                      const resolution = resolveEmojiByModelReference(rawName, emojis);
+                      if (!resolution.emoji?.url) {
+                          console.warn('[emoji] 主动消息无法安全匹配模型表情引用，已跳过', {
+                              rawName,
+                              reason: resolution.emoji ? 'missing-url' : resolution.reason,
+                              charId,
+                          });
+                          return false;
+                      }
+                      const meta = consumeThinkingMeta();
+                      await DB.saveMessage({
+                          charId,
+                          role: 'assistant',
+                          type: 'emoji',
+                          content: resolution.emoji.url,
+                          timestamp: baseTimestamp + offset,
+                          ...(meta ? { metadata: meta } : {}),
+                      });
+                      offset += 1;
+                      return true;
+                  };
+
                   if (hasTranslationTags) {
                       // 表情包按模型写的位置原地插发（与 applyAssistantPostProcessing 双语分支同款修复）。
                       // 旧实现先把所有 [[SEND_EMOJI:]] 抽走、正文发完后统一追加到最后（还去了重），
                       // 表现为「翻译模式下角色永远最后才发表情包」。
-                      const sendEmojiBubble = async (name: string): Promise<void> => {
-                          const foundEmoji = emojis.find(e => e.name === name);
-                          if (!foundEmoji?.url) return;
-                          const meta = consumeThinkingMeta();
-                          await DB.saveMessage({
-                              charId,
-                              role: 'assistant',
-                              type: 'emoji',
-                              content: foundEmoji.url,
-                              timestamp: baseTimestamp + offset,
-                              ...(meta ? { metadata: meta } : {}),
-                          });
-                          offset += 1;
-                      };
                       // 翻译标签之外的普通文本段：splitResponse 按出现顺序拆出文字 / 表情逐条发
                       const renderPlainSegment = async (segment: string): Promise<void> => {
                           for (const part of ChatParser.splitResponse(segment)) {
@@ -2432,31 +2449,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
                       for (const part of responseParts) {
                           if (part.type === 'emoji') {
-                              const foundEmoji = emojis.find(e => e.name === part.content);
-                              if (foundEmoji?.url) {
-                                  const meta = consumeThinkingMeta();
-                                  await DB.saveMessage({
-                                      charId,
-                                      role: 'assistant',
-                                      type: 'emoji',
-                                      content: foundEmoji.url,
-                                      timestamp: baseTimestamp + offset,
-                                      ...(meta ? { metadata: meta } : {}),
-                                  });
-                              } else {
-                                  const fallbackText = `发送了表情包：${part.content}`;
-                                  const meta = consumeThinkingMeta();
-                                  await DB.saveMessage({
-                                      charId,
-                                      role: 'assistant',
-                                      type: 'text',
-                                      content: fallbackText,
-                                      timestamp: baseTimestamp + offset,
-                                      ...(meta ? { metadata: meta } : {}),
-                                  });
-                                  savedPreviewChunks.push(fallbackText);
-                              }
-                              offset += 1;
+                              await sendEmojiBubble(part.content);
                               continue;
                           }
 

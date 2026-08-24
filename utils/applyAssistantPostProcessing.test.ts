@@ -441,18 +441,14 @@ describe('directive 重放: life_record / news_card', () => {
     }, 20000);
 });
 
-// 表情名对不上时不能静默丢：后台主动消息会把每个 [[SEND_EMOJI]] 切成独立一条 push，
-// 丢了就是整条 0 气泡 —— 而系统横幅（[表情：x]）和未读数照常，用户点进去是空的。
-describe('SEND_EMOJI 名字对不上', () => {
-    it('落一条降级文本气泡，文案与横幅一致', async () => {
+describe('SEND_EMOJI 安全解析', () => {
+    it('名字对不上时跳过，不落 [表情：xxx] 文本气泡', async () => {
         const charId = `c-emoji-miss-${Date.now()}`;
 
         await applyAssistantPostProcessing('[[SEND_EMOJI: 查无此表情]]', makeCtx(charId, []));
 
         const bubbles = (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
-        expect(bubbles).toHaveLength(1);
-        expect(bubbles[0].type).toBe('text');
-        expect(bubbles[0].content).toBe('[表情：查无此表情]');
+        expect(bubbles).toHaveLength(0);
     }, 20000);
 
     it('名字对得上时照常落表情气泡', async () => {
@@ -467,6 +463,35 @@ describe('SEND_EMOJI 名字对不上', () => {
         expect(bubbles).toHaveLength(1);
         expect(bubbles[0].type).toBe('emoji');
         expect(bubbles[0].content).toBe('blob:emoji-lol');
+    }, 20000);
+
+    it('引号空格名和包含唯一库内名的描述都落真实表情', async () => {
+        const charId = `c-emoji-normalized-${Date.now()}`;
+        const ctx = makeCtx(charId, [], [{ name: '求抱抱', url: 'blob:emoji-hug' }]);
+        ctx.instantRender = true;
+
+        await applyAssistantPostProcessing('[[SEND_EMOJI: " 求抱抱 "]]\n[[SEND_EMOJI: 白嘟熊张开双臂做出求抱抱动作]]', ctx);
+
+        const bubbles = (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
+        expect(bubbles.map(m => [m.type, m.content])).toEqual([
+            ['emoji', 'blob:emoji-hug'],
+            ['emoji', 'blob:emoji-hug'],
+        ]);
+    }, 20000);
+
+    it('文字 + 单括号表情按原顺序落库', async () => {
+        const charId = `c-emoji-order-${Date.now()}`;
+        const ctx = makeCtx(charId, [], [{ name: '求抱抱', url: 'blob:emoji-hug' }]);
+        ctx.instantRender = true;
+
+        await applyAssistantPostProcessing('先说一句\n[表情：求抱抱]\n再说一句', ctx);
+
+        const bubbles = (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
+        expect(bubbles.map(m => [m.type, m.content])).toEqual([
+            ['text', '先说一句'],
+            ['emoji', 'blob:emoji-hug'],
+            ['text', '再说一句'],
+        ]);
     }, 20000);
 });
 
