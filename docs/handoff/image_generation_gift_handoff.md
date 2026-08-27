@@ -3,7 +3,7 @@
 ## 状态
 
 - Phase 1 实现 commit：`00c9d46f`
-- 部署状态：`BLOCKED_BEFORE_PUSH`。生图/备份专项 51/51 与生产 build 通过；仓库全量测试为 3533/3534，通过数之外还有 2 个 suite 因本机无法解析 `cloudflare:workers` 而未收集、1 个与当前用户未提交聊天连续性改动相关的断言失败。按“全部测试通过后才部署”的门禁，未 merge/push `main`，未触发 Pages。
+- 部署状态：`GATE_PASS_PENDING_DEPLOY`。生图/备份专项 51/51、全量测试 292 files / 3788 tests 与生产 build 均通过；等待合并、推送和 Pages 验证。真实 API 仍未调用。
 - 真实 API：未测试；必须由用户在部署后的设置页用自己的 Key 手动点击“测试生图”。自动测试全部使用 mock。
 - 本阶段只提供全局生图基础设施；没有实现礼物 App、角色主动发图、自拍触发或外卖。
 
@@ -81,6 +81,8 @@ pnpm exec vitest run utils/imageGenerationConfig.test.ts utils/imageGenerationSe
 pnpm exec tsc --noEmit --pretty false
 pnpm run build
 ```
+
+门禁基线对照（Phase 1 父 commit `591e4673`）：同一条 `utils/chatPrompts.firePack.test.ts` 用例也因提示词文案已变为“你刚刚结束了语音通话”而失败，证明不是 Phase 1 回归；断言已改为验证稳定的模式切换标记。两个 worker suite 在 D: 工作区因 `vitest.config.ts` 使用 URL `.pathname` 生成跨盘符不可解析路径而未收集，而同一基线在 C: 临时 worktree 可收集并通过；配置现使用 Node `fileURLToPath()`，不涉及业务代码。
 
 - OpenAI-compatible Images 的尺寸支持取决于供应商；adapter 发送按分辨率/比例计算的 `size`，不支持时供应商会返回标准化 `PROVIDER` 错误。
 - Gemini Native 参考图 URL 受源站 CORS/鉴权限制。
