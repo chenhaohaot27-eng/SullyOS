@@ -2,8 +2,8 @@
 
 ## 状态
 
-- Phase 1 实现 commit：`TO_BE_FILLED_AFTER_IMPLEMENTATION_COMMIT`
-- 部署状态：`NOT_DEPLOYED_TEST_GATE_PENDING`
+- Phase 1 实现 commit：`00c9d46f`
+- 部署状态：`BLOCKED_BEFORE_PUSH`。生图/备份专项 51/51 与生产 build 通过；仓库全量测试为 3533/3534，通过数之外还有 2 个 suite 因本机无法解析 `cloudflare:workers` 而未收集、1 个与当前用户未提交聊天连续性改动相关的断言失败。按“全部测试通过后才部署”的门禁，未 merge/push `main`，未触发 Pages。
 - 真实 API：未测试；必须由用户在部署后的设置页用自己的 Key 手动点击“测试生图”。自动测试全部使用 mock。
 - 本阶段只提供全局生图基础设施；没有实现礼物 App、角色主动发图、自拍触发或外卖。
 
