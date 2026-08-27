@@ -3,7 +3,8 @@
 ## 状态
 
 - Phase 1 实现 commit：`00c9d46f`
-- 部署状态：`GATE_PASS_PENDING_DEPLOY`。生图/备份专项 51/51、全量测试 292 files / 3788 tests 与生产 build 均通过；等待合并、推送和 Pages 验证。真实 API 仍未调用。
+- 门禁修复 commit：`07d9b3a8`
+- 部署状态：`DEPLOYED`。Phase 1 已合并至 main commit `12dc57b9`；GitHub Pages run `33084713348`（run #11）于 2026-08-27 成功。生图/备份专项 51/51、待部署干净 main 全量测试 288 files / 3765 tests 与生产 build 均通过。真实 API 仍未调用。
 - 真实 API：未测试；必须由用户在部署后的设置页用自己的 Key 手动点击“测试生图”。自动测试全部使用 mock。
 - 本阶段只提供全局生图基础设施；没有实现礼物 App、角色主动发图、自拍触发或外卖。
 
