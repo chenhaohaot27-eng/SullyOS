@@ -27,6 +27,7 @@ import { DB } from './db';
 export const MIRRORED_KEYS: readonly string[] = [
     'os_theme',                          // 外观主题（丢了 = 回初始主题）
     'os_api_config',                     // 全局 API（丢了 = 一切生成静默失效）
+    'os_image_generation_config_v1',     // 全局生图 API（与主 API / 识图 API 独立）
     'os_api_presets',
     'os_realtime_config',
     'os_memory_palace_config',

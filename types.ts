@@ -244,6 +244,27 @@ export interface VisionApiConfig {
   model: string;
 }
 
+/** 全局生图协议。与主对话 API、识图 API 完全独立。 */
+export type ImageGenerationProvider = 'gemini-native' | 'openai-images';
+
+export type ImageGenerationResolution = '1K' | '2K' | '4K';
+
+export type ImageGenerationAspectRatio = '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '16:9' | '9:16';
+
+/** 仅保存在当前设备；文本/完整备份会按项目现有凭据策略原样包含此配置。 */
+export interface ImageGenerationConfig {
+  version: 1;
+  enabled: boolean;
+  provider: ImageGenerationProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  defaultResolution: ImageGenerationResolution;
+  defaultAspectRatio: ImageGenerationAspectRatio;
+  allowReferenceImages: boolean;
+  timeoutMs: number;
+}
+
 export interface APIConfig {
   baseUrl: string;
   apiKey: string;
@@ -3750,6 +3771,7 @@ export interface FullBackupData {
     version: number;
     theme?: OSTheme;
     apiConfig?: APIConfig;
+    imageGenerationConfig?: ImageGenerationConfig;
     instantPushConfig?: InstantPushConfig;
     pushVapid?: { vapidPublicKey: string; vapidPrivateKey: string; vapidEmail?: string; updatedAt?: number; };
     /**
