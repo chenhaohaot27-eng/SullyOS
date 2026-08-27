@@ -57,6 +57,88 @@ const getRealTimeStr = (tz?: string): string => {
 const isDateTimeAwarenessOn = (char: CharacterProfile): boolean =>
     char.dateTimeAwarenessEnabled !== false;
 
+/** 括号叙事识别默认开启；旧角色没有字段时沿用开启行为。 */
+const isParentheticalNarrationOn = (char: CharacterProfile): boolean =>
+    char.dateStyleConfig?.recognizeParentheticalNarration !== false;
+
+export interface ParsedDatePlayerInput {
+    heardText: string;
+    narrationText: string;
+    hasParentheticalNarration: boolean;
+}
+
+/**
+ * 拆分见面玩家输入中的成对中英文括号。
+ * 任意全/半角开括号都可与任意全/半角闭括号配对；未闭合部分留在台词中，绝不吞字。
+ */
+export const parseDatePlayerInput = (text: string): ParsedDatePlayerInput => {
+    const source = typeof text === 'string' ? text : '';
+    const stack: number[] = [];
+    const matched: Array<{ start: number; end: number }> = [];
+
+    for (let i = 0; i < source.length; i++) {
+        const ch = source[i];
+        if (ch === '(' || ch === '（') {
+            stack.push(i);
+        } else if ((ch === ')' || ch === '）') && stack.length > 0) {
+            matched.push({ start: stack.pop()!, end: i });
+        }
+    }
+
+    if (matched.length === 0) {
+        return { heardText: source, narrationText: '', hasParentheticalNarration: false };
+    }
+
+    // 嵌套括号只取最外层，避免同一段叙事重复进入上下文。
+    const ranges = matched
+        .sort((a, b) => a.start - b.start || b.end - a.end)
+        .filter((range, index, all) => !all.some((other, otherIndex) => (
+            otherIndex !== index && other.start < range.start && other.end > range.end
+        )))
+        .sort((a, b) => a.start - b.start);
+
+    const heardParts: string[] = [];
+    const narrationParts: string[] = [];
+    let cursor = 0;
+    for (const range of ranges) {
+        heardParts.push(source.slice(cursor, range.start));
+        narrationParts.push(source.slice(range.start + 1, range.end).trim());
+        cursor = range.end + 1;
+    }
+    heardParts.push(source.slice(cursor));
+
+    return {
+        heardText: heardParts.join('').trim(),
+        narrationText: narrationParts.filter(Boolean).join('\n'),
+        hasParentheticalNarration: true,
+    };
+};
+
+/** 仅供模型上下文使用；数据库、气泡、记录和导出始终保留玩家原文。 */
+export const formatDatePlayerInputForModel = (text: string): string => {
+    const parsed = parseDatePlayerInput(text);
+    if (!parsed.hasParentheticalNarration) return text;
+    return `[玩家可听见的台词]\n${parsed.heardText || '（无；玩家保持沉默）'}\n[玩家提供的非台词叙事背景]\n${parsed.narrationText || '（空）'}`;
+};
+
+const PARENTHETICAL_NARRATION_RULES = `
+### 玩家输入中的括号叙事（系统解释规则）
+见面历史和本轮玩家输入可能包含内部结构标签「[玩家可听见的台词]」与「[玩家提供的非台词叙事背景]」。这些标签是系统添加的解释，不是玩家原话。
+- 「玩家可听见的台词」才是玩家实际说出口、你能听见的话。
+- 「玩家提供的非台词叙事背景」来自玩家原文括号内，可能是动作、表情、身体状态、情绪、内心想法、暗示、环境或临时场景补充；绝不能当作玩家说出口的话，也不要用“你刚才说……”等方式直接回应它。
+- 可观察的动作和环境可以被你直接看见并自然回应。内心、想法和隐含情绪只帮助你揣摩并调整反应；除非角色卡或世界书明确赋予你读心能力，否则不得精确复述这些内容，也不得表现得像直接读心。
+- 若可听见台词标为“无”，表示玩家没有说话，只是沉默地行动、产生情绪或补充场景；仍须结合叙事正常回应。
+- 始终只回应玩家确实提供的内容。不得替玩家补写未提供的台词、动作、反应、决定或后续行为。
+`;
+
+const prepareDatePlayerHistory = (messages: Message[], char: CharacterProfile): Message[] => {
+    if (!isParentheticalNarrationOn(char)) return messages;
+    return messages.map(message => {
+        if (message.role !== 'user' || message.metadata?.source !== 'date' || typeof message.content !== 'string') return message;
+        return { ...message, content: formatDatePlayerInputForModel(message.content) };
+    });
+};
+
 /** 立绘系统要求必备的五种基础情绪；角色自定义立绘在此之上叠加 */
 export const REQUIRED_DATE_EMOTIONS = ['normal', 'happy', 'angry', 'sad', 'shy'];
 
@@ -585,6 +667,7 @@ const buildVNModeBlock = (char: CharacterProfile, userName: string): string => {
     const extraBlock = buildExtraStyleBlock(styleConfig);
     const digBlock = isDigDeeperOn(styleConfig) ? `${DIG_DEEPER_BLOCK}\n` : '';
     const observeBlock = isObserveOn(char) ? buildObserveBlock(char) : '';
+    const parentheticalBlock = isParentheticalNarrationOn(char) ? PARENTHETICAL_NARRATION_RULES : '';
     return `### [Visual Novel Mode: 视觉小说脚本模式]
 你正在与用户进行**面对面**的互动。这不是聊天，是一场真实的见面。
 
@@ -600,7 +683,7 @@ ${preset.block}
 ${digBlock}${povBlock}${extraBlock}### 场景上下文
 ${timeLine}- **Location**: 你们现在**面对面**。
 - **Context**: 参考历史记录。如果刚刚才看到开场白（Opening），请自然接话。
-${observeBlock}`;
+${observeBlock}${parentheticalBlock}`;
 };
 
 /**
@@ -620,7 +703,7 @@ const buildDateHistory = (
     const limit = char.contextLimit || 500;
     const hwm = parseInt(localStorage.getItem(`mp_lastMsgId_${char.id}`) || '0', 10);
     const palaceFiltered = hwm > 0 ? allMsgs.filter(m => m.id > hwm) : allMsgs;
-    const historyForBuild = palaceFiltered.slice(0, -1);
+    const historyForBuild = prepareDatePlayerHistory(palaceFiltered.slice(0, -1), char);
     const { apiMessages } = ChatPrompts.buildMessageHistory(
         historyForBuild,
         limit,
@@ -658,7 +741,7 @@ export const DatePrompts = {
         const gapHint = getTimeGapHint(lastMsg?.timestamp, charTz);
 
         const { apiMessages } = ChatPrompts.buildMessageHistory(
-            allMsgs,
+            prepareDatePlayerHistory(allMsgs, char),
             peekLimit,
             char,
             userProfile || ({} as UserProfile),
@@ -698,7 +781,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
 
         return {
             messages: [
-                { role: 'system', content: baseContext },
+                { role: 'system', content: baseContext + (isParentheticalNarrationOn(char) ? PARENTHETICAL_NARRATION_RULES : '') },
                 { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${contextSeparator}${peekInstructions}\n\n(Start sensing...)` },
             ],
         };
@@ -743,7 +826,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             messages: [
                 { role: 'system', content: systemPrompt },
                 ...historyMsgs,
-                { role: 'user', content: `${userText}\n\n${note}` },
+                { role: 'user', content: `${isParentheticalNarrationOn(char) ? formatDatePlayerInputForModel(userText) : userText}\n\n${note}` },
             ],
         };
     },
