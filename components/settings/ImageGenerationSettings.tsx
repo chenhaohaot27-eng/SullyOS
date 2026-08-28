@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ImageGenerationAspectRatio, ImageGenerationConfig, ImageGenerationProvider, ImageGenerationResolution } from '../../types';
 import {
     clearImageGenerationConfig,
@@ -8,8 +8,12 @@ import {
 } from '../../utils/imageGenerationConfig';
 import {
     generatedImageToBlob,
+    filterAvailableImageModels,
     imageGenerationService,
     ImageGenerationError,
+    listAvailableModels,
+    resolveImageModelSelection,
+    type AvailableImageModel,
 } from '../../utils/imageGenerationService';
 
 interface Props {
@@ -31,6 +35,11 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
     const [draft, setDraft] = useState<ImageGenerationConfig>(() => loadImageGenerationConfig());
     const [showKey, setShowKey] = useState(false);
     const [testing, setTesting] = useState(false);
+    const [modelsLoading, setModelsLoading] = useState(false);
+    const [availableModels, setAvailableModels] = useState<AvailableImageModel[]>([]);
+    const [modelSearch, setModelSearch] = useState('');
+    const [imageModelsOnly, setImageModelsOnly] = useState(true);
+    const [lastRefreshedAt, setLastRefreshedAt] = useState<Partial<Record<ImageGenerationProvider, number>>>({});
     const [status, setStatus] = useState('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const previewObjectUrlRef = useRef<string | null>(null);
@@ -50,10 +59,10 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
         setStatus('');
     };
 
-    const validate = (config: ImageGenerationConfig): boolean => {
+    const validate = (config: ImageGenerationConfig, requireModel = true): boolean => {
         if (!config.enabled) return true;
-        if (!config.baseUrl.trim() || !config.apiKey.trim() || !config.model.trim()) {
-            addToast('启用生图 API 前，请填写 Base URL、API Key 和模型', 'error');
+        if (!config.baseUrl.trim() || !config.apiKey.trim() || (requireModel && !config.model.trim())) {
+            addToast(requireModel ? '启用生图 API 前，请填写 Base URL、API Key 和模型' : '刷新模型前，请填写 Base URL 和 API Key', 'error');
             return false;
         }
         try {
@@ -86,11 +95,37 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
             setSavedConfig(cleared);
             setDraft(cleared);
             setShowKey(false);
+            setAvailableModels([]);
+            setModelSearch('');
+            setLastRefreshedAt({});
             setStatus('生图 API 配置已清除');
             replacePreviewUrl(null);
             addToast('生图 API 配置已清除', 'info');
         } catch {
             addToast('清除失败：当前浏览器无法写入本地存储', 'error');
+        }
+    };
+
+    const refreshModels = async () => {
+        const config = normalizeImageGenerationConfig({ ...draft, enabled: true });
+        if (!validate(config, false)) return;
+        setModelsLoading(true);
+        setStatus('正在刷新可用模型…');
+        try {
+            const models = await listAvailableModels(config);
+            setAvailableModels(current => [
+                ...current.filter(model => model.provider !== config.provider),
+                ...models,
+            ]);
+            setLastRefreshedAt(current => ({ ...current, [config.provider]: Date.now() }));
+            setStatus(models.length
+                ? `已刷新 ${models.length} 个模型；可继续手动填写模型 ID`
+                : '接口返回空模型列表；仍可手动填写模型 ID');
+        } catch (error) {
+            const message = error instanceof ImageGenerationError ? error.message : '模型列表刷新失败';
+            setStatus(`模型刷新失败：${message}；仍可手动填写模型 ID`);
+        } finally {
+            setModelsLoading(false);
         }
     };
 
@@ -124,6 +159,14 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
     };
 
     const dirty = JSON.stringify(normalizeImageGenerationConfig(draft)) !== JSON.stringify(savedConfig);
+    const providerModels = availableModels.filter(model => model.provider === draft.provider);
+    const visibleModels = useMemo(() => filterAvailableImageModels(availableModels, {
+        provider: draft.provider,
+        query: modelSearch,
+        imageOnly: imageModelsOnly,
+    }), [availableModels, draft.provider, imageModelsOnly, modelSearch]);
+    const selectedListModel = visibleModels.some(model => model.id === draft.model) ? draft.model : '';
+    const refreshedAt = lastRefreshedAt[draft.provider];
 
     return (
         <section className="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-sm">
@@ -192,8 +235,56 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                 </div>
 
                 <div>
-                    <label className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">模型名称</label>
+                    <div className="mb-1.5 flex items-center justify-between gap-2 pl-1">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">模型名称</label>
+                        <button
+                            type="button"
+                            disabled={modelsLoading || testing}
+                            onClick={refreshModels}
+                            className="rounded-lg bg-fuchsia-50 px-2.5 py-1 text-[10px] font-bold text-fuchsia-600 transition active:scale-95 disabled:opacity-40"
+                        >
+                            {modelsLoading ? '刷新中…' : '刷新模型'}
+                        </button>
+                    </div>
                     <input className={`${fieldClass} font-mono`} value={draft.model} onChange={event => patchDraft('model', event.target.value)} placeholder="gemini-3-pro-image" />
+                    <div className="mt-2 space-y-2 rounded-xl border border-slate-100 bg-white/55 p-2.5">
+                        <input
+                            className={`${fieldClass} py-2`}
+                            type="search"
+                            value={modelSearch}
+                            onChange={event => setModelSearch(event.target.value)}
+                            placeholder="搜索已刷新的模型"
+                        />
+                        <select
+                            className={fieldClass}
+                            value={selectedListModel}
+                            onChange={event => {
+                                if (event.target.value === '__show_all__') {
+                                    setImageModelsOnly(false);
+                                    return;
+                                }
+                                patchDraft('model', resolveImageModelSelection(event.target.value, draft.model));
+                            }}
+                        >
+                            <option value="">选择已刷新模型（保留手动输入）</option>
+                            {imageModelsOnly && <option value="__show_all__">显示全部模型</option>}
+                            {visibleModels.map(model => (
+                                <option key={`${model.provider}:${model.id}`} value={model.id}>
+                                    {model.displayName} · {model.imageCapability === 'confirmed' ? '确认支持生图' : model.imageCapability === 'likely' ? '可能支持生图' : '能力未知'}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[9px] text-slate-400">
+                            <label className="flex items-center gap-1.5">
+                                <input type="checkbox" checked={imageModelsOnly} onChange={event => setImageModelsOnly(event.target.checked)} className="h-3.5 w-3.5 accent-fuchsia-500" />
+                                仅显示可能支持生图的模型
+                            </label>
+                            <span>
+                                {refreshedAt ? `最近刷新：${new Date(refreshedAt).toLocaleTimeString()}` : '尚未刷新'}
+                                {providerModels.length ? ` · 共 ${providerModels.length} 个` : ''}
+                            </span>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -225,16 +316,16 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                    <button type="button" disabled={testing} onClick={testConnection} className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 py-3 text-sm font-bold text-fuchsia-600 transition active:scale-95 disabled:opacity-40">
+                    <button type="button" disabled={testing || modelsLoading} onClick={testConnection} className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50 py-3 text-sm font-bold text-fuchsia-600 transition active:scale-95 disabled:opacity-40">
                         {testing ? '生图测试中…' : '🧪 测试生图'}
                     </button>
-                    <button type="button" disabled={testing} onClick={save} className="rounded-2xl bg-fuchsia-500 py-3 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/20 transition active:scale-95 disabled:opacity-50">
+                    <button type="button" disabled={testing || modelsLoading} onClick={save} className="rounded-2xl bg-fuchsia-500 py-3 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/20 transition active:scale-95 disabled:opacity-50">
                         {dirty ? '保存配置' : '已保存'}
                     </button>
                 </div>
-                <button type="button" disabled={testing} onClick={clear} className="w-full rounded-xl py-2 text-[11px] font-semibold text-rose-500 transition hover:bg-rose-50 disabled:opacity-40">清除配置</button>
+                <button type="button" disabled={testing || modelsLoading} onClick={clear} className="w-full rounded-xl py-2 text-[11px] font-semibold text-rose-500 transition hover:bg-rose-50 disabled:opacity-40">清除配置</button>
 
-                {status && <div className={`rounded-xl px-3 py-2 text-xs leading-relaxed ${status.startsWith('测试失败') ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>{status}</div>}
+                {status && <div className={`rounded-xl px-3 py-2 text-xs leading-relaxed ${status.includes('失败') ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>{status}</div>}
                 {previewUrl && <img src={previewUrl} alt="生图 API 测试预览" className="mx-auto max-h-64 w-auto rounded-2xl border border-fuchsia-100 bg-white object-contain shadow-sm" />}
                 <p className="px-1 text-[9px] leading-relaxed text-slate-300">测试会真实调用一次当前生图接口，可能产生费用；自动化测试不会请求真实服务。临时预览关闭或替换时会释放。</p>
             </div>

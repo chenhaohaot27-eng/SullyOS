@@ -35,6 +35,7 @@ import { normalizeApiConfig, normalizeApiPreset } from '../utils/apiConfigNormal
 import { markBackupDone } from '../utils/backupReminder';
 import { normalizeCharacterImpression, normalizeCharacterDefaults } from '../utils/impression';
 import { normalizeModelIds } from '../utils/modelList';
+import { formatImageGenerationRequestLog, getImageGenerationLogMeta, sanitizeImageGenerationLogText } from '../utils/imageGenerationLogging';
 import {
   CONTEXT_RANGE_POLICY_VERSION,
   DEFAULT_MANUAL_CONTEXT_LIMIT,
@@ -1163,28 +1164,36 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               if (!response.ok) {
                   // Only log if it's likely an API call (contains chat/completions or models)
-                  if (urlStr.includes('/chat/completions') || urlStr.includes('/models')) {
+                  const imageLogMeta = getImageGenerationLogMeta(sendArgs[1] as RequestInit | undefined);
+                  if (urlStr.includes('/chat/completions') || urlStr.includes('/models') || imageLogMeta) {
                       try {
                           const clone = response.clone();
                           const text = await clone.text();
                           // 把发出去的请求体摘要也记上 —— 排查"只有点单(带工具)报错"必须看到 model/参数/tools/消息结构
                           let reqSummary = '';
-                          try {
-                              const b = (sendArgs[1] as any)?.body;
-                              if (typeof b === 'string') {
-                                  const j = JSON.parse(b);
-                                  const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
-                                  const roles = Array.isArray(j.messages) ? j.messages.map((m: any) => m.role + (m.tool_calls ? '(tool_calls)' : '')).join(',') : '';
-                                  reqSummary = `\n--- Request ---\nmodel: ${j.model}\ntemperature: ${j.temperature} | top_p: ${j.top_p} | reasoning_effort: ${j.reasoning_effort} | thinking: ${j.thinking ? 'on' : 'off'}\ntools(${toolNames.length}): ${toolNames.join(', ')}\nmessages(${(j.messages || []).length}) roles: ${roles}`;
-                              }
-                          } catch { /* 解析不了就算了 */ }
+                          if (imageLogMeta) {
+                              reqSummary = formatImageGenerationRequestLog(imageLogMeta);
+                          } else {
+                              try {
+                                  const b = (sendArgs[1] as any)?.body;
+                                  if (typeof b === 'string') {
+                                      const j = JSON.parse(b);
+                                      const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
+                                      const roles = Array.isArray(j.messages) ? j.messages.map((m: any) => m.role + (m.tool_calls ? '(tool_calls)' : '')).join(',') : '';
+                                      reqSummary = `\n--- Request ---\nmodel: ${j.model}\ntemperature: ${j.temperature} | top_p: ${j.top_p} | reasoning_effort: ${j.reasoning_effort} | thinking: ${j.thinking ? 'on' : 'off'}\ntools(${toolNames.length}): ${toolNames.join(', ')}\nmessages(${(j.messages || []).length}) roles: ${roles}`;
+                                  }
+                              } catch { /* 解析不了就算了 */ }
+                          }
+                          const responseDetail = imageLogMeta
+                              ? sanitizeImageGenerationLogText(text, sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)
+                              : text.substring(0, 500);
                           setSystemLogs(prev => [{
                               id: `log-${Date.now()}`,
                               timestamp: Date.now(),
                               type: 'network',
-                              source: 'API Request',
-                              message: `HTTP ${response.status} Error`,
-                              detail: `URL: ${urlStr}\nResponse: ${text.substring(0, 500)}${reqSummary}`
+                              source: imageLogMeta ? 'Image API' : 'API Request',
+                              message: imageLogMeta && response.status === 429 ? '当前模型线路繁忙' : `HTTP ${response.status} Error`,
+                              detail: `URL: ${urlStr}\nResponse: ${responseDetail}${reqSummary}`
                           }, ...prev.slice(0, 49)]); // Keep last 50
                       } catch (e) {
                           setSystemLogs(prev => [{
@@ -1221,13 +1230,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       durationMs: Date.now() - fetchStartedAt,
                       error: err,
                   }, { startedAt: fetchStartedAtPerf });
+                  const imageLogMeta = getImageGenerationLogMeta(sendArgs[1] as RequestInit | undefined);
+                  const safeDetail = imageLogMeta
+                      ? `${sanitizeImageGenerationLogText(baseDetail, sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)}${formatImageGenerationRequestLog(imageLogMeta)}`
+                      : baseDetail;
                   setSystemLogs(prev => [{
                       id: logId,
                       timestamp: Date.now(),
                       type: 'network',
-                      source: 'Network',
-                      message: err.message || 'Fetch Failed',
-                      detail: baseDetail,
+                      source: imageLogMeta ? 'Image API' : 'Network',
+                      message: imageLogMeta
+                          ? sanitizeImageGenerationLogText(err.message || 'Fetch Failed', sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)
+                          : err.message || 'Fetch Failed',
+                      detail: safeDetail,
                   }, ...prev.slice(0, 49)]);
 
                   // 复检走 originalFetch，否则它自己失败会再写一条日志滚雪球。

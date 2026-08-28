@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ImageGenerationConfig } from '../types';
 import {
+    buildImageGenerationModelsEndpoint,
+    filterAvailableImageModels,
     ImageGenerationError,
     ImageGenerationService,
+    normalizeAvailableImageModels,
     normalizeImageGenerationResponse,
+    resolveImageModelSelection,
 } from './imageGenerationService';
 
 const baseConfig: ImageGenerationConfig = {
@@ -21,9 +25,9 @@ const baseConfig: ImageGenerationConfig = {
 
 const tinyBase64 = 'aGVsbG8taW1hZ2U=';
 
-const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+const response = (body: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(body), {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -108,6 +112,86 @@ describe('image generation response normalization', () => {
     });
 });
 
+describe('image generation model discovery', () => {
+    it('parses OpenAI model lists and preserves unknown-capability models', async () => {
+        const config = { ...baseConfig, provider: 'openai-images' as const, baseUrl: 'https://images.example/v1/' };
+        const fetchMock = vi.fn().mockResolvedValue(response({ data: [
+            { id: 'gpt-image-1', display_name: 'GPT Image 1', modalities: ['image'] },
+            { id: 'vendor-custom-v2' },
+        ] }));
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch });
+
+        const models = await service.listAvailableModels(config);
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe('https://images.example/v1/models');
+        expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${config.apiKey}`);
+        expect(models).toEqual([
+            expect.objectContaining({ id: 'gpt-image-1', displayName: 'GPT Image 1', provider: 'openai-images', imageCapability: 'confirmed', protocolCompatibility: ['openai-images'] }),
+            expect.objectContaining({ id: 'vendor-custom-v2', imageCapability: 'unknown' }),
+        ]);
+    });
+
+    it('parses Gemini model lists, cleans models/ prefixes, and keeps supported methods', async () => {
+        const config = { ...baseConfig, baseUrl: 'https://gemini.example/v1beta/' };
+        const fetchMock = vi.fn().mockResolvedValue(response({ models: [
+            { name: 'models/imagen-4', displayName: 'Imagen 4', supportedGenerationMethods: ['predictImage'] },
+            { name: 'models/gemini-custom', supportedGenerationMethods: ['generateContent'] },
+        ] }));
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch });
+
+        const models = await service.listAvailableModels(config);
+        expect(fetchMock.mock.calls[0][0]).toBe('https://gemini.example/v1beta/models');
+        expect(models[0]).toEqual(expect.objectContaining({
+            id: 'imagen-4',
+            displayName: 'Imagen 4',
+            supportedMethods: ['predictImage'],
+            imageCapability: 'confirmed',
+        }));
+        expect(models[1]).toEqual(expect.objectContaining({ id: 'gemini-custom', imageCapability: 'unknown' }));
+    });
+
+    it('joins model-list paths without duplicate v1/v1beta/models segments', () => {
+        expect(buildImageGenerationModelsEndpoint({ provider: 'gemini-native', baseUrl: 'https://x.example' })).toBe('https://x.example/v1beta/models');
+        expect(buildImageGenerationModelsEndpoint({ provider: 'gemini-native', baseUrl: 'https://x.example/v1/' })).toBe('https://x.example/v1/models');
+        expect(buildImageGenerationModelsEndpoint({ provider: 'gemini-native', baseUrl: 'https://x.example/v1beta/models/' })).toBe('https://x.example/v1beta/models');
+        expect(buildImageGenerationModelsEndpoint({ provider: 'openai-images', baseUrl: 'https://x.example/v1/images/generations/' })).toBe('https://x.example/v1/models');
+        expect(buildImageGenerationModelsEndpoint({ provider: 'openai-images', baseUrl: 'https://x.example/v1/models/' })).toBe('https://x.example/v1/models');
+    });
+
+    it('returns empty lists and maps unsupported /models without disabling manual input fallback', async () => {
+        const emptyService = new ImageGenerationService({
+            fetchImpl: vi.fn().mockResolvedValue(response({ data: [] })) as typeof fetch,
+        });
+        await expect(emptyService.listAvailableModels({ ...baseConfig, provider: 'openai-images' })).resolves.toEqual([]);
+
+        const unsupportedService = new ImageGenerationService({
+            fetchImpl: vi.fn().mockResolvedValue(response({ error: { message: 'not found' } }, 404)) as typeof fetch,
+        });
+        await expect(unsupportedService.listAvailableModels(baseConfig)).rejects.toMatchObject({
+            code: 'MODELS_UNSUPPORTED',
+            status: 404,
+        });
+        expect(resolveImageModelSelection('', 'manual-image-model')).toBe('manual-image-model');
+    });
+
+    it('filters by provider, search text and image likelihood without deleting unknown models', () => {
+        const gemini = normalizeAvailableImageModels({ models: [
+            { name: 'models/gemini-3-pro-image' },
+            { name: 'models/banana-render' },
+            { name: 'models/gemini-custom' },
+        ] }, 'gemini-native');
+        const openAi = normalizeAvailableImageModels({ data: [{ id: 'flux-1' }] }, 'openai-images');
+        const all = [...gemini, ...openAi];
+
+        expect(filterAvailableImageModels(all, { provider: 'gemini-native', imageOnly: true }).map(model => model.id))
+            .toEqual(['gemini-3-pro-image', 'banana-render']);
+        expect(filterAvailableImageModels(all, { provider: 'gemini-native', imageOnly: false }).map(model => model.id))
+            .toContain('gemini-custom');
+        expect(filterAvailableImageModels(all, { provider: 'openai-images', query: 'FLUX', imageOnly: true }).map(model => model.id))
+            .toEqual(['flux-1']);
+    });
+});
+
 describe('image generation failure handling', () => {
     it('maps authentication and empty responses to stable errors', async () => {
         const authService = new ImageGenerationService({
@@ -145,6 +229,30 @@ describe('image generation failure handling', () => {
         const cancelled = cancelService.generateImage({ prompt: 'x', signal: controller.signal });
         controller.abort();
         await expect(cancelled).rejects.toMatchObject({ code: 'CANCELLED' });
+    });
+
+    it('maps HTTP 429 and saturated upstream messages to a friendly retry/switch hint with request id', async () => {
+        const service = new ImageGenerationService({
+            fetchImpl: vi.fn().mockResolvedValue(response(
+                { error: { message: '当前分组上游负载已饱和，请稍后再试' } },
+                429,
+                { 'x-request-id': 'req-image-busy-42' },
+            )) as typeof fetch,
+            loadConfig: () => baseConfig,
+        });
+
+        await expect(service.generateImage({ prompt: 'x' })).rejects.toMatchObject({
+            code: 'RATE_LIMIT',
+            status: 429,
+            requestId: 'req-image-busy-42',
+            message: expect.stringContaining('当前模型线路繁忙。你可以稍后重试，或刷新模型列表后切换其他生图模型。'),
+        });
+
+        const messageOnlyService = new ImageGenerationService({
+            fetchImpl: vi.fn().mockResolvedValue(response({ message: 'rate limit; please retry later' }, 503)) as typeof fetch,
+            loadConfig: () => baseConfig,
+        });
+        await expect(messageOnlyService.generateImage({ prompt: 'x' })).rejects.toMatchObject({ code: 'RATE_LIMIT', status: 503 });
     });
 
     it('never logs or exposes the complete API key in provider errors', async () => {
