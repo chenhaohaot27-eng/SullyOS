@@ -61,6 +61,7 @@ const StatusBar: React.FC = () => {
   }, []);
 
   const hasError = systemLogs.length > 0;
+  const onlyImageApiBusy = hasError && systemLogs.every(log => log.source === 'Image API' && log.message === '当前模型线路繁忙');
   const hasIndexedDbBackingStoreError = systemLogs.some(log => {
     const text = `${log.message} ${log.detail || ''}`.toLowerCase();
     return text.includes('backing store') || text.includes('indexeddb.open');
@@ -130,7 +131,7 @@ const StatusBar: React.FC = () => {
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
                   <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-8-5a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 5Zm0 10a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
               </svg>
-              <span>SYSTEM ERROR</span>
+              <span>{onlyImageApiBusy ? '生图线路繁忙' : 'SYSTEM ERROR'}</span>
           </button>
       )}
 

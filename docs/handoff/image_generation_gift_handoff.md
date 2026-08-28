@@ -22,7 +22,10 @@
 React/App 不得直接 `fetch` 第三方生图接口，只调用统一服务：
 
 ```ts
-import { generateImage } from '../../utils/imageGenerationService';
+import { generateImage, listAvailableModels } from '../../utils/imageGenerationService';
+import { loadImageGenerationConfig } from '../../utils/imageGenerationConfig';
+
+const models = await listAvailableModels(loadImageGenerationConfig()); // UI 不得自行 fetch /models
 
 const result = await generateImage({
   prompt: '一只放在深蓝丝绒盒中的银色海浪胸针',
@@ -44,6 +47,8 @@ const first = result.images[0]; // { source, url, mimeType, revisedPrompt? }
 |---|---|---|---|
 | `gemini-native` | `POST {base}/v1beta/models/{model}:generateContent`；Key 放 `x-goog-api-key`；`contents[].parts` + `generationConfig.responseModalities/imageConfig` | `candidates[].content.parts[].inlineData` / `inline_data`，也兼容 `fileData` URL | 支持；URL/blob 先读取为 inline base64，最多 5 张 |
 | `openai-images` | `POST {base}/images/generations`；Bearer；JSON 含 `model/prompt/n/size/response_format` | `data[].url`、`b64_json`、`base64`、data URI | adapter 明确不支持并抛 `REFERENCE_NOT_SUPPORTED`；不得静默丢图 |
+
+模型刷新也只走统一 service/provider adapter：Gemini Native 与 OpenAI Images 分别沿用各自认证，调用规范化 API root 的 `GET /models`。结果统一为 `id/displayName/provider/supportedMethods/imageCapability/protocolCompatibility`；Gemini 的 `models/` 前缀会被清理。空列表、无 `/models` 或刷新失败时必须保留手动模型 ID 回退。
 
 服务统一处理超时、外部取消、401/403、空图片响应、网络/供应商错误；结果拒绝 `blob:` 地址。错误和日志不会包含完整 Key，也不返回原始敏感响应。设置页测试预览把结果转为临时 object URL，替换或卸载时会 `revokeObjectURL`。
 

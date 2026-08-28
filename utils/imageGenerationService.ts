@@ -5,6 +5,7 @@ import type {
     ImageGenerationResolution,
 } from '../types';
 import { loadImageGenerationConfig, normalizeImageGenerationConfig } from './imageGenerationConfig';
+import { withImageGenerationLogMeta } from './imageGenerationLogging';
 
 export type ReferenceImageInput = string | {
     data?: string;
@@ -36,6 +37,17 @@ export interface ImageGenerationResult {
     createdAt: number;
 }
 
+export type ImageModelCapability = 'confirmed' | 'likely' | 'unknown';
+
+export interface AvailableImageModel {
+    id: string;
+    displayName: string;
+    provider: ImageGenerationProvider;
+    supportedMethods: string[];
+    imageCapability: ImageModelCapability;
+    protocolCompatibility: ImageGenerationProvider[];
+}
+
 export type ImageGenerationErrorCode =
     | 'DISABLED'
     | 'INVALID_CONFIG'
@@ -45,6 +57,8 @@ export type ImageGenerationErrorCode =
     | 'REFERENCE_NOT_SUPPORTED'
     | 'EMPTY_RESPONSE'
     | 'NETWORK'
+    | 'RATE_LIMIT'
+    | 'MODELS_UNSUPPORTED'
     | 'PROVIDER';
 
 export class ImageGenerationError extends Error {
@@ -52,6 +66,7 @@ export class ImageGenerationError extends Error {
         public readonly code: ImageGenerationErrorCode,
         message: string,
         public readonly status?: number,
+        public readonly requestId?: string,
     ) {
         super(message);
         this.name = 'ImageGenerationError';
@@ -71,14 +86,23 @@ interface AdapterContext {
     fetchImpl: typeof fetch;
 }
 
+interface ModelListAdapterContext {
+    config: ImageGenerationConfig;
+    signal: AbortSignal;
+    fetchImpl: typeof fetch;
+}
+
 export interface ImageGenerationProviderAdapter {
     readonly provider: ImageGenerationProvider;
     readonly supportsReferenceImages: boolean;
     generate(context: AdapterContext): Promise<GeneratedImage[]>;
+    listAvailableModels(context: ModelListAdapterContext): Promise<AvailableImageModel[]>;
 }
 
 const DATA_URI_RE = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
 const BASE64_RE = /^[a-z0-9+/]+={0,2}$/i;
+const IMAGE_MODEL_HINT_RE = /(?:^|[-_.\s])(image|imagen|gpt[-_.\s]*image|dall[-_.\s]*e|seedream|flux|banana)(?:$|[-_.\s\d])/i;
+const IMAGE_METHOD_HINT_RE = /(generate.?image|image.?generation|text.?to.?image|predict.?image)/i;
 
 function sanitizeErrorText(value: unknown, apiKey?: string): string {
     let text = typeof value === 'string' ? value : value instanceof Error ? value.message : '请求失败';
@@ -161,6 +185,78 @@ export function normalizeImageGenerationResponse(payload: unknown): GeneratedIma
     return images;
 }
 
+function stringArray(value: unknown): string[] {
+    return Array.isArray(value)
+        ? [...new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map(item => item.trim()))]
+        : [];
+}
+
+function explicitImageCapability(item: Record<string, any>, supportedMethods: string[]): boolean {
+    if (supportedMethods.some(method => IMAGE_METHOD_HINT_RE.test(method))) return true;
+    const modalities = stringArray(item.modalities || item.output_modalities || item.outputModalities);
+    if (modalities.some(modality => /image/i.test(modality))) return true;
+    const capabilities = item.capabilities;
+    if (capabilities && typeof capabilities === 'object') {
+        return Object.entries(capabilities).some(([key, enabled]) => enabled === true && /image/i.test(key));
+    }
+    return false;
+}
+
+function inferImageCapability(item: Record<string, any>, id: string, supportedMethods: string[]): ImageModelCapability {
+    if (explicitImageCapability(item, supportedMethods)) return 'confirmed';
+    return IMAGE_MODEL_HINT_RE.test(id) ? 'likely' : 'unknown';
+}
+
+export function normalizeAvailableImageModels(
+    payload: unknown,
+    provider: ImageGenerationProvider,
+): AvailableImageModel[] {
+    if (!payload || typeof payload !== 'object') return [];
+    const root = payload as Record<string, any>;
+    const source = Array.isArray(root.models) ? root.models : Array.isArray(root.data) ? root.data : [];
+    const models: AvailableImageModel[] = [];
+    const seen = new Set<string>();
+
+    for (const raw of source) {
+        if (!raw || typeof raw !== 'object') continue;
+        const item = raw as Record<string, any>;
+        const rawId = typeof item.id === 'string' ? item.id : typeof item.name === 'string' ? item.name : '';
+        const id = rawId.trim().replace(/^models\//i, '');
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        const supportedMethods = stringArray(
+            item.supportedGenerationMethods || item.supported_generation_methods || item.supportedMethods || item.supported_methods,
+        );
+        models.push({
+            id,
+            displayName: String(item.displayName || item.display_name || item.name || item.id || id).replace(/^models\//i, ''),
+            provider,
+            supportedMethods,
+            imageCapability: inferImageCapability(item, id, supportedMethods),
+            protocolCompatibility: [provider],
+        });
+    }
+    return models;
+}
+
+export function filterAvailableImageModels(
+    models: AvailableImageModel[],
+    options: { provider: ImageGenerationProvider; query?: string; imageOnly?: boolean },
+): AvailableImageModel[] {
+    const query = options.query?.trim().toLocaleLowerCase() || '';
+    return models.filter(model => {
+        if (model.provider !== options.provider) return false;
+        if (options.imageOnly && model.imageCapability === 'unknown') return false;
+        if (!query) return true;
+        return `${model.id}\n${model.displayName}`.toLocaleLowerCase().includes(query);
+    });
+}
+
+/** Empty/placeholder selections preserve the user's manual model ID. */
+export function resolveImageModelSelection(selectedId: string | undefined, manualModel: string): string {
+    return selectedId?.trim() || manualModel;
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
     let binary = '';
     const chunkSize = 0x8000;
@@ -197,7 +293,27 @@ function composePrompt(prompt: string, style?: string): string {
     return cleanStyle ? `${cleanPrompt}\n\nStyle: ${cleanStyle}` : cleanPrompt;
 }
 
-async function parseProviderResponse(response: Response, apiKey: string): Promise<unknown> {
+function responseRequestId(response: Response, payload: unknown): string | undefined {
+    const root = payload && typeof payload === 'object' ? payload as Record<string, any> : {};
+    const value = response.headers.get('x-request-id')
+        || response.headers.get('request-id')
+        || response.headers.get('x-goog-request-id')
+        || root.request_id
+        || root.requestId
+        || root.error?.request_id
+        || root.error?.requestId;
+    return typeof value === 'string' && value.trim() ? value.trim().slice(0, 160) : undefined;
+}
+
+function withRequestId(message: string, requestId?: string): string {
+    return requestId ? `${message}（Request ID: ${requestId}）` : message;
+}
+
+async function parseProviderResponse(
+    response: Response,
+    apiKey: string,
+    operation: 'generate' | 'list-models' = 'generate',
+): Promise<unknown> {
     let payload: unknown;
     try {
         payload = await response.json();
@@ -205,19 +321,44 @@ async function parseProviderResponse(response: Response, apiKey: string): Promis
         payload = undefined;
     }
     if (response.ok) return payload;
-    const detail = payload && typeof payload === 'object'
+    const rawDetail = payload && typeof payload === 'object'
         ? (payload as any).error?.message || (payload as any).message || response.statusText
         : response.statusText;
+    const detail = sanitizeErrorText(rawDetail, apiKey);
+    const requestId = responseRequestId(response, payload);
     if (response.status === 401 || response.status === 403) {
-        throw new ImageGenerationError('AUTH', '生图 API 鉴权失败，请检查 API Key', response.status);
+        throw new ImageGenerationError('AUTH', withRequestId('生图 API 鉴权失败，请检查 API Key', requestId), response.status, requestId);
     }
-    throw new ImageGenerationError('PROVIDER', `生图 API 返回 HTTP ${response.status}：${sanitizeErrorText(detail, apiKey)}`, response.status);
+    if (response.status === 429 || /(负载已饱和|稍后再试|rate[\s_-]*limit|too many requests|quota exceeded)/i.test(detail)) {
+        const message = '当前模型线路繁忙。你可以稍后重试，或刷新模型列表后切换其他生图模型。';
+        throw new ImageGenerationError('RATE_LIMIT', withRequestId(message, requestId), response.status, requestId);
+    }
+    if (operation === 'list-models' && (response.status === 404 || response.status === 405 || response.status === 501)) {
+        const message = '当前中转站不支持模型列表接口，仍可手动填写模型 ID';
+        throw new ImageGenerationError('MODELS_UNSUPPORTED', withRequestId(message, requestId), response.status, requestId);
+    }
+    throw new ImageGenerationError('PROVIDER', withRequestId(`生图 API 返回 HTTP ${response.status}：${detail}`, requestId), response.status, requestId);
+}
+
+function geminiApiRoot(baseUrl: string): string {
+    let base = baseUrl.replace(/\/+$/, '');
+    base = base.replace(/\/models\/[^/]+:generateContent$/i, '').replace(/\/models$/i, '');
+    return /\/v1(?:beta)?$/i.test(base) ? base : `${base}/v1beta`;
+}
+
+function openAiApiRoot(baseUrl: string): string {
+    return baseUrl.replace(/\/+$/, '').replace(/\/images\/generations$/i, '').replace(/\/models$/i, '');
+}
+
+export function buildImageGenerationModelsEndpoint(config: Pick<ImageGenerationConfig, 'provider' | 'baseUrl'>): string {
+    const apiRoot = config.provider === 'gemini-native' ? geminiApiRoot(config.baseUrl) : openAiApiRoot(config.baseUrl);
+    return `${apiRoot}/models`;
 }
 
 function geminiEndpoint(config: ImageGenerationConfig): string {
     const base = config.baseUrl.replace(/\/+$/, '');
     if (/\/models\/[^/]+:generateContent$/i.test(base)) return base;
-    const apiRoot = /\/v1(?:beta)?$/i.test(base) ? base : `${base}/v1beta`;
+    const apiRoot = geminiApiRoot(base);
     return `${apiRoot}/models/${encodeURIComponent(config.model)}:generateContent`;
 }
 
@@ -229,7 +370,7 @@ export const geminiNativeAdapter: ImageGenerationProviderAdapter = {
         for (const reference of references) {
             parts.push({ inlineData: { mimeType: reference.mimeType, data: reference.base64 } });
         }
-        const response = await fetchImpl(geminiEndpoint(config), {
+        const response = await fetchImpl(geminiEndpoint(config), withImageGenerationLogMeta({
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
             body: JSON.stringify({
@@ -240,15 +381,31 @@ export const geminiNativeAdapter: ImageGenerationProviderAdapter = {
                 },
             }),
             signal,
-        });
+        }, {
+            operation: 'generate',
+            provider: config.provider,
+            model: config.model,
+            resolution: options.resolution,
+            aspectRatio: options.aspectRatio,
+            referenceImageCount: references.length,
+        }));
         const payload = await parseProviderResponse(response, config.apiKey);
         return normalizeImageGenerationResponse(payload);
+    },
+    async listAvailableModels({ config, signal, fetchImpl }) {
+        const response = await fetchImpl(buildImageGenerationModelsEndpoint(config), withImageGenerationLogMeta({
+            method: 'GET',
+            headers: { 'x-goog-api-key': config.apiKey },
+            signal,
+        }, { operation: 'list-models', provider: config.provider }));
+        const payload = await parseProviderResponse(response, config.apiKey, 'list-models');
+        return normalizeAvailableImageModels(payload, config.provider);
     },
 };
 
 function openAiEndpoint(baseUrl: string): string {
     const base = baseUrl.replace(/\/+$/, '');
-    return /\/images\/generations$/i.test(base) ? base : `${base}/images/generations`;
+    return /\/images\/generations$/i.test(base) ? base : `${openAiApiRoot(base)}/images/generations`;
 }
 
 function openAiSize(resolution: ImageGenerationResolution, aspectRatio: ImageGenerationAspectRatio): string {
@@ -263,7 +420,7 @@ export const openAiImagesAdapter: ImageGenerationProviderAdapter = {
     provider: 'openai-images',
     supportsReferenceImages: false,
     async generate({ config, options, signal, fetchImpl }) {
-        const response = await fetchImpl(openAiEndpoint(config.baseUrl), {
+        const response = await fetchImpl(openAiEndpoint(config.baseUrl), withImageGenerationLogMeta({
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
             body: JSON.stringify({
@@ -274,9 +431,25 @@ export const openAiImagesAdapter: ImageGenerationProviderAdapter = {
                 response_format: 'b64_json',
             }),
             signal,
-        });
+        }, {
+            operation: 'generate',
+            provider: config.provider,
+            model: config.model,
+            resolution: options.resolution,
+            aspectRatio: options.aspectRatio,
+            referenceImageCount: 0,
+        }));
         const payload = await parseProviderResponse(response, config.apiKey);
         return normalizeImageGenerationResponse(payload);
+    },
+    async listAvailableModels({ config, signal, fetchImpl }) {
+        const response = await fetchImpl(buildImageGenerationModelsEndpoint(config), withImageGenerationLogMeta({
+            method: 'GET',
+            headers: { Authorization: `Bearer ${config.apiKey}` },
+            signal,
+        }, { operation: 'list-models', provider: config.provider }));
+        const payload = await parseProviderResponse(response, config.apiKey, 'list-models');
+        return normalizeAvailableImageModels(payload, config.provider);
     },
 };
 
@@ -297,6 +470,30 @@ export class ImageGenerationService {
     constructor(dependencies: ImageGenerationServiceDependencies = {}) {
         this.fetchImpl = dependencies.fetchImpl || fetch.bind(globalThis);
         this.loadConfig = dependencies.loadConfig || loadImageGenerationConfig;
+    }
+
+    async listAvailableModels(configOverride: ImageGenerationConfig): Promise<AvailableImageModel[]> {
+        const config = normalizeImageGenerationConfig(configOverride);
+        if (!config.baseUrl || !config.apiKey) {
+            throw new ImageGenerationError('INVALID_CONFIG', '刷新模型前，请填写 Base URL 和 API Key');
+        }
+
+        const controller = new AbortController();
+        let timedOut = false;
+        const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, config.timeoutMs);
+        try {
+            return await ADAPTERS[config.provider].listAvailableModels({
+                config,
+                signal: controller.signal,
+                fetchImpl: this.fetchImpl,
+            });
+        } catch (error) {
+            if (error instanceof ImageGenerationError) throw error;
+            if (timedOut) throw new ImageGenerationError('TIMEOUT', `模型列表请求超过 ${Math.round(config.timeoutMs / 1000)} 秒`);
+            throw new ImageGenerationError('NETWORK', `模型列表请求失败：${sanitizeErrorText(error, config.apiKey)}`);
+        } finally {
+            clearTimeout(timeoutId);
+        }
     }
 
     async generateImage(options: GenerateImageOptions, configOverride?: ImageGenerationConfig): Promise<ImageGenerationResult> {
@@ -352,6 +549,11 @@ export const imageGenerationService = new ImageGenerationService();
 /** Future apps should import this function; React components must not call providers directly. */
 export const generateImage = (options: GenerateImageOptions): Promise<ImageGenerationResult> => (
     imageGenerationService.generateImage(options)
+);
+
+/** Settings and future callers share provider adapters; UI components must not fetch /models directly. */
+export const listAvailableModels = (config: ImageGenerationConfig): Promise<AvailableImageModel[]> => (
+    imageGenerationService.listAvailableModels(config)
 );
 
 export async function generatedImageToBlob(image: GeneratedImage, fetchImpl: typeof fetch = fetch): Promise<Blob> {
