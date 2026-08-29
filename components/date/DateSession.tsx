@@ -14,6 +14,8 @@ import { resolveTtsProvider } from '../../utils/ttsProvider';
 import { cleanTextForTtsFish } from '../../utils/fishAudioTts';
 import { planNovelLoadMore } from '../../utils/dateSessionHistory';
 import { getPendingReplyText } from '../../utils/pendingReply';
+import { stripLeadingEmotionTags, readDateTextPresentation, writeDateTextPresentation, type StoryTextPresentation } from '../../utils/storyTextPresentation';
+import ImmersiveStoryText from './story/ImmersiveStoryText';
 
 // 语音情绪标记 [v:xxx]：跟立绘情绪 [emotion] 分开的独立通道。立绘的 happy 是
 // 夸张的表情、语音的 happy 是音色情绪，两者强度/语义差异大，不能一概而论。
@@ -149,6 +151,9 @@ const DateSession: React.FC<DateSessionProps> = ({
     
     // Core VN State
     const [isNovelMode, setIsNovelMode] = useState(false);
+    // 阅读模式文字呈现（原文 / 沉浸分层）：独立 localStorage key，缺失/非法回退沉浸分层
+    const [dateTextPresentation, setDateTextPresentation] = useState<StoryTextPresentation>(readDateTextPresentation);
+    useEffect(() => { writeDateTextPresentation(dateTextPresentation); }, [dateTextPresentation]);
     const [bgImage, setBgImage] = useState<string>(char.dateBackground || '');
     const [currentSprite, setCurrentSprite] = useState<string>('');
     const [currentSpriteKey, setCurrentSpriteKey] = useState<string>('');
@@ -366,6 +371,23 @@ const DateSession: React.FC<DateSessionProps> = ({
     }, [showSettings, showMenu, showExitModal, registerBackHandler]);
 
     const dateEmotionKeys = [...REQUIRED_EMOTIONS_SET, ...(char.customDateSprites || [])];
+
+    // 阅读模式沉浸分层：只剥「确认属于当前角色情绪集合」的行首标签（[shy] 等 + 自定义情绪），
+    // 不再用宽泛的 [.*] 全删，避免误删普通方括号文本（如 [提示]）。原始消息不改动，仅显示前剥离。
+    const dateEmotionTagSet = React.useMemo(
+        () => new Set(dateEmotionKeys.map(key => key.toLowerCase())),
+        // dateEmotionKeys = 常量 REQUIRED_EMOTIONS_SET + char.customDateSprites，这里依赖后者即可
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [char.customDateSprites]
+    );
+
+    const stripDateReadingLine = (rawLine: string): string =>
+        stripLeadingEmotionTags(extractVoiceEmotionTag(rawLine).rest, dateEmotionTagSet);
+
+    // 沉浸分层语义沿用 Story Theater（accent=台词 / muted=内心·气氛），颜色适配浅色/深色阅读背景
+    const dateReadingTheme = React.useMemo(() => (char.dateLightReading
+        ? { base: '#44403c', accent: '#6d28d9', muted: '#7d7590' }
+        : { base: '#e2e8f0', accent: '#c8b4ff', muted: '#a3afbe' }), [char.dateLightReading]);
 
     const getSpritesForSkin = (skinId?: string): Record<string, string> => {
         const explicitSkin = skinId && char.dateSkinSets?.find(s => s.id === skinId);
@@ -839,6 +861,25 @@ const DateSession: React.FC<DateSessionProps> = ({
                             </div>
                         )}
 
+                        {isNovelMode && showMenu && !isBatchSelectMode && (
+                            <div className="flex flex-wrap justify-end gap-1 max-w-[220px] animate-fade-in">
+                                <span className="w-full text-right text-[10px] font-bold tracking-widest uppercase text-white/50">文字呈现</span>
+                                {([['immersive', '沉浸分层'], ['original', '原文']] as const).map(([value, label]) => (
+                                    <button
+                                        key={value}
+                                        onClick={() => setDateTextPresentation(value)}
+                                        className={`h-7 px-2.5 rounded-full text-[10px] font-bold transition-all active:scale-95 whitespace-nowrap ${
+                                            dateTextPresentation === value
+                                                ? 'bg-white/30 text-white shadow-md'
+                                                : 'bg-black/30 backdrop-blur-md text-white/60 border border-white/10'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
                         <button onClick={() => { setIsNovelMode(!isNovelMode); exitBatchMode(); setShowMenu(false); setShowVoiceLangPicker(false); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-black/40 backdrop-blur-md border-white/15 text-white hover:bg-white/20">
                             {isNovelMode ? (
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
@@ -918,7 +959,17 @@ const DateSession: React.FC<DateSessionProps> = ({
                                             <div className="max-w-md mx-auto mb-6"><ObserveHUD observation={peekObs} variant="card" charName={char.name} config={char.dateObserve} /></div>
                                         )}
                                         <div className={`italic text-center text-sm mb-8 px-4 ${char.dateLightReading ? 'text-stone-400' : 'text-slate-200/50'}`}>
-                                            {cleanTextForDisplay(peekBody).split('\n').map((line, idx) => line.trim() && <p key={idx} className="whitespace-pre-wrap leading-relaxed tracking-wide my-2">{line}</p>)}
+                                            {peekBody.split('\n').map((line, idx) => {
+                                                const cleanLine = stripDateReadingLine(line);
+                                                return cleanLine.trim() && (dateTextPresentation === 'immersive'
+                                                    ? <ImmersiveStoryText
+                                                        key={idx}
+                                                        text={cleanLine}
+                                                        theme={{ accent: dateReadingTheme.accent, muted: dateReadingTheme.muted }}
+                                                        className="whitespace-pre-wrap leading-relaxed tracking-wide my-2"
+                                                    />
+                                                    : <p key={idx} className="whitespace-pre-wrap leading-relaxed tracking-wide my-2">{cleanLine}</p>);
+                                            })}
                                         </div>
                                     </>
                                 );
@@ -975,7 +1026,18 @@ const DateSession: React.FC<DateSessionProps> = ({
                                         </div>
                                     )}
                                     {msg.role === 'user' ? (
-                                        <p className={`whitespace-pre-wrap font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${char.dateLightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}>{cleanTextForDisplay(msg.content)} <span className="text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span></p>
+                                        dateTextPresentation === 'immersive' ? (
+                                            <div className={`font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${char.dateLightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}>
+                                                <ImmersiveStoryText
+                                                    text={cleanTextForDisplay(msg.content)}
+                                                    theme={{ accent: dateReadingTheme.accent, muted: dateReadingTheme.muted }}
+                                                    className="inline whitespace-pre-wrap break-words"
+                                                />
+                                                <span className="text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span>
+                                            </div>
+                                        ) : (
+                                            <p className={`whitespace-pre-wrap font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${char.dateLightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}>{cleanTextForDisplay(msg.content)} <span className="text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span></p>
+                                        )
                                     ) : (() => {
                                         // 观测协议：从这条回复里剥出观测块，正文上方渲染独立卡片，正文本身不显示块文本
                                         const { observation: msgObs, rest: msgBody } = extractObservation(msg.content || '', { lenient: observeEnabled, custom: char.dateObserve?.custom });
@@ -985,14 +1047,22 @@ const DateSession: React.FC<DateSessionProps> = ({
                                                 <ObserveHUD observation={msgObs} variant="card" charName={char.name} config={char.dateObserve} />
                                             )}
                                             {(msgBody || '').split('\n').map((line, idx) => {
-                                                const cleanLine = cleanTextForDisplay(line);
-                                                if (!cleanLine) return null;
+                                                const cleanLine = stripDateReadingLine(line);
+                                                if (!cleanLine.trim()) return null;
                                                 const lineIsDialogue = isDialogueLine(line);
                                                 const lineKey = `${msg.id}-${idx}`;
                                                 const isOpeningMsg = msg.metadata?.isOpening === true;
                                                 return (
                                                     <div key={idx} className="flex items-start gap-1 mb-4 last:mb-0">
-                                                        <p className={`flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${char.dateLightReading ? 'text-stone-700 border-l-2 border-stone-200' : 'text-slate-200 drop-shadow-md border-l-2 border-white/10'}`}>{cleanLine}</p>
+                                                        {dateTextPresentation === 'immersive' ? (
+                                                            <ImmersiveStoryText
+                                                                text={cleanLine}
+                                                                theme={dateReadingTheme}
+                                                                className={`flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${char.dateLightReading ? 'border-l-2 border-stone-200' : 'drop-shadow-md border-l-2 border-white/10'}`}
+                                                            />
+                                                        ) : (
+                                                            <p className={`flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${char.dateLightReading ? 'text-stone-700 border-l-2 border-stone-200' : 'text-slate-200 drop-shadow-md border-l-2 border-white/10'}`}>{cleanLine}</p>
+                                                        )}
                                                         {/* Voice button: only for dialogue lines, not opening */}
                                                         {voiceEnabled && lineIsDialogue && !isOpeningMsg && (
                                                             <button
