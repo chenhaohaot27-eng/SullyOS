@@ -25,3 +25,13 @@
 
 - `utils/chatPhotoIntent.test.ts`（解析/不触发/不显示/claim/门控）、`utils/chatPhotoGeneration.test.ts`（成功/一次调用/失败重试/未启用/参考图/Key 不泄露/管线集成），全部 mock 生图服务
 - 已知边界：`pnpm exec tsc --noEmit` 在 dev HEAD 上有既存错误（MemoryPalaceApp/CompanionHome/ThinkingChain pointerTypeRef 等，非本阶段引入）；群聊不注入拍照指南
+
+## Phase 2A.1：聊天图片预览与保存（2026-05 追加）
+
+- `components/chat/ChatPhotoViewer.tsx`：全屏深色预览（createPortal → document.body，脱离聊天滚动/transform 容器）。关闭 = 右上角按钮 / 点击背景 / 桌面 Escape；env(safe-area-inset-*) 四边适配 iPhone 刘海/Home 条。预览图为真实 `<img>` + `-webkit-touch-callout: default`，不拦截 contextmenu、不 preventDefault——长按直接唤起 iOS 原生「存储到照片」菜单。
+- `utils/chatPhotoViewer.ts`：保存/分享辅助。优先 Web Share 文件分享（navigator.share + canShare({files}) 严格 feature detection，iPhone 分享面板可选「存储图像」）；不可用时 a.download 下载兜底；iOS 类环境 a.download 无效 → window.open 原图 + 提示长按保存。文件名 `photo_<caption>_<时间戳>.<ext>`、MIME 从 Blob 推导（非 image/* 兜底 PNG）。自建 object URL 一律按时 revoke（下载 1s / 打开原图 60s），绝不 revoke 气泡 useBlobRefUrl 管的显示 URL。
+- `components/chat/MessageItem.tsx` ChatPhotoBubble：ready 图片加 `cursor-zoom-in` + onClick 打开预览；预览只接收既有 content（blobref/data URL）与显示 URL，不复制图片、不写库，刷新后照常可用。
+- Share File 在预览打开后异步备好（getBlobForRef / dataUrlToBlob，只读）、备好才启用按钮，保证 navigator.share 落在用户点击事件内；失败/取消给 3.5s 简短内嵌提示，不崩。
+- 不新增持久化副本、不写角色/模型记忆、不新增图片分析、不改生图协议与 API 请求。
+- 测试：`utils/chatPhotoViewer.test.ts`（jsdom：文件名/MIME、share File 优先、AbortError=cancelled、下载兜底含 URL 回收、iOS open 原图优先复用调用方 URL 不新建不回收、60s 兜底回收、空文件短报错）；`utils/chatPhotoViewer.wiring.test.ts`（源码级：点击打开、三种关闭、touch-callout、不拦截长按、安全区、按钮就绪门槛、预览/辅助模块不写库）。原 chatPhotoIntent/chatPhotoGeneration 测试无回归。
+

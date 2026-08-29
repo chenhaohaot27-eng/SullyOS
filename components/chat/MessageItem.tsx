@@ -17,11 +17,13 @@ import LuckinCheckoutCard from './LuckinCheckoutCard';
 import EmojiImage from './EmojiImage';
 import { useBlobRefUrl } from '../../utils/blobRef';
 import { CHAT_PHOTO_PENDING_STALE_MS, type ChatPhotoMeta } from '../../utils/chatPhotoGeneration';
+import ChatPhotoViewer from './ChatPhotoViewer';
 
 // ─── 聊天拍照气泡（Phase 2A）────────────────────────────────────────────────
 // type='image' + metadata.chatPhoto 的消息专用渲染：pending 显示「正在拍照…」占位、
 // ready 用 useBlobRefUrl 解析 blobref 令牌显示真实图片（刷新/恢复后仍可用）、failed 或
 // pending 停滞过久显示简短原因 + 手动重试按钮（不做自动重试）。
+// Phase 2A.1：ready 图片可点击打开 ChatPhotoViewer 全屏预览（保存/分享/长按存图）。
 const ChatPhotoBubble: React.FC<{
     messageId: number;
     meta: ChatPhotoMeta;
@@ -31,6 +33,7 @@ const ChatPhotoBubble: React.FC<{
     onRetry?: () => void;
 }> = ({ messageId, meta, content, isLatestMessage, onMediaLoad, onRetry }) => {
     const imageUrl = useBlobRefUrl(content || undefined);
+    const [viewerOpen, setViewerOpen] = useState(false);
     const isStalePending = meta.status === 'pending' && Date.now() - (meta.createdAt || 0) > CHAT_PHOTO_PENDING_STALE_MS;
 
     if (meta.status === 'ready') {
@@ -39,16 +42,27 @@ const ChatPhotoBubble: React.FC<{
                 {imageUrl ? (
                     <img
                         src={imageUrl}
-                        className="w-full rounded-2xl shadow-sm"
+                        className="w-full rounded-2xl shadow-sm cursor-zoom-in"
                         alt={meta.caption || '照片'}
                         loading={isLatestMessage ? 'eager' : 'lazy'}
                         onLoad={() => onMediaLoad?.(messageId)}
+                        onClick={() => setViewerOpen(true)}
+                        style={{ WebkitTouchCallout: 'default' } as React.CSSProperties}
                     />
                 ) : (
                     <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[图片已丢失]</div>
                 )}
                 {!!meta.caption?.trim() && (
                     <div className="mt-1 px-1 text-[12px] leading-relaxed text-slate-600">{meta.caption}</div>
+                )}
+                {/* 全屏预览：只传既有的 blobref/data URL，不复制图片、不写库 */}
+                {viewerOpen && imageUrl && (
+                    <ChatPhotoViewer
+                        content={content}
+                        displayUrl={imageUrl}
+                        caption={meta.caption}
+                        onClose={() => setViewerOpen(false)}
+                    />
                 )}
             </div>
         );
