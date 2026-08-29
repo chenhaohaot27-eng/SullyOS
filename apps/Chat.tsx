@@ -4,6 +4,7 @@ import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
 import { processImage } from '../utils/file';
+import { retryChatPhotoMessage } from '../utils/chatPhotoGeneration';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
@@ -1363,6 +1364,17 @@ const Chat: React.FC = () => {
             triggerAI(messages, undefined, () => setInstantSendingActive(false));
         }
     };
+
+    // 聊天拍照（Phase 2A）：照片生成失败 / 中断后玩家在气泡上点「重试」。
+    // 手动重试不受「一轮一次」claim 限制，但也只按点击次数执行——没有任何自动重试。
+    const handleRetryChatPhoto = useCallback(async (messageId: number) => {
+        if (!char) return;
+        try {
+            await retryChatPhotoMessage(char, messageId, addToast);
+        } finally {
+            await reloadMessages(visibleCountRef.current);
+        }
+    }, [char, addToast, reloadMessages]);
 
     // 用户点开「收到的转账」卡（角色发来、待处理）选择接收 / 退回：
     // 标记原转账状态 + 补一张回执小卡（role=user，角色侧 prompt 会看到 [[记录:TRANSFER|to=user|...|status=已收下/已退回]]）。
@@ -3534,6 +3546,7 @@ const Chat: React.FC = () => {
                             onMcdCandidate={handleMcdCandidate}
                             onResolveTransfer={handleResolveTransfer}
                             onResolveLifeRecord={handleResolveLifeRecord}
+                            onRetryChatPhoto={handleRetryChatPhoto}
                             thinkingChainOptions={thinkingChainOptions}
                         />
                         {showToolTrace && (

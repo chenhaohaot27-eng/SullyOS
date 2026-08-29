@@ -55,6 +55,8 @@ import { resolveEmojiByModelReference } from './emojiResolver';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
 import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceHistory';
+import { extractChatPhotoIntent } from './chatPhotoIntent';
+import { executeChatPhotoIntent } from './chatPhotoGeneration';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -576,6 +578,17 @@ export async function applyAssistantPostProcessing(
     // 在任何 lead-in/二轮渲染之前先剥掉仿卡片文本，防止它被 chunkText 拆成灰色普通气泡。
     const mimickedXhsShares = extractMimickedXhsShares(aiContent);
     aiContent = mimickedXhsShares.cleanedContent;
+
+    // ─── Step 1.5: 聊天拍照意图（Phase 2A） ───
+    // 在任何渲染/二轮之前拦截并剥掉 [[SEND_PHOTO:...]]：意图控制内容（JSON）绝不能进气泡、
+    // 也不能跟着历史进 prompt。抽到的意图先挂着，等本轮正文全部渲染完（Step 6 之后）再执行
+    // 「正在拍照… → 真实图片消息」闭环（utils/chatPhotoGeneration）。解析失败的标签同样剥掉
+    // （宁可不拍也不漏 JSON），只留一行日志。
+    const chatPhotoExtraction = extractChatPhotoIntent(aiContent);
+    if (chatPhotoExtraction.invalidTagFound) {
+        console.warn('[ChatPhoto] SEND_PHOTO 标签解析失败，已剥掉不执行', { charId: char.id });
+    }
+    aiContent = chatPhotoExtraction.cleanedContent;
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
@@ -2121,5 +2134,21 @@ export async function applyAssistantPostProcessing(
         } else {
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         }
+    }
+
+    // ─── Step 7: 聊天拍照（Phase 2A） ───
+    // 本轮正文（含角色随图那句话）渲染完之后再出图：玩家先看到「正在拍照…」占位与角色的话，
+    // 成功后占位被替换成真实图片消息。executeChatPhotoIntent 内部有 claim（一轮一次），
+    // 流式重放 / 重渲染 / StrictMode 双调用不会重复落占位、也不会重复扣费；失败只落原因 +
+    // 手动重试入口（MessageItem ChatPhotoBubble），不做自动重试。
+    if (chatPhotoExtraction.intent) {
+        await executeChatPhotoIntent({
+            char,
+            intent: chatPhotoExtraction.intent,
+            persistMessage,
+            refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
+            onToast: addToast,
+            inheritMeta: mcdInheritMeta,
+        });
     }
 }
