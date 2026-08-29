@@ -22,6 +22,7 @@ import { getLocalDateKey } from './localDate';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
+import { buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -624,6 +625,12 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
         const scheduleMessageTagEnabled = !forFirePack
             && !(timelyByWorker && isAmsg2EnabledForChar(char));
 
+        // 聊天拍照（Phase 2A）：只在本地聊天路径教 SEND_PHOTO 标签——fire_pack 是给主动消息
+        // worker 打包的模板，worker 够不到生图配置也不该在无人请求时拍图，先不教（后续阶段
+        // 要扩展到主动消息时去掉 forFirePack 限制即可，协议本身不带路径假设）。
+        // 生图配置未启用也不教：教了角色只会输出降级文字/表情包，正是要修的旧问题。
+        const chatPhotoTagEnabled = !forFirePack && isChatPhotoTagEnabled();
+
         baseSystemPrompt += `### 聊天 App 行为规范 (Chat App Rules)
 **TOP 1｜ChatApp 格式（本节最高优先级）**：你是发消息的真实存在，以自然短句、短气泡为主；一个气泡一行，气泡间直接另起一行（实际换行，不要输出“\\n”字样）。
             **严格注意，你正在手机聊天，无论之前是什么模式，哪怕上一句话你们还面对面在一起，当前，你都是已经处于线上聊天状态了，请不要输出你的行为**
@@ -663,7 +670,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
    - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
-${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
+${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `
    - **翻阅日记(飞书)**: 同上——回忆优先靠记忆和 \`[[RECALL]]\`，只有你自己想重温那天日记的内容时才用: \`[[FS_READ_DIARY: 日期]]\`。支持格式同上。` : ''}${notionNotesEnabled ? `
    - **翻阅用户笔记**: 当你想看${userProfile.name}写的某篇笔记的详细内容时，使用: \`[[READ_NOTE: 标题关键词]]\`。系统会搜索匹配的笔记并返回内容给你。` : ''}
@@ -1147,6 +1154,15 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 }
                 
                 if (m.type === 'image') {
+                     // 聊天拍照（Phase 2A）消息：content 是 blobref 令牌（或失败时空串），绝不能
+                     // 把令牌当 URL 发给 API；也不是"用户发的图"。渲染成角色自己发过一张照片
+                     // 的事实记录，caption 一并给，让下一轮能接上「刚才那张照片」。
+                     const chatPhoto = m.metadata?.chatPhoto;
+                     if (chatPhoto && typeof chatPhoto === 'object') {
+                         const cap = typeof chatPhoto.caption === 'string' && chatPhoto.caption.trim() ? `：${chatPhoto.caption.trim().slice(0, 60)}` : '';
+                         const ok = chatPhoto.status === 'ready';
+                         return { role: m.role, content: `${timeStr} [${ok ? '你发给了对方一张真实照片' : '你想拍一张照片给对方，但没能成功拍出来'}${cap}]` };
+                     }
                      const visionDescription = options?.useVisionDescriptions
                          && typeof m.metadata?.visionDescription === 'string'
                          ? m.metadata.visionDescription.trim()
