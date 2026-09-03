@@ -3,6 +3,12 @@ import { createPortal } from 'react-dom';
 import { Moon, Palette, Sparkle, SquaresFour, Sun, X } from '@phosphor-icons/react';
 import { STORY_THEATER_APPEARANCE_STORAGE_KEY } from '../../../utils/storyTheaterBackup';
 import { STORY_TEXT_PRESENTATION_STORAGE_KEY, type StoryTextPresentation } from '../../../utils/storyTextPresentation';
+import {
+    DEFAULT_STORY_READING_FONT_SIZE,
+    normalizeStoryReadingFontSize,
+    STORY_READING_FONT_OPTIONS,
+    type StoryReadingFontSize,
+} from '../../../utils/storyTheaterTypography';
 import { useOS } from '../../../context/OSContext';
 
 export type StoryColorMode = 'light' | 'dark';
@@ -11,6 +17,7 @@ export type StoryDecorMode = 'plain' | 'cinema';
 interface StoryAppearance {
     color: StoryColorMode;
     decor: StoryDecorMode;
+    fontSize: StoryReadingFontSize;
 }
 
 interface StoryThemeContextValue {
@@ -18,12 +25,13 @@ interface StoryThemeContextValue {
     textPresentation: StoryTextPresentation;
     setColor: (value: StoryColorMode) => void;
     setDecor: (value: StoryDecorMode) => void;
+    setFontSize: (value: StoryReadingFontSize) => void;
     setTextPresentation: (value: StoryTextPresentation) => void;
 }
 
 const STORAGE_KEY = STORY_THEATER_APPEARANCE_STORAGE_KEY;
 const STORY_APPEARANCE_HISTORY_KEY = '__sullyStoryAppearance';
-const DEFAULT_APPEARANCE: StoryAppearance = { color: 'light', decor: 'plain' };
+const DEFAULT_APPEARANCE: StoryAppearance = { color: 'light', decor: 'plain', fontSize: DEFAULT_STORY_READING_FONT_SIZE };
 const StoryThemeContext = createContext<StoryThemeContextValue | null>(null);
 
 function readAppearance(): StoryAppearance {
@@ -34,6 +42,7 @@ function readAppearance(): StoryAppearance {
         return {
             color: value.color === 'dark' ? 'dark' : 'light',
             decor: value.decor === 'cinema' ? 'cinema' : 'plain',
+            fontSize: normalizeStoryReadingFontSize(value.fontSize),
         };
     } catch {
         return DEFAULT_APPEARANCE;
@@ -61,6 +70,8 @@ const STORY_THEME_CSS = `
   --story-accent: #7c3aed;
   --story-accent-soft: #ede9fe;
   --story-accent-ink: #6d28d9;
+  --story-reading-font-size: 18px;
+  --story-reading-line-height: 1.7;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -68,6 +79,19 @@ const STORY_THEME_CSS = `
   color: var(--story-ink);
   color-scheme: light;
 }
+.story-theme.story-font-small { --story-reading-font-size: 16px; --story-reading-line-height: 1.65; }
+.story-theme.story-font-standard { --story-reading-font-size: 18px; --story-reading-line-height: 1.7; }
+.story-theme.story-font-large { --story-reading-font-size: 20px; --story-reading-line-height: 1.75; }
+.story-theme.story-font-extra-large { --story-reading-font-size: 22px; --story-reading-line-height: 1.8; }
+.story-theme .story-reading-text {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--story-reading-font-size) !important;
+  line-height: var(--story-reading-line-height) !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.story-theme .story-reading-text * { font-size: inherit; line-height: inherit; }
 .story-theme-dark {
   --story-bg: #111519;
   --story-surface: #181e24;
@@ -178,11 +202,12 @@ export const StoryTheaterThemeProvider: React.FC<React.PropsWithChildren> = ({ c
         textPresentation,
         setColor: color => setAppearance(current => ({ ...current, color })),
         setDecor: decor => setAppearance(current => ({ ...current, decor })),
+        setFontSize: fontSize => setAppearance(current => ({ ...current, fontSize })),
         setTextPresentation,
     }), [appearance, textPresentation]);
 
     return <StoryThemeContext.Provider value={value}>
-        <div className={`story-theme story-theme-${appearance.color} story-decor-${appearance.decor} h-full w-full min-h-0`}>
+        <div className={`story-theme story-theme-${appearance.color} story-decor-${appearance.decor} story-font-${appearance.fontSize} h-full w-full min-h-0`}>
             <style>{STORY_THEME_CSS}</style>
             {children}
         </div>
@@ -191,7 +216,7 @@ export const StoryTheaterThemeProvider: React.FC<React.PropsWithChildren> = ({ c
 
 export const useStoryTextPresentation = (): StoryTextPresentation => useContext(StoryThemeContext)?.textPresentation || 'immersive';
 
-export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ className = '' }) => {
+export const StoryAppearanceButton: React.FC<{ className?: string; readingEntry?: boolean }> = ({ className = '', readingEntry = false }) => {
     const context = useContext(StoryThemeContext);
     const { registerBackHandler } = useOS();
     const [open, setOpen] = useState(false);
@@ -231,14 +256,14 @@ export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ classN
         };
     }, [closePanel, open, registerBackHandler]);
     if (!context) return null;
-    const { appearance, textPresentation, setColor, setDecor, setTextPresentation } = context;
+    const { appearance, textPresentation, setColor, setDecor, setFontSize, setTextPresentation } = context;
 
     return <>
-        <button type='button' onClick={() => setOpen(true)} className={`w-9 h-9 rounded-full grid place-items-center ${className}`} title='剧情外观' aria-label='剧情外观'>
-            <Palette size={18} weight={appearance.decor === 'cinema' ? 'fill' : 'regular'} />
+        <button type='button' onClick={() => setOpen(true)} className={`w-9 h-9 rounded-full grid place-items-center ${className}`} title={readingEntry ? '阅读设置' : '剧情外观'} aria-label={readingEntry ? '阅读设置 Aa' : '剧情外观'}>
+            {readingEntry ? <span aria-hidden='true' className='font-serif text-base font-semibold leading-none'>Aa</span> : <Palette size={18} weight={appearance.decor === 'cinema' ? 'fill' : 'regular'} />}
         </button>
         {open && createPortal(<div
-            className={`story-theme story-theme-${appearance.color} story-decor-${appearance.decor} fixed inset-0 z-[90] flex items-end sm:items-center justify-center overflow-y-auto overscroll-contain`}
+            className={`story-theme story-theme-${appearance.color} story-decor-${appearance.decor} story-font-${appearance.fontSize} fixed inset-0 z-[90] flex items-end sm:items-center justify-center overflow-y-auto overscroll-contain`}
             style={{ position: 'fixed', paddingTop: 'max(12px, var(--safe-top))', paddingBottom: 'max(0px, var(--safe-bottom))', backgroundColor: 'rgba(2, 6, 23, .35)' }}
             onClick={closePanel}
             role='presentation'
@@ -257,6 +282,7 @@ export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ classN
                 <div className='mt-5 min-h-0 overflow-y-auto overscroll-contain border-t border-slate-200'>
                     <div className='py-4 flex items-center gap-3'><span className='text-xs font-semibold w-16'>明暗</span><div className='min-w-0 flex-1 grid grid-cols-2 p-1 rounded-xl bg-slate-200'><button onClick={() => setColor('light')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.color === 'light' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><Sun size={14} />浅色</button><button onClick={() => setColor('dark')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.color === 'dark' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><Moon size={14} />深色</button></div></div>
                     <div className='py-4 border-t border-slate-200 flex items-center gap-3'><span className='text-xs font-semibold w-16'>装饰</span><div className='min-w-0 flex-1 grid grid-cols-2 p-1 rounded-xl bg-slate-200'><button onClick={() => setDecor('plain')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.decor === 'plain' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><SquaresFour size={14} />素雅</button><button onClick={() => setDecor('cinema')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.decor === 'cinema' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><Sparkle size={14} />花里胡哨</button></div></div>
+                    <div className='py-4 border-t border-slate-200'><div className='flex items-center justify-between gap-3'><span className='text-xs font-semibold'>正文字号</span><span className='text-[10px] text-slate-400'>所有剧情统一生效</span></div><div className='mt-3 grid grid-cols-4 gap-1 p-1 rounded-xl bg-slate-200'>{STORY_READING_FONT_OPTIONS.map(option => <button key={option.value} type='button' onClick={() => setFontSize(option.value)} aria-pressed={appearance.fontSize === option.value} className={`min-w-0 py-2 rounded-lg text-[10px] font-bold ${appearance.fontSize === option.value ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><span className='block truncate'>{option.label}</span><span className='mt-0.5 block text-[8px] font-normal opacity-70'>{option.fontSize}px</span></button>)}</div></div>
                     <div className='py-4 border-t border-slate-200 flex items-center gap-3'><span className='text-xs font-semibold w-16'>文字呈现</span><div className='min-w-0 flex-1 grid grid-cols-2 p-1 rounded-xl bg-slate-200'><button onClick={() => setTextPresentation('original')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center ${textPresentation === 'original' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}>原文</button><button onClick={() => setTextPresentation('immersive')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center ${textPresentation === 'immersive' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}>沉浸分层</button></div></div>
                 </div>
             </div>
