@@ -154,7 +154,7 @@ describe('见面阅读模式文字呈现开关', () => {
         expect(theme).toContain('STORY_TEXT_PRESENTATION_STORAGE_KEY');
         expect(theme).not.toContain('DATE_TEXT_PRESENTATION_STORAGE_KEY');
         const theater = read('../components/date/story/StoryTheaterSession.tsx');
-        expect(theater).toContain('<ImmersiveStoryText key={index} text={block.text} />');
+        expect(theater).toContain("<ImmersiveStoryText key={index} text={block.text} className='story-reading-text");
         expect(theater).not.toContain('readDateTextPresentation');
     });
 });

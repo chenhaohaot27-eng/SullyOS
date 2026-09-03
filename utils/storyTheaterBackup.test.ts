@@ -10,7 +10,7 @@ describe('story theater local settings backup', () => {
     });
 
     it('restores a valid appearance value', () => {
-        const raw = '{"color":"light","decor":"plain"}';
+        const raw = '{"color":"light","decor":"plain","fontSize":"extra-large"}';
         expect(restoreStoryTheaterAppearanceSetting(raw)).toBe(true);
         expect(localStorage.getItem(STORY_THEATER_APPEARANCE_STORAGE_KEY)).toBe(raw);
     });
@@ -20,6 +20,8 @@ describe('story theater local settings backup', () => {
         expect(restoreStoryTheaterAppearanceSetting('{"color":"unknown","decor":"plain"}')).toBe(false);
         expect(localStorage.getItem(STORY_THEATER_APPEARANCE_STORAGE_KEY)).toBe('{"color":"dark","decor":"plain"}');
         expect(restoreStoryTheaterAppearanceSetting(undefined)).toBe(false);
+        expect(localStorage.getItem(STORY_THEATER_APPEARANCE_STORAGE_KEY)).toBe('{"color":"dark","decor":"plain"}');
+        expect(restoreStoryTheaterAppearanceSetting('{"color":"dark","decor":"plain","fontSize":"huge"}')).toBe(false);
         expect(localStorage.getItem(STORY_THEATER_APPEARANCE_STORAGE_KEY)).toBe('{"color":"dark","decor":"plain"}');
     });
 
