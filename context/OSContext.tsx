@@ -3754,6 +3754,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'worlds', 'world_episodes',
               // Living World 被动基础层：state + append-only event ledger，无媒体。
               'living_world',
+              // 礼物记录（Phase 6）：imageRef 是 blobref 令牌，媒体/全量导出走与 messages 同款
+              // 的 resolveBlobRefsDeep（见下方 store 循环）→ data: → zip assets 抽取 + 全局去重。
+              'gift_records',
               // 生活记录（档案 App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions）
               // 导入端 importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录。
               'life_records', 'med_plans', 'life_record_settings'
@@ -4168,8 +4171,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               //  · characters：小屋 roomConfig.wallImage/floorImage/items[].image、sprites.chibi
               //    （media_only 的 roomItems/backgrounds 提取也依赖已还原成 data:）
               //  · cc_custom_parts：捏人器自定义部件的 src / shadowSrc
-              //  · messages：视频通话每轮快照的 metadata.cameraSnapshotRef
-              if ((storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages') && mode !== 'text_only' && Array.isArray(rawData)) {
+               //  - messages camera snapshot / gift_records imageRef (blobref -> data: -> zip assets)
+               if ((storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages' || storeName === 'gift_records') && mode !== 'text_only' && Array.isArray(rawData)) {
                   for (const c of rawData) await resolveBlobRefsDeep(c);
               }
 
@@ -4322,6 +4325,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'worlds': backupData.worlds = processedData; break;
                   case 'world_episodes': backupData.worldEpisodes = processedData; break;
                   case 'living_world': backupData.livingWorld = processedData; break;
+            // 礼物 —— 键名须与 importFullData 读取的字段（data.gifts）对齐
+            case 'gift_records': backupData.gifts = processedData; break;
               }
 
               await new Promise(resolve => setTimeout(resolve, 10));

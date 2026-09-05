@@ -57,6 +57,9 @@ import { announceScheduleChanges, applyAssistantScheduleChanges } from './schedu
 import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceHistory';
 import { extractChatPhotoIntent } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
+import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
+import { applyGiftReaction } from './giftActions';
+import { executeGiftSend } from './giftCharacterSend';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -433,6 +436,12 @@ export interface PostProcessCtx {
      * 在线送达 vs 离线补收的判定见 activeMsgRuntime.resolveInboxPersistTimestamp。
      */
     messageTimestamp?: number;
+    /**
+     * Phase 3 礼物回应（GIFT_REACT）：非空时本轮允许模型结构化评价这一个礼物。
+     * 由 utils/giftChatBridge.triggerGiftReaction 传入；普通聊天轮次不传——
+     * 模型万一输出 GIFT_REACT 也只剥掉、不执行（防跨礼物越权写库）。
+     */
+    giftReactionContext?: { giftId: string };
 }
 
 // ─── 主入口 ─────────────────────────────────────────────────────────────────
@@ -589,6 +598,20 @@ export async function applyAssistantPostProcessing(
         console.warn('[ChatPhoto] SEND_PHOTO 标签解析失败，已剥掉不执行', { charId: char.id });
     }
     aiContent = chatPhotoExtraction.cleanedContent;
+
+    // ─── Step 1.6: 礼物意图 GIFT_REACT / GIFT_SEND（Phase 3/4） ───
+    // 与 SEND_PHOTO 同一双点位策略：任何渲染前剥掉（意图 JSON 绝不进气泡、不进历史），
+    // 抽到的意图等本轮正文渲染完（Step 7.5/7.6）再执行。解析失败的标签同样剥掉。
+    const giftReactExtraction = extractGiftReactIntent(aiContent);
+    if (giftReactExtraction.invalidTagFound) {
+        console.warn('[Gift] GIFT_REACT 标签解析失败，已剥掉不执行', { charId: char.id });
+    }
+    aiContent = giftReactExtraction.cleanedContent;
+    const giftSendExtraction = extractGiftSendIntent(aiContent);
+    if (giftSendExtraction.invalidTagFound) {
+        console.warn('[Gift] GIFT_SEND 标签解析失败，已剥掉不执行', { charId: char.id });
+    }
+    aiContent = giftSendExtraction.cleanedContent;
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
@@ -2149,6 +2172,32 @@ export async function applyAssistantPostProcessing(
             refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
             onToast: addToast,
             inheritMeta: mcdInheritMeta,
+        });
+    }
+
+    // ─── Step 7.5: 礼物回应 GIFT_REACT（Phase 3） ───
+    // 只在 ctx.giftReactionContext 限定的本轮礼物上生效（模型输出的 giftId 不可信）；
+    // applyGiftReaction 内部 first-reaction-wins，post-processing 重放/流式重跑不会覆盖。
+    if (giftReactExtraction.intent) {
+        const outcome = await applyGiftReaction(
+            giftReactExtraction.intent,
+            ctx.giftReactionContext?.giftId,
+        );
+        if (outcome.applied) {
+            setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+        }
+    }
+
+    // ─── Step 7.6: 角色送礼 GIFT_SEND（Phase 4） ───
+    // executeGiftSend：先落 pending GiftRecord + 聊天卡，再走唯一生图入口；eventKey 指纹
+    // 保证重放只落一份礼物、只发一次生图请求；cooldown 命中时静默跳过（标签已剥）。
+    if (giftSendExtraction.intent) {
+        await executeGiftSend({
+            intent: giftSendExtraction.intent,
+            char,
+            userName: userProfile?.name,
+            onToast: addToast,
+            refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
         });
     }
 }
