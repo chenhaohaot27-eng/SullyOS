@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Message, ChatTheme } from '../../types';
 import GiftChatCard from './GiftChatCard';
+import MeetingInviteCard from './MeetingInviteCard';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
@@ -3352,6 +3353,11 @@ const MessageItem = React.memo(({
         return <GiftChatCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} />;
     }
 
+    // 见面邀请卡：正文全部来自模型输出（metadata.meet），前端只做骨架与按钮。
+    if (m.type === 'meet_card') {
+        return <MeetingInviteCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} />;
+    }
+
     if (m.type === 'life_card') {
         return <LifeRecordCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveLifeRecord={onResolveLifeRecord} />;
     }
@@ -3532,7 +3538,7 @@ const MessageItem = React.memo(({
         .replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, '')  // imitated history render [xx引用了xx说的「…」，并回复了 ↓]
         .replace(/\[回复\s*[""\u201C][^""\u201D]*?[""\u201D](?:\.{0,3})\]\s*[：:]?\s*/g, '')  // [回复 "content"]: format
         // Residual action/system tags that may have leaked through
-        .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|SEND_EMOJI|SEND_PHOTO|GIFT_REACT|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END)[:\s][\s\S]*?\]\]/g, '')
+        .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|SEND_EMOJI|SEND_PHOTO|GIFT_REACT|GIFT_SEND|MEET_INVITE|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END)[:\s][\s\S]*?\]\]/g, '')
         .replace(/\[schedule_message[^\]]*\]/g, '')
         .replace(/<[语語]音[^>]*>[\s\S]*?<\/\s*[语語]音\s*>/g, '')  // strip <语音 ...>...</语音> voice tags (tolerate emotion attr / spaced close)
         .replace(/<[语語]音[^>]*>[\s\S]*$/g, '')             // 未闭合开标签 (历史坏数据): 标签到末尾都是语音内容, 不当正文显示

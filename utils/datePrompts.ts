@@ -647,6 +647,12 @@ export const DatePrompts = {
         allMsgs: Message[];
         emojis: Emoji[];
         useVisionDescriptions?: boolean;
+        /**
+         * 来自聊天「见面邀请」的情境（可选）：
+         * sceneSeed = 见面场景起点；contextSummary = 邀请前相关聊天背景；
+         * participantsText = 到场角色描述。有值时 peek 以此为场景锚点，替代通用衔接逻辑。
+         */
+        sceneHint?: { sceneSeed: string; contextSummary?: string; participantsText?: string };
     }): { messages: ApiMessage[] } => {
         const { char, userProfile, allMsgs, emojis } = input;
         const charTz = resolveCharTimeZone(char);
@@ -681,6 +687,13 @@ export const DatePrompts = {
             ? `\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
             : `\n\n--- [SCENE CONTINUATION: 刚刚还在聊天，现在来到了面对面的场景] ---\n\n`;
 
+        // 来自聊天见面邀请的情境锚点：优先级高于通用衔接——玩家是「应约前来」，
+        // 场景起点由邀请的 sceneSeed 决定（发起者位置/状态/环境），不由时间间隔推断。
+        const sceneHintBlock = input.sceneHint
+            ? `\n\n--- [MEETING INVITATION ACCEPTED] ---\n[应约情境] 玩家刚刚在聊天里接受了见面邀请并前来赴约。到场角色：${input.sceneHint.participantsText || char.name}。\n[场景起点] ${input.sceneHint.sceneSeed}${input.sceneHint.contextSummary ? `\n[赴约前背景] ${input.sceneHint.contextSummary}` : ''}\n请以此情境为这场见面的锚点：从这里开始描写，衔接赴约前的情绪与话题。`
+            : '';
+        const effectiveSeparator = input.sceneHint ? sceneHintBlock : contextSeparator;
+
         const peekInstructions = `
 ### 场景：感知 (Sense Presence)
 ${dateTimeOn ? `当前时间: ${timeStr}\n` : ''}时间上下文: ${gapHint}
@@ -699,7 +712,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         return {
             messages: [
                 { role: 'system', content: baseContext },
-                { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${contextSeparator}${peekInstructions}\n\n(Start sensing...)` },
+                { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${effectiveSeparator}${peekInstructions}\n\n(Start sensing...)` },
             ],
         };
     },
@@ -717,6 +730,8 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         userText: string;
         variant: 'send' | 'reroll';
         useVisionDescriptions?: boolean;
+        /** 见面邀请上下文（可选）：整场 session 持续注入，让应约情境贯穿对话。 */
+        meetingContext?: string;
     }): Promise<{ messages: ApiMessage[] }> => {
         const { char, userProfile, allMsgs, emojis, userText, variant } = input;
 
@@ -731,7 +746,8 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         // 向量召回挂到 char.memoryPalaceInjection，buildCoreContext 会读取
         await injectMemoryPalace(char, allMsgs, undefined, userProfile?.name);
         const systemPrompt = ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char) })
-            + buildVNModeBlock(char, userProfile?.name || '');
+            + buildVNModeBlock(char, userProfile?.name || '')
+            + (input.meetingContext ? `\n\n### 本场见面情境（来自玩家接受的聊天邀请）\n${input.meetingContext}\n（这是玩家应约而来的见面，自然衔接该情境；不要重新邀请，也不要描述玩家赴约前的犹豫。）` : '');
 
         // 每轮轮换的聚焦线索：把注意力推向不同的具体方向，相邻回复天然有差异
         const focusLine = isDigDeeperOn(char.dateStyleConfig) ? ` 本轮线索：${pickFocusHint()}。` : '';
