@@ -58,6 +58,7 @@ import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceH
 import { extractChatPhotoIntent } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
+import { executeMeetInvite, extractMeetInviteIntent } from './meetingInvite';
 import { applyGiftReaction } from './giftActions';
 import { executeGiftSend } from './giftCharacterSend';
 
@@ -612,6 +613,12 @@ export async function applyAssistantPostProcessing(
         console.warn('[Gift] GIFT_SEND 标签解析失败，已剥掉不执行', { charId: char.id });
     }
     aiContent = giftSendExtraction.cleanedContent;
+    // ─── Step 1.7: 见面邀请意图 MEET_INVITE ───
+    const meetInviteExtraction = extractMeetInviteIntent(aiContent);
+    if (meetInviteExtraction.invalidTagFound) {
+        console.warn('[Meet] MEET_INVITE 标签解析失败，已剥掉不执行', { charId: char.id });
+    }
+    aiContent = meetInviteExtraction.cleanedContent;
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
@@ -2199,5 +2206,22 @@ export async function applyAssistantPostProcessing(
             onToast: addToast,
             refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
         });
+    }
+
+    // ─── Step 7.7: 见面邀请 MEET_INVITE ───
+    // 落一张 meet_card 消息（metadata.meet 全量邀请数据）；正文已先渲染，
+    // 邀请是"请求"，后续推进等玩家在卡片上选择。解析失败/无意图零开销。
+    if (meetInviteExtraction.intent) {
+        try {
+            await executeMeetInvite({
+                intent: meetInviteExtraction.intent,
+                char,
+                persistMessage,
+                inheritMeta: mcdInheritMeta,
+            });
+            setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+        } catch (e) {
+            console.warn('[Meet] 见面邀请卡落库失败（不影响正文）:', e instanceof Error ? e.message : e);
+        }
     }
 }

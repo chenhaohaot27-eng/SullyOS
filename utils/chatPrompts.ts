@@ -24,6 +24,7 @@ import { formatRelativeAge } from './groupChat/relativeTime';
 import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
 import { buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { buildGiftSendTagGuide, isGiftSendTagEnabled } from './giftIntent';
+import { buildMeetInviteGuide } from './meetingInvite';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -66,6 +67,7 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'novel_card': return `[笔友会小说章节${meta.novel?.bookTitle ? '：《' + meta.novel.bookTitle + '》' : ''}]`;
         case 'world_card': return `[家园生活记录${meta.worldName ? '：' + meta.worldName : ''}]`;
         case 'gift_card': return `[礼物${meta.gift?.name ? '：' + meta.gift.name : ''}]`;
+        case 'meet_card': return `[见面邀请${meta.meet?.initiatorName ? '：' + meta.meet.initiatorName : ''}]`;
         case 'sim_card': return `[一段回忆${meta.simCard?.theme ? '：' + meta.simCard.theme : ''}]`;
         case 'phone_card': return `[手机内容${meta.phoneCard?.title ? '：' + meta.phoneCard.title : ''}]`;
         case 'group_topic_card': return `[群聊公共话题盒${meta.groupTopicBox?.title ? '：' + meta.groupTopicBox.title : ''}] ${meta.groupTopicBox?.summary || m.content || ''}`;
@@ -674,7 +676,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
    - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
-${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${giftSendTagEnabled ? buildGiftSendTagGuide() : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
+${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${giftSendTagEnabled ? buildGiftSendTagGuide() : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}${buildMeetInviteGuide()}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `
    - **翻阅日记(飞书)**: 同上——回忆优先靠记忆和 \`[[RECALL]]\`，只有你自己想重温那天日记的内容时才用: \`[[FS_READ_DIARY: 日期]]\`。支持格式同上。` : ''}${notionNotesEnabled ? `
    - **翻阅用户笔记**: 当你想看${userProfile.name}写的某篇笔记的详细内容时，使用: \`[[READ_NOTE: 标题关键词]]\`。系统会搜索匹配的笔记并返回内容给你。` : ''}
@@ -1207,6 +1209,22 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                         giftLines.push(`图片识别：${typeof g.visualSummary === 'string' && g.visualSummary.trim() ? g.visualSummary.trim() : '不可用'}`);
                     }
                     content = giftLines.join('\n');
+                }
+                // 见面邀请卡（MEET_INVITE）：模型需要记得自己发过邀请、玩家是否接受——
+                // 避免重复邀请 / 与已接受但未赴约的状态冲突。不暴露 invitation.id 等内部字段。
+                else if ((m.type as string) === 'meet_card') {
+                    const meet = (m.metadata?.meet || {}) as {
+                        initiatorName?: string; participantNames?: string[];
+                        invitationText?: string; locationText?: string; timeText?: string; status?: string;
+                    };
+                    const participants = Array.isArray(meet.participantNames) && meet.participantNames.length > 0
+                        ? meet.participantNames.join('、') : '用户';
+                    const meetLines = [`${timeStr} [邀请记录] ${meet.initiatorName || '某人'}向用户发出了见面邀请（见面对象：${participants}）`];
+                    if (meet.invitationText) meetLines.push(`邀请内容：「${meet.invitationText}」`);
+                    if (meet.locationText) meetLines.push(`地点：${meet.locationText}`);
+                    if (meet.timeText) meetLines.push(`时间：${meet.timeText}`);
+                    meetLines.push(`玩家回应：${meet.status === 'accepted' ? '已接受' : meet.status === 'deferred' ? '暂缓（稍后见）' : meet.status === 'declined' ? '已婉拒' : '尚未回应'}`);
+                    content = meetLines.join('\n');
                 }
                 else if (m.type === 'interaction') content = `${timeStr} [系统: 用户戳了你一下]`;
                 else if (m.type === 'transfer') {
