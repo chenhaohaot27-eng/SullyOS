@@ -2605,6 +2605,24 @@ export interface CharacterProfile {
   id: string;
   name: string;
   avatar: string;
+  /** Names accepted for identity resolution (meeting participants, imports, etc.). */
+  aliases?: string[];
+  /** Marks one of the built-in story NPCs that has been promoted to a full character. */
+  formalIdentity?: {
+      kind: 'promoted_npc';
+      key: 'talia' | 'amund' | 'charles' | 'sutherland';
+      version: 1;
+  };
+  /** Stable relationship context kept separately from mutable chat memories. */
+  relationshipNotes?: {
+      player: string;
+      qiyu: string;
+  };
+  /**
+   * Optional character-level chat override. Missing fields inherit the global chat API/model
+   * configuration. It is intentionally absent on built-ins and stripped from shared cards.
+   */
+  chatApiOverride?: Partial<Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'stream' | 'temperature'>>;
   /**
    * 视频通话使用的本地 VRM / Live2D 形象。模型二进制包保存在 IndexedDB
    * blob_assets，角色资料只保存轻量索引，避免把数 MB 的模型塞进

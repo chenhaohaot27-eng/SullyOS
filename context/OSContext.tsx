@@ -84,6 +84,7 @@ import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
 import { exportImageGenerationConfig, importImageGenerationConfig } from '../utils/imageGenerationConfig';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
+import { promoteFormalNpcs, resolveCharacterChatApiConfig } from '../utils/formalNpcRegistry';
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -1534,7 +1535,17 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             settle(DB.getCharacterGroups(), 'characterGroups', [] as CharacterGroup[])
         ]);
 
-        let finalChars = dbChars;
+        // The four explicitly curated Lemuria NPCs are full CharacterProfiles. This bootstrap is
+        // idempotent and reuses alias-matched imported cards, preserving their ids and assets.
+        // No encounter/meeting path calls it, so ordinary npc:<name> actors remain ephemeral.
+        const formalNpcPromotion = promoteFormalNpcs(dbChars);
+        let finalChars = formalNpcPromotion.characters;
+        if (formalNpcPromotion.upserts.length > 0) {
+          await Promise.all(formalNpcPromotion.upserts.map(character => DB.saveCharacter(character)));
+        }
+        if (formalNpcPromotion.conflicts.length > 0) {
+          console.warn('[NPC Promotion] Existing alias conflicts were preserved without creating duplicates:', formalNpcPromotion.conflicts);
+        }
 
         if (!finalChars.some(c => c.id === sullyV2.id)) {
             await DB.saveCharacter(sullyV2);
@@ -2163,9 +2174,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
 
           // Determine which API to use
+          const inheritedCharacterApi = resolveCharacterChatApiConfig(currentApiConfig, char);
           const pCfg = char.proactiveConfig;
           const useSecondary = pCfg?.useSecondaryApi && pCfg.secondaryApi?.baseUrl;
-          const api = useSecondary ? pCfg!.secondaryApi! : currentApiConfig;
+          const api = useSecondary ? pCfg!.secondaryApi! : inheritedCharacterApi;
           if (!api.baseUrl) {
               drainQueuedProactive();
               return;
