@@ -22,6 +22,8 @@ export const CARD_STRIPPED_FIELDS = [
   'embeddingConfig',
   'proactiveConfig',
   'activeMsg2Config',
+  'chatApiOverride',
+  'formalIdentity',           // local registry ownership; importing a card must not claim a second formal identity
 
   // 2) 美化
   'embeddedTheme',           // CharacterExportData 上的内嵌主题（导入侧一并剥离）

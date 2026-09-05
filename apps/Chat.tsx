@@ -75,6 +75,7 @@ import {
     type ContextRangeMode,
 } from '../utils/chatContextRange';
 import { formatMessageDateSeparator, isSameLocalMessageDay, shouldShowMessageDateSeparator } from '../utils/messageDateSeparator';
+import { resolveCharacterChatApiConfig } from '../utils/formalNpcRegistry';
 
 const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
 /** 即时对话那一轮回复「推送陆续到齐」的宽限时间，也就是自动合成的补扫窗口有多长（见下面的 auto-TTS effect）。 */
@@ -361,11 +362,16 @@ const Chat: React.FC = () => {
         return () => window.removeEventListener(AMSG_INSTANT_CHAT_PENDING_EVENT, sync);
     }, [activeCharacterId]);
 
+    const characterChatApiConfig = useMemo(
+        () => resolveCharacterChatApiConfig(apiConfig, char),
+        [apiConfig, char?.chatApiOverride],
+    );
+
     // --- Initialize Hook ---
     const { isTyping, streamingBubbles, streamingThinking, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
         char,
         userProfile,
-        apiConfig,
+        apiConfig: characterChatApiConfig,
         groups,
         emojis: aiVisibleEmojis,
         categories: visibleCategories,

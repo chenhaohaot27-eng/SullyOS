@@ -20,6 +20,7 @@
 
 import type { CharacterProfile, Message } from '../types';
 import { DB } from './db';
+import { findCharacterByIdentityName } from './formalNpcRegistry';
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -150,10 +151,10 @@ export function resolveMeetIdentity(
     if (isSelfToken && selfChar) {
         return { id: selfChar.id, name: selfChar.name, avatar: selfChar.avatar, registered: true };
     }
-    if (selfChar && trimmed === selfChar.name) {
+    if (selfChar && findCharacterByIdentityName([selfChar], trimmed)) {
         return { id: selfChar.id, name: selfChar.name, avatar: selfChar.avatar, registered: true };
     }
-    const hit = characters.find(c => c.name === trimmed);
+    const hit = findCharacterByIdentityName(characters, trimmed);
     if (hit) return { id: hit.id, name: hit.name, avatar: hit.avatar, registered: true };
     const fallbackName = isSelfToken && selfChar ? selfChar.name : (trimmed || '未知角色');
     return { id: selfChar && isSelfToken ? selfChar.id : npcSlug(fallbackName), name: fallbackName, registered: false };
