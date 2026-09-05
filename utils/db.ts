@@ -20,6 +20,27 @@ import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgSto
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
 import { normalizeEmojiRecords } from './emojiImageCompat';
+import { normalizeGiftRecordsAfterRestore } from './giftBackup';
+import type { GiftRecord } from './giftTypes';
+
+/**
+ * exportFullData 的礼物导出辅助：把 imageRef 的 blobref 令牌解析回 data URL，
+ * 使该路径（无 ZIP 资产管线）导出的 gifts 自包含可移植。解析失败保留原令牌。
+ */
+async function resolveGiftBlobRefsForExport(gifts: GiftRecord[] | undefined): Promise<GiftRecord[] | undefined> {
+    if (!Array.isArray(gifts) || gifts.length === 0) return gifts;
+    try {
+        // 动态 import：blobRef.ts 依赖本模块（DB），静态互引会成环。
+        const { resolveBlobRefsDeep } = await import('./blobRef');
+        for (const g of gifts) {
+            if (g?.image && typeof g.image.imageRef === 'string' && g.image.imageRef.startsWith('blobref:')) {
+                await resolveBlobRefsDeep(g.image);
+            }
+        }
+    } catch { /* 解析失败保留令牌，导入端按丢失图处理 */ }
+    return gifts;
+}
+
 
 const DB_NAME = 'AetherOS_Data';
 // v67：两条并行线各自用掉了 v65/v66（A线: blob_assets + 生活记录；B线: room_plates 门牌 + digest_reports 消化日志），
@@ -29,7 +50,8 @@ const DB_NAME = 'AetherOS_Data';
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // v71：角色小红书伪主页；发帖归属与可删除的自由活动日志分离。
 // v72：Living World 被动基础层（只存 state / agent state / append-only event ledger，不接入调度）。
-const DB_VERSION = 72;
+// v73：礼物 GiftRecord 数据底座（gift_records store；eventKey 唯一索引做持久幂等）。
+const DB_VERSION = 73;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -82,6 +104,7 @@ const STORE_API_CALL_LOG = 'api_call_log';        // 全局 API 调用记录单�
 const STORE_WORLDS = 'worlds';                    // 家园·世界定义（成员/NPC/居住/关系/模式）
 const STORE_WORLD_EPISODES = 'world_episodes';    // 家园·演绎历史（每轮一条，index worldId）
 const STORE_LIVING_WORLD = 'living_world';         // Living World 被动基础层（state + append-only events）
+const STORE_GIFT_RECORDS = 'gift_records';         // 礼物 GiftRecord（utils/giftStore.ts 独占数据访问；eventKey 唯一索引做持久幂等）
 const STORE_LIFE_RECORDS = 'life_records';        // 生活记录：生理期/药盒打卡/锻炼（记账走 bank_transactions）
 const STORE_MED_PLANS = 'med_plans';              // 药盒计划（每天几点吃什么药）
 const STORE_LIFE_SETTINGS = 'life_record_settings'; // 生活记录设置单例（id='main'：周期长度等）
@@ -326,6 +349,21 @@ export const openDB = (): Promise<IDBDatabase> => {
           if (lwStore && !lwStore.indexNames.contains('worldId')) lwStore.createIndex('worldId', 'worldId', { unique: false });
           if (lwStore && !lwStore.indexNames.contains('kind')) lwStore.createIndex('kind', 'kind', { unique: false });
           if (lwStore && !lwStore.indexNames.contains('worldId_kind')) lwStore.createIndex('worldId_kind', ['worldId', 'kind'], { unique: false });
+      }
+
+      // ─── v73: 礼物 GiftRecord（Gift App / 聊天礼物卡的唯一真相源） ──────
+      //     eventKey 唯一索引是持久幂等核心：并发/重放的同逻辑礼物在 DB 层兜底只落一条。
+      //     sender/recipient/status 等不建索引（数据量小，列表本地过滤即可）。
+      if (!db.objectStoreNames.contains(STORE_GIFT_RECORDS)) {
+          const giftStore = db.createObjectStore(STORE_GIFT_RECORDS, { keyPath: 'id' });
+          giftStore.createIndex('eventKey', 'eventKey', { unique: true });
+          giftStore.createIndex('charId', 'charId', { unique: false });
+          giftStore.createIndex('createdAt', 'createdAt', { unique: false });
+      } else {
+          const giftStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_GIFT_RECORDS);
+          if (giftStore && !giftStore.indexNames.contains('eventKey')) giftStore.createIndex('eventKey', 'eventKey', { unique: true });
+          if (giftStore && !giftStore.indexNames.contains('charId')) giftStore.createIndex('charId', 'charId', { unique: false });
+          if (giftStore && !giftStore.indexNames.contains('createdAt')) giftStore.createIndex('createdAt', 'createdAt', { unique: false });
       }
 
       createStore(STORE_BANK_TX, { keyPath: 'id' });
@@ -2924,7 +2962,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -2979,6 +3017,7 @@ export const DB = {
           getAllFromStore(STORE_LIFE_RECORDS),
           getAllFromStore(STORE_MED_PLANS),
           getAllFromStore(STORE_LIFE_SETTINGS),
+          getAllFromStore(STORE_GIFT_RECORDS),
       ]);
 
       const userProfile = userProfiles.length > 0 ? {
@@ -3025,6 +3064,7 @@ export const DB = {
           worlds,
           worldEpisodes,
           livingWorld,
+          gifts: await resolveGiftBlobRefsForExport(gifts),
           worldHomeLocal: exportWorldHomeLocal(), // 家园本机配置：全局 API + 文风收藏（存 localStorage）
           luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
@@ -3070,7 +3110,7 @@ export const DB = {
           STORE_LIFE_SETTINGS,
           STORE_HOTNEWS,
           STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS,
-          STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIVING_WORLD,
+          STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIVING_WORLD, STORE_GIFT_RECORDS,
           'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
           'room_plates', 'digest_reports',
           'memory_batches', 'pixel_home_assets', 'pixel_home_layouts'
@@ -3484,6 +3524,14 @@ export const DB = {
           await clearAndAdd(STORE_LIVING_WORLD, data.livingWorld, 'Living World', false);
           data.livingWorld = undefined as any;
       }, data.livingWorld?.length || 0);
+      // 礼物（Phase 6）：恢复端规范化在 giftBackup —— 单条损坏跳过、pending AI → interrupted
+      // （绝不自动续跑生成）、data: imageRef → blob_assets 重新入库换回 blobref 令牌；
+      // id/eventKey/createdAt/chat 链接/memoryId 全部原样保留。旧备份缺 gifts 字段 → 本段整体跳过。
+      await runSection('礼物', data.gifts !== undefined, async () => {
+          const restored = await normalizeGiftRecordsAfterRestore(data.gifts, options.beforeWrite);
+          await clearAndAdd(STORE_GIFT_RECORDS, restored, '礼物', false); // 资产已在 normalize 内经 beforeWrite 还原
+          data.gifts = undefined as any;
+      }, data.gifts?.length || 0);
       await runSection('家园本机配置', (data as any).worldHomeLocal !== undefined, async () => {
           importWorldHomeLocal((data as any).worldHomeLocal); // 全局 API + 文风收藏
           (data as any).worldHomeLocal = undefined;
