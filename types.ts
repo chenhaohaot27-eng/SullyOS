@@ -2609,12 +2609,6 @@ export interface CharacterProfile {
   avatar: string;
   /** Names accepted for identity resolution (meeting participants, imports, etc.). */
   aliases?: string[];
-  /** Marks one of the built-in story NPCs that has been promoted to a full character. */
-  formalIdentity?: {
-      kind: 'promoted_npc';
-      key: 'talia' | 'amund' | 'charles' | 'sutherland';
-      version: 1;
-  };
   /** Stable relationship context kept separately from mutable chat memories. */
   relationshipNotes?: {
       player: string;

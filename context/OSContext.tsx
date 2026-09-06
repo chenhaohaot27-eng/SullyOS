@@ -84,7 +84,9 @@ import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
 import { exportImageGenerationConfig, importImageGenerationConfig } from '../utils/imageGenerationConfig';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
-import { promoteFormalNpcs, resolveCharacterChatApiConfig } from '../utils/formalNpcRegistry';
+import { resolveCharacterChatApiConfig } from '../utils/formalNpcRegistry';
+import { runPrivateNpcLeakCleanupV1 } from '../utils/privateNpcLeakCleanup';
+import { isPublicBuiltinCharacterId } from '../utils/publicBuiltinCharacters';
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -1535,18 +1537,24 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             settle(DB.getCharacterGroups(), 'characterGroups', [] as CharacterGroup[])
         ]);
 
-        // The four explicitly curated Lemuria NPCs are full CharacterProfiles. This bootstrap is
-        // idempotent and reuses alias-matched imported cards, preserving their ids and assets.
-        // No encounter/meeting path calls it, so ordinary npc:<name> actors remain ephemeral.
-        const formalNpcPromotion = promoteFormalNpcs(dbChars);
-        let finalChars = formalNpcPromotion.characters;
-        if (formalNpcPromotion.upserts.length > 0) {
-          await Promise.all(formalNpcPromotion.upserts.map(character => DB.saveCharacter(character)));
-        }
-        if (formalNpcPromotion.conflicts.length > 0) {
-          console.warn('[NPC Promotion] Existing alias conflicts were preserved without creating duplicates:', formalNpcPromotion.conflicts);
+        let finalChars = dbChars;
+        try {
+          const cleanup = await runPrivateNpcLeakCleanupV1(dbChars);
+          finalChars = cleanup.characters;
+          if (cleanup.deletedIds.length > 0 || cleanup.preservedIds.length > 0) {
+            console.info('[privateNpcLeakCleanupV1] completed', {
+              deleted: cleanup.deletedIds.length,
+              preserved: cleanup.preservedIds.length,
+            });
+          }
+        } catch (error) {
+          // Fail closed: keep every profile and leave the marker unset so a future startup retries.
+          console.error('[privateNpcLeakCleanupV1] dependency scan failed; all candidate records were preserved', error);
         }
 
+        if (!isPublicBuiltinCharacterId(sullyV2.id)) {
+            throw new Error(`Refusing to seed a character outside the public built-in allowlist: ${sullyV2.id}`);
+        }
         if (!finalChars.some(c => c.id === sullyV2.id)) {
             await DB.saveCharacter(sullyV2);
             finalChars = [...finalChars, sullyV2];

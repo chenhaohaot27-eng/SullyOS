@@ -593,6 +593,20 @@ export const DB = {
     transaction.objectStore(STORE_CHARACTERS).delete(id);
   },
 
+  /** Deletes only exact records in the characters store; no messages, memories, assets or aliases. */
+  deleteCharacterRecordsOnly: async (ids: readonly string[]): Promise<void> => {
+    if (ids.length === 0) return;
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_CHARACTERS, 'readwrite');
+      const store = transaction.objectStore(STORE_CHARACTERS);
+      for (const id of ids) store.delete(id);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('record-only character cleanup aborted'));
+    });
+  },
+
   // ---- 角色分组（神经链接"文件夹"，与群聊 groups 无关）----
 
   getCharacterGroups: async (): Promise<CharacterGroup[]> => {
