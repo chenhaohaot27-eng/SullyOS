@@ -8,7 +8,8 @@ import { processNewMessagesWithAutoArchive } from '../utils/memoryPalace/autoArc
 import type { PipelineResult } from '../utils/memoryPalace/pipeline';
 import { incrementDigestRound, runCognitiveDigestion } from '../utils/memoryPalace';
 import { getRoomLabel } from '../utils/memoryPalace/types';
-import { safeResponseJson, extractContent } from '../utils/safeApi';
+import { extractContent } from '../utils/safeApi';
+import { completeChat } from '../utils/chatCompletionClient';
 import Modal from '../components/os/Modal';
 import DateSession from '../components/date/DateSession';
 import DateSettings from '../components/date/DateSettings';
@@ -222,22 +223,20 @@ const DateApp: React.FC = () => {
 
     // peek / send / reroll 共用的 LLM 调用（提示词构建统一在 utils/datePrompts.ts）
     const callLLM = async (messages: ApiMessage[], temperature: number): Promise<string> => {
-        const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-            body: JSON.stringify({
-                model: apiConfig.model,
-                messages,
-                temperature,
-                // max_tokens 是 Claude 原生 API 的必填字段；缺了它，糯米机/Csy 等
-                // OpenAI→Claude 中转会被上游打回，再包成 502 / bad_response_status_code。
-                // 与私聊 (useChatAI.ts) 对齐，统一带 8000。
-                max_tokens: 8000,
-                stream: apiConfig.stream ?? false,
-            })
-        });
-        if (!response.ok) throw new Error(`API Error ${response.status}`);
-        const data = await safeResponseJson(response);
+        // Phase 2C：见面请求统一走 chatCompletionClient。OpenAI-compatible 仍请求
+        // 原 OpenAI 兼容端点，body 与原 fetch 一致（同样零重试）；apiFormat 为
+        // gemini-native 时自动改走 Gemini 原生流式端点，429/上游错误保留原始 message
+        // 单次抛出，不自动重发。
+        const data = await completeChat(apiConfig, {
+            model: apiConfig.model,
+            messages,
+            temperature,
+            // max_tokens 是 Claude 原生 API 的必填字段；缺了它，糯米机/Csy 等
+            // OpenAI→Claude 中转会被上游打回，再包成 502 / bad_response_status_code。
+            // 与私聊 (useChatAI.ts) 对齐，统一带 8000。
+            max_tokens: 8000,
+            stream: apiConfig.stream ?? false,
+        }, { maxRetries: 0 });
         // 思考型渠道会把正文塞进 reasoning_content、content 留空——直接取 content
         // 会拿到空串且不报错：感知页黑屏卡死（无按钮可退），会话里则落库空消息。
         const content = extractContent(data);

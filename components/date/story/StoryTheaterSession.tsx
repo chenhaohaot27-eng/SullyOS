@@ -4,7 +4,9 @@ import { useOS } from '../../../context/OSContext';
 import type { CharacterProfile, Message, StoryTheaterEntry, StoryTheaterMask, StoryTheaterPreset } from '../../../types';
 import { DB } from '../../../utils/db';
 import { ContextBuilder } from '../../../utils/context';
-import { safeResponseJson, extractContent } from '../../../utils/safeApi';
+import { extractContent } from '../../../utils/safeApi';
+import { completeChat } from '../../../utils/chatCompletionClient';
+import { normalizeChatApiFormat } from '../../../utils/apiConfigNormalize';
 import {
     appendStoryAffinityInputs,
     appendStoryUserTurn,
@@ -23,7 +25,6 @@ import {
     compileStoryPreset,
     dedupeTheaterWorldbooks,
     describeEmptyStoryCompletion,
-    describeStoryApiError,
     estimateStoryTokens,
     formatActorRecentMessages,
     formatStoryTheaterExport,
@@ -458,13 +459,16 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     }, [actors, addToast, entry, exporting, mask.name, messages]);
 
     const callCompletion = useCallback(async (payload: Array<{ role: string; content: string }>, settings?: object, onPromptTokens?: (tokens: number) => void): Promise<string> => {
-        const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-            body: JSON.stringify({ model: apiConfig.model, messages: payload, stream: false, ...settings }),
-        });
-        const data = await safeResponseJson(response);
-        if (!response.ok) throw new Error(describeStoryApiError(response.status, data));
+        // Phase 2C：剧情 completion 统一走 chatCompletionClient。OpenAI-compatible 仍请求
+        // 原 OpenAI 兼容端点，body 与原 fetch 完全一致（同样零重试）；apiFormat 为
+        // gemini-native 时自动改走 Gemini 原生流式端点，429/上游错误保留原始 message
+        // 单次抛出，不自动重发，也不把 thought / signature 混进正文。
+        const data = await completeChat(apiConfig, {
+            model: apiConfig.model,
+            messages: payload,
+            stream: false,
+            ...settings,
+        }, { maxRetries: 0 });
         const reportedPromptTokens = Number(data?.usage?.prompt_tokens);
         if (Number.isFinite(reportedPromptTokens) && reportedPromptTokens > 0) onPromptTokens?.(reportedPromptTokens);
         const content = extractContent(data).trim();
@@ -721,7 +725,14 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 ...(affinityAwarenessReminder ? [{ role: 'system' as const, content: affinityAwarenessReminder }] : []),
                 { role: 'system' as const, content: identityGuard },
             ];
-            const payload = appendStoryUserTurn(payloadBeforeTurn, modelInput, compiled.assistantPrefill, promptEntry.forceUserLastMessage === true);
+            // Gemini Native 不接受以 assistant/model 结尾的请求：不能把原生 assistant
+            // prefill 直接当成“续写起点”。因此 Native 一律走既有 400 兼容路径
+            // （appendStoryUserTurn → buildStoryPrefillInstruction）：预填改写成紧邻的
+            // system 约束，最终消息保持 user；返回正文缺前缀时仍由下方本地补齐，
+            // “续写/剧情正文”的语义与 OpenAI 路径一致。
+            const forceUserLast = promptEntry.forceUserLastMessage === true
+                || normalizeChatApiFormat(apiConfig.apiFormat) === 'gemini-native';
+            const payload = appendStoryUserTurn(payloadBeforeTurn, modelInput, compiled.assistantPrefill, forceUserLast);
             let promptTokenCount = estimateStoryTokens(payload.map(message => `${message.role}\n${message.content}`).join('\n'));
             let promptTokenCountExact = false;
             setContextTokens(promptTokenCount);
@@ -763,7 +774,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
             setSending(false);
             setRerollingId(null);
         }
-    }, [actors, addToast, affinityDrafts, affinityEnabled, applyActorMemoryPipeline, archiveIfNeeded, buildActorContexts, buildMaskMemoryContext, callCompletion, effectivePreset, entry, independentRecall, input, loadMessages, mask, promptIdentityName, saveCentralAndMirrors, selectedBooks, threadId]);
+    }, [actors, addToast, affinityDrafts, affinityEnabled, apiConfig, applyActorMemoryPipeline, archiveIfNeeded, buildActorContexts, buildMaskMemoryContext, callCompletion, effectivePreset, entry, independentRecall, input, loadMessages, mask, promptIdentityName, saveCentralAndMirrors, selectedBooks, threadId]);
 
     const archivedCount = messages.filter(message => mirrorArchived(message, entry)).length;
     const pendingRetryInput = getPendingStoryRetryInput(messages);
