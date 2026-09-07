@@ -31,10 +31,41 @@ describe('草稿同步不跨区块打架', () => {
     expect(settings).not.toMatch(/\}, \[apiConfig\]\);/);
   });
 
-  it('主 API 那份只盯自己的五个字段', () => {
+  it('主 API 那份只盯自己的六个字段（含请求格式）', () => {
     expect(settings).toMatch(
-      /\}, \[apiConfig\.baseUrl, apiConfig\.apiKey, apiConfig\.model, apiConfig\.stream, apiConfig\.temperature\]\);/,
+      /\}, \[apiConfig\.baseUrl, apiConfig\.apiKey, apiConfig\.model, apiConfig\.apiFormat, apiConfig\.stream, apiConfig\.temperature\]\);/,
     );
+  });
+});
+
+describe('请求格式设置与预设持久化', () => {
+  it('只在现有 API 配置内提供两种格式，不新增 SettingsSection', () => {
+    expect(settings).toContain('<option value="openai-compatible">OpenAI 兼容</option>');
+    expect(settings).toContain('<option value="gemini-native">Gemini 原生</option>');
+    expect(settings.match(/<SettingsSection/g) ?? []).toHaveLength(12);
+  });
+
+  it('保存当前配置和新预设都携带 apiFormat', () => {
+    expect(bodyOf('handleSaveApi')).toMatch(/apiFormat:\s*normalizeChatApiFormat\(localApiFormat\)/);
+    expect(bodyOf('handleSavePreset')).toMatch(/apiFormat:\s*normalizeChatApiFormat\(localApiFormat\)/);
+  });
+
+  it('编辑预设可读取并保存格式，旧值通过 normalize 回退', () => {
+    expect(bodyOf('openEditPreset')).toMatch(/setEditPresetApiFormat\(normalizeChatApiFormat\(preset\.config\.apiFormat\)\)/);
+    expect(bodyOf('handleUpdatePreset')).toMatch(/apiFormat:\s*normalizeChatApiFormat\(editPresetApiFormat\)/);
+  });
+
+  it('连接测试统一走 completeChat，不再硬编码 chat/completions', () => {
+    const testApi = bodyOf('handleTestApi');
+    expect(testApi).toMatch(/completeChat\(/);
+    expect(testApi).toMatch(/apiFormat:\s*normalizeChatApiFormat\(localApiFormat\)/);
+    expect(testApi).not.toContain('/chat/completions');
+  });
+
+  it('Native 模型列表不猜 endpoint，明确回到手动填写', () => {
+    const fetchModels = bodyOf('fetchModels');
+    expect(fetchModels).toMatch(/localApiFormat === 'gemini-native'/);
+    expect(fetchModels).toContain('Gemini 原生暂不自动获取模型，请手动填写模型名称');
   });
 });
 

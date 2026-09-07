@@ -40,9 +40,10 @@ import {
     type AvatarModelBackupInventory,
     type AvatarModelBackupProgress,
 } from '../utils/avatarModelBackup';
-import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
+import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel, normalizeChatApiFormat } from '../utils/apiConfigNormalize';
 import { configFromPreset, findActivePresetId, type PresetSwitchPatch } from '../utils/apiPresetSwitch';
-import type { APIConfig } from '../types';
+import { completeChat } from '../utils/chatCompletionClient';
+import type { APIConfig, ChatApiFormat } from '../types';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import ImageGenerationSettings from '../components/settings/ImageGenerationSettings';
 
@@ -462,6 +463,7 @@ const Settings: React.FC = () => {
   const [localKey, setLocalKey] = useState(apiConfig.apiKey);
   const [localUrl, setLocalUrl] = useState(apiConfig.baseUrl);
   const [localModel, setLocalModel] = useState(String(apiConfig.model || ''));
+  const [localApiFormat, setLocalApiFormat] = useState<ChatApiFormat>(normalizeChatApiFormat(apiConfig.apiFormat));
   const [localStream, setLocalStream] = useState<boolean>(apiConfig.stream === true);
   const [localTemperature, setLocalTemperature] = useState<number>(
     typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85
@@ -504,6 +506,7 @@ const Settings: React.FC = () => {
   const [editPresetUrl, setEditPresetUrl] = useState('');
   const [editPresetKey, setEditPresetKey] = useState('');
   const [editPresetModel, setEditPresetModel] = useState('');
+  const [editPresetApiFormat, setEditPresetApiFormat] = useState<ChatApiFormat>('openai-compatible');
   const [holdingDeletePresetId, setHoldingDeletePresetId] = useState<string | null>(null);
   const presetDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
@@ -842,9 +845,10 @@ const Settings: React.FC = () => {
       setLocalUrl(apiConfig.baseUrl);
       setLocalKey(apiConfig.apiKey);
       setLocalModel(String(apiConfig.model || ''));
+      setLocalApiFormat(normalizeChatApiFormat(apiConfig.apiFormat));
       setLocalStream(apiConfig.stream === true);
       setLocalTemperature(typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85);
-  }, [apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model, apiConfig.stream, apiConfig.temperature]);
+  }, [apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model, apiConfig.apiFormat, apiConfig.stream, apiConfig.temperature]);
 
   useEffect(() => {
       setLocalVisionEnabled(apiConfig.visionApi?.enabled === true);
@@ -874,7 +878,7 @@ const Settings: React.FC = () => {
   // 这样刷新、手改 URL、导入备份之后，界面上的「使用中」永远等于请求真的会发去哪。
   const activePresetId = useMemo(
       () => findActivePresetId(apiPresets, apiConfig),
-      [apiPresets, apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model],
+      [apiPresets, apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model, apiConfig.apiFormat],
   );
 
   /**
@@ -909,7 +913,7 @@ const Settings: React.FC = () => {
    * MiniMax / AceStep 那些不归预设管：一个人通常只有一个语音账号，换 LLM 不该动它。
    */
   const applyPreset = (preset: typeof apiPresets[0]) => {
-      // 已经在用这条也照切：「使用中」只看 URL/Key/Model 三件套，温度、流式可能被手调过，
+      // 已经在用这条也照切：「使用中」会比较 URL/Key/Model/请求格式，温度、流式可能被手调过，
       // 再点一下的语义就是「整套回到这条预设存的样子」。
       commitApiConfig(configFromPreset(preset));
       addToast(`已切换到「${preset.name}」，立即生效`, 'success');
@@ -922,6 +926,7 @@ const Settings: React.FC = () => {
       setEditPresetUrl(preset.config.baseUrl || '');
       setEditPresetKey(preset.config.apiKey || '');
       setEditPresetModel(preset.config.model || '');
+      setEditPresetApiFormat(normalizeChatApiFormat(preset.config.apiFormat));
   };
 
   const handleUpdatePreset = () => {
@@ -937,6 +942,7 @@ const Settings: React.FC = () => {
           baseUrl: normalizeApiBaseUrl(editPresetUrl),
           apiKey: normalizeApiCredential(editPresetKey),
           model: normalizeApiModel(editPresetModel),
+          apiFormat: normalizeChatApiFormat(editPresetApiFormat),
       };
       // 「正在用的就是这条」要在改之前问，改完值就对不上了
       const wasActive = activePresetId === preset.id;
@@ -988,6 +994,7 @@ const Settings: React.FC = () => {
         baseUrl: normalizeApiBaseUrl(localUrl),
         apiKey: normalizeApiCredential(localKey),
         model: normalizeApiModel(localModel),
+        apiFormat: normalizeChatApiFormat(localApiFormat),
         stream: localStream,
         temperature: localTemperature,
       });
@@ -1005,6 +1012,7 @@ const Settings: React.FC = () => {
       apiKey: normalizeApiCredential(localKey),
       baseUrl: normalizeApiBaseUrl(localUrl),
       model: normalizeApiModel(localModel),
+      apiFormat: normalizeChatApiFormat(localApiFormat),
       stream: localStream,
       temperature: localTemperature,
     };
@@ -1014,6 +1022,31 @@ const Settings: React.FC = () => {
     commitApiConfig(nextConfig);
     setStatusMsg('配置已保存');
     setTimeout(() => setStatusMsg(''), 2000);
+  };
+
+  const handleTestApi = async () => {
+    if (!localUrl.trim() || !localKey.trim() || !localModel.trim()) return;
+    setTestingApi(true);
+    setTestApiResult(null);
+    try {
+      const data = await completeChat({
+        baseUrl: normalizeApiBaseUrl(localUrl),
+        apiKey: normalizeApiCredential(localKey),
+        model: normalizeApiModel(localModel),
+        apiFormat: normalizeChatApiFormat(localApiFormat),
+      }, {
+        model: normalizeApiModel(localModel),
+        messages: [{ role: 'user', content: 'Hi' }],
+        max_tokens: 5,
+        stream: localStream,
+      }, { maxRetries: 0 });
+      const reply = extractContent(data);
+      setTestApiResult(`✅ 连接成功 — 模型回复: "${reply.slice(0, 30)}"`);
+    } catch (error: any) {
+      setTestApiResult(`❌ 连接失败: ${String(error?.message || error).slice(0, 180)}`);
+    } finally {
+      setTestingApi(false);
+    }
   };
 
   const handleSaveVisionApi = () => {
@@ -1173,6 +1206,11 @@ const Settings: React.FC = () => {
     const baseUrl = normalizeApiBaseUrl(localUrl);
     const apiKey = normalizeApiCredential(localKey);
     if (!baseUrl) { setStatusMsg('请先填写 URL'); return; }
+    if (localApiFormat === 'gemini-native') {
+        setStatusMsg('Gemini 原生暂不自动获取模型，请手动填写模型名称');
+        setShowModelModal(true);
+        return;
+    }
     setIsLoadingModels(true);
     setStatusMsg('正在连接...');
     try {
@@ -2260,6 +2298,22 @@ const Settings: React.FC = () => {
 
             <div className="space-y-4">
                 <div className="group">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">请求格式</label>
+                    <select
+                        value={localApiFormat}
+                        onChange={(event) => {
+                            setLocalApiFormat(normalizeChatApiFormat(event.target.value));
+                            setTestApiResult(null);
+                        }}
+                        className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm text-slate-700 focus:bg-white transition-all"
+                    >
+                        <option value="openai-compatible">OpenAI 兼容</option>
+                        <option value="gemini-native">Gemini 原生</option>
+                    </select>
+                    <p className="text-[9px] text-slate-300 mt-1 pl-1">部分 Gemini 服务商可使用原生格式。</p>
+                </div>
+
+                <div className="group">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">URL</label>
                     <input type="text" value={localUrl} onChange={(e) => setLocalUrl(e.target.value)} placeholder="https://..." className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
                 </div>
@@ -2322,7 +2376,9 @@ const Settings: React.FC = () => {
                 <div className="pt-2">
                      <div className="flex justify-between items-center mb-1.5 pl-1">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Model</label>
-                        <button onClick={fetchModels} disabled={isLoadingModels} className="text-[10px] text-primary font-bold">{isLoadingModels ? 'Fetching...' : '刷新模型列表'}</button>
+                        <button onClick={fetchModels} disabled={isLoadingModels} className="text-[10px] text-primary font-bold">
+                            {isLoadingModels ? 'Fetching...' : localApiFormat === 'gemini-native' ? '手动填写模型' : '刷新模型列表'}
+                        </button>
                     </div>
                     
                     <button
@@ -2350,36 +2406,7 @@ const Settings: React.FC = () => {
                 )}
 
                 <button
-                    onClick={async () => {
-                        if (!localUrl.trim() || !localKey.trim() || !localModel.trim()) return;
-                        setTestingApi(true);
-                        setTestApiResult(null);
-                        try {
-                            const res = await fetch(`${localUrl.trim().replace(/\/+$/, '')}/chat/completions`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localKey.trim()}` },
-                                body: JSON.stringify({
-                                    model: localModel.trim(),
-                                    messages: [{ role: 'user', content: 'Hi' }],
-                                    max_tokens: 5,
-                                    stream: localStream,
-                                }),
-                            });
-                            if (res.ok) {
-                                // 走 safeResponseJson —— 它能透明把 SSE 流响应拼成普通 chat/completion 结构
-                                const data = await safeResponseJson(res);
-                                const reply = extractContent(data);
-                                setTestApiResult(`✅ 连接成功 — 模型回复: "${reply.slice(0, 30)}"`);
-                            } else {
-                                const text = await res.text().catch(() => '');
-                                setTestApiResult(`❌ HTTP ${res.status}: ${text.slice(0, 100)}`);
-                            }
-                        } catch (err: any) {
-                            setTestApiResult(`❌ 连接失败: ${err.message}`);
-                        } finally {
-                            setTestingApi(false);
-                        }
-                    }}
+                    onClick={handleTestApi}
                     disabled={testingApi || !localUrl.trim() || !localKey.trim() || !localModel.trim()}
                     className={`w-full py-2.5 rounded-2xl font-bold text-sm border mt-2 active:scale-95 transition-all ${
                         testingApi || !localUrl.trim() || !localKey.trim() || !localModel.trim()
@@ -3767,7 +3794,7 @@ const Settings: React.FC = () => {
           <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase">预设名称 (例如: DeepSeek)</label>
               <input value={newPresetName} onChange={e => setNewPresetName(e.target.value)} className="w-full bg-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-primary" autoFocus placeholder="Name..." />
-              <p className="text-[10px] text-slate-400 leading-relaxed pt-1">用上面表单里现在填的 URL / Key / Model 存一张新的存档卡。</p>
+              <p className="text-[10px] text-slate-400 leading-relaxed pt-1">用上面表单里现在填的请求格式 / URL / Key / Model 存一张新的存档卡。</p>
           </div>
       </Modal>
 
@@ -3782,6 +3809,17 @@ const Settings: React.FC = () => {
               <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">名称</label>
                   <input value={editPresetName} onChange={e => setEditPresetName(e.target.value)} placeholder="预设名称" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
+              </div>
+              <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">请求格式</label>
+                  <select
+                      value={editPresetApiFormat}
+                      onChange={event => setEditPresetApiFormat(normalizeChatApiFormat(event.target.value))}
+                      className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary"
+                  >
+                      <option value="openai-compatible">OpenAI 兼容</option>
+                      <option value="gemini-native">Gemini 原生</option>
+                  </select>
               </div>
               <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">URL</label>
@@ -3801,6 +3839,7 @@ const Settings: React.FC = () => {
                       setEditPresetUrl(localUrl);
                       setEditPresetKey(localKey);
                       setEditPresetModel(localModel);
+                      setEditPresetApiFormat(localApiFormat);
                       addToast('已填入当前配置', 'info');
                   }}
                   className="w-full py-2 bg-slate-100 text-slate-500 text-xs font-bold rounded-xl active:scale-95 transition-transform"

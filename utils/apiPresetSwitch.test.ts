@@ -25,6 +25,7 @@ describe('configFromPreset', () => {
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-abc',
       model: 'gpt-x',
+      apiFormat: 'openai-compatible',
     });
   });
 
@@ -47,6 +48,15 @@ describe('configFromPreset', () => {
 
     expect(patch.stream).toBe(false);
     expect(patch.temperature).toBe(0);
+  });
+
+  it('切换预设时携带协议格式，旧预设安全回退 OpenAI-compatible', () => {
+    expect(configFromPreset(preset('native', {
+      baseUrl: 'https://api.example.com',
+      model: 'gemini-2.5-pro',
+      apiFormat: 'gemini-native',
+    })).apiFormat).toBe('gemini-native');
+    expect(configFromPreset(preset('legacy', {})).apiFormat).toBe('openai-compatible');
   });
 });
 
@@ -78,9 +88,22 @@ describe('findActivePresetId', () => {
 });
 
 describe('presetMatchesConfig', () => {
-  it('只看三件套，温度 / 流式不参与判定', () => {
+  it('比较三件套与协议格式，温度 / 流式不参与判定', () => {
     const p = preset('a', { baseUrl: 'https://x', apiKey: 'k', model: 'm', temperature: 0.85 });
 
     expect(presetMatchesConfig(p, { baseUrl: 'https://x', apiKey: 'k', model: 'm' })).toBe(true);
+  });
+
+  it('同站同模型但协议不同不能误判为同一预设', () => {
+    const native = preset('native', {
+      baseUrl: 'https://x', apiKey: 'k', model: 'gemini-2.5-pro', apiFormat: 'gemini-native',
+    });
+
+    expect(presetMatchesConfig(native, {
+      baseUrl: 'https://x', apiKey: 'k', model: 'gemini-2.5-pro', apiFormat: 'openai-compatible',
+    })).toBe(false);
+    expect(presetMatchesConfig(native, {
+      baseUrl: 'https://x', apiKey: 'k', model: 'gemini-2.5-pro', apiFormat: 'gemini-native',
+    })).toBe(true);
   });
 });

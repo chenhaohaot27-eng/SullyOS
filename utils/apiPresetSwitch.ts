@@ -11,37 +11,45 @@
  */
 
 import type { APIConfig, ApiPreset } from '../types';
-import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from './apiConfigNormalize';
+import {
+  normalizeApiBaseUrl,
+  normalizeApiCredential,
+  normalizeApiModel,
+  normalizeChatApiFormat,
+} from './apiConfigNormalize';
 
 /**
  * 切换预设时覆盖的字段。
  *
- * stream / temperature 是**可选**的：从聊天面板存下来的预设只有 URL / Key / Model
- * 三件套（见 EmotionSettingsPanel），预设里没存的字段一律保持原样，不能拿默认值
+ * apiFormat 总会按兼容规则归一；stream / temperature 是**可选**的：从聊天面板存下来的
+ * 老预设只有 URL / Key / Model 三件套（见 EmotionSettingsPanel），未存的可选字段保持原样，不能拿默认值
  * 把用户手调过的温度、流式开关顺手重置掉。
  */
 export type PresetSwitchPatch =
-  Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'> & Partial<Pick<APIConfig, 'stream' | 'temperature'>>;
+  Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'apiFormat'>
+  & Partial<Pick<APIConfig, 'stream' | 'temperature'>>;
 
 export function configFromPreset(preset: ApiPreset): PresetSwitchPatch {
   const patch: PresetSwitchPatch = {
     baseUrl: normalizeApiBaseUrl(preset.config.baseUrl),
     apiKey: normalizeApiCredential(preset.config.apiKey),
     model: normalizeApiModel(preset.config.model),
+    apiFormat: normalizeChatApiFormat(preset.config.apiFormat),
   };
   if (typeof preset.config.stream === 'boolean') patch.stream = preset.config.stream;
   if (typeof preset.config.temperature === 'number') patch.temperature = preset.config.temperature;
   return patch;
 }
 
-/** 三件套一致才算「就是这条预设」。都归一化后比，免得末尾斜杠 / 空格造成假不一致。 */
+/** 三件套与协议一致才算「就是这条预设」。都归一化后比，免得末尾斜杠 / 空格造成假不一致。 */
 export function presetMatchesConfig(
   preset: ApiPreset,
-  config: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>,
+  config: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'> & Partial<Pick<APIConfig, 'apiFormat'>>,
 ): boolean {
   return normalizeApiBaseUrl(preset.config.baseUrl) === normalizeApiBaseUrl(config.baseUrl)
     && normalizeApiCredential(preset.config.apiKey) === normalizeApiCredential(config.apiKey)
-    && normalizeApiModel(preset.config.model) === normalizeApiModel(config.model);
+    && normalizeApiModel(preset.config.model) === normalizeApiModel(config.model)
+    && normalizeChatApiFormat(preset.config.apiFormat) === normalizeChatApiFormat(config.apiFormat);
 }
 
 /**
@@ -52,7 +60,7 @@ export function presetMatchesConfig(
  */
 export function findActivePresetId(
   presets: ApiPreset[],
-  config: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>,
+  config: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'> & Partial<Pick<APIConfig, 'apiFormat'>>,
 ): string | null {
   if (!normalizeApiBaseUrl(config.baseUrl) && !normalizeApiModel(config.model)) return null;
   return presets.find(preset => presetMatchesConfig(preset, config))?.id ?? null;

@@ -606,6 +606,7 @@ const resolveLockWallpaperStoredValue = async (w: string | undefined): Promise<s
 const defaultApiConfig: APIConfig = {
   baseUrl: '',
   apiKey: '',
+  apiFormat: 'openai-compatible',
   visionApi: {
     enabled: false,
     baseUrl: '',

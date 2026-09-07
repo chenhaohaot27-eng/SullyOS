@@ -270,9 +270,13 @@ export interface ImageGenerationConfig {
   timeoutMs: number;
 }
 
+/** 主聊天请求协议。缺失或非法值必须按 OpenAI-compatible 处理。 */
+export type ChatApiFormat = 'openai-compatible' | 'gemini-native';
+
 export interface APIConfig {
   baseUrl: string;
   apiKey: string;
+  apiFormat?: ChatApiFormat;
   // 可选识图中转：给不支持 image_url 的主模型补视觉能力。
   visionApi?: VisionApiConfig;
   minimaxApiKey?: string;
@@ -2618,7 +2622,7 @@ export interface CharacterProfile {
    * Optional character-level chat override. Missing fields inherit the global chat API/model
    * configuration. It is intentionally absent on built-ins and stripped from shared cards.
    */
-  chatApiOverride?: Partial<Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'stream' | 'temperature'>>;
+  chatApiOverride?: Partial<Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'stream' | 'temperature' | 'apiFormat'>>;
   /**
    * 视频通话使用的本地 VRM / Live2D 形象。模型二进制包保存在 IndexedDB
    * blob_assets，角色资料只保存轻量索引，避免把数 MB 的模型塞进

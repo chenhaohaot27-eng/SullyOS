@@ -34,7 +34,7 @@ import { enqueuePendingDiary, removePendingDiary } from './pendingDiary';
 import { parseXhsCount, XhsMcpClient } from './xhsMcpClient';
 import { extractPublishedNoteId, ownedPostToNote } from './xhsFreeRoamOwnership';
 import { selectOwnedPostsForReference } from './xhsOwnedPostReference';
-import { safeFetchJson } from './safeApi';
+import { completeChat, type ChatCompletionApiConfig } from './chatCompletionClient';
 import { extractHtmlBlocks } from './htmlPrompt';
 import {
     AgenticToolCtx,
@@ -334,7 +334,7 @@ export interface PostProcessApiCall {
     /** Authorization 头等 */
     headers: Record<string, string>;
     /** 当前生效的 API (拿 model / 兜底其他配置用) */
-    effectiveApi: { baseUrl: string; apiKey: string; model: string };
+    effectiveApi: ChatCompletionApiConfig;
 }
 
 export interface PostProcessMusicHooks {
@@ -475,7 +475,7 @@ export async function applyAssistantPostProcessing(
         reasoningContent: pushReasoningContent,
         messageTimestamp,
     } = ctx;
-    const { baseUrl, headers, effectiveApi } = api;
+    const { effectiveApi } = api;
     // 拟人打字延迟：流式预览已实时展示过气泡时（instantRender）跳过，避免二次慢放
     const typingPause = (ms: number): Promise<void> =>
         instantRender ? Promise.resolve() : new Promise(r => setTimeout(r, ms));
@@ -893,10 +893,9 @@ export async function applyAssistantPostProcessing(
             setRecallStatus(`正在调阅 ${year}年${month}月 的详细档案...`);
             const recallMessages = [...fullMessages, ...(recallLeadIn ? [{ role: 'assistant', content: recallLeadIn }] : []), { role: 'user', content: `[系统: 已成功调取 ${year}-${month} 的详细日志]\n${rr.logsText}\n[系统: 现在请结合这些细节回答用户。保持对话自然。]` }];
             try {
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: recallMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                }, 2, 0, { ...apiLogMeta, purpose: '调阅记忆' });
+                data = await completeChat(effectiveApi, {
+                    model: effectiveApi.model, messages: recallMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '调阅记忆' } });
                 updateTokenUsage(data, historyMsgCount, 'recall');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 aiContent = normalizeAiContent(aiContent);
@@ -932,10 +931,9 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 搜索完成！以下是关于"${searchQuery}"的搜索结果]\n\n${sr.resultsText}\n\n[系统: 现在请根据这些真实信息回复用户。用自然的语气分享，比如"我刚搜了一下发现..."、"诶我看到说..."。不要再输出[[SEARCH:...]]了。]` }
                 ];
 
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: searchMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                }, 2, 0, { ...apiLogMeta, purpose: '联网搜索' });
+                data = await completeChat(effectiveApi, {
+                    model: effectiveApi.model, messages: searchMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '联网搜索' } });
                 updateTokenUsage(data, historyMsgCount, 'search');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 console.log('🔍 [Search] AI基于搜索结果生成的新回复:', aiContent.slice(0, 100) + '...');
@@ -1067,10 +1065,9 @@ export async function applyAssistantPostProcessing(
             { role: 'user', content: `[系统: ${reason}。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 可以自然地提一下，比如"日记好像打不开诶"、"嗯...好像没找到"\n3. 继续正常聊天，用多条消息回复\n4. 严禁再输出[[READ_DIARY:...]]或[[FS_READ_DIARY:...]]标记]` }
         ];
         try {
-            data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                method: 'POST', headers,
-                body: JSON.stringify({ model: effectiveApi.model, messages: msgs, temperature: 0.8, max_tokens: 8000, stream: false })
-            }, 2, 0, { ...apiLogMeta, purpose: '写日记' });
+            data = await completeChat(effectiveApi, {
+                model: effectiveApi.model, messages: msgs, temperature: 0.8, max_tokens: 8000, stream: false,
+            }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '写日记' } });
             updateTokenUsage(data, historyMsgCount, 'diary-fallback');
             aiContent = data.choices?.[0]?.message?.content || '';
             aiContent = normalizeAiContent(aiContent);
@@ -1120,10 +1117,9 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻开了自己 ${targetDate} 的日记，以下是你当时写的内容]\n\n${rdr.diaryText}\n\n[系统: 你已经看完了日记。现在请你：\n1. 先正常回应用户刚才说的话（这是最重要的！用户还在等你回复）\n2. 自然地把日记中的回忆融入你的回复中，比如"我想起来了那天..."、"看了日记才发现..."等\n3. 可以分享日记中有趣的细节，表达当时的情绪\n4. 用多条消息回复，别只说一句话就结束\n5. 严禁再输出[[READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                        }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' });
+                        data = await completeChat(effectiveApi, {
+                            model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                        }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'read-diary-notion');
                         aiContent = data.choices?.[0]?.message?.content || '';
                         aiContent = normalizeAiContent(aiContent);
@@ -1152,10 +1148,9 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻了翻日记本，发现 ${targetDate} 那天没有写日记。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 自然地提到没找到那天的日记，比如"嗯...那天好像没写日记"、"翻了翻没找到诶"\n3. 用多条消息回复，保持对话自然\n4. 严禁再输出[[READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                        }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' });
+                        data = await completeChat(effectiveApi, {
+                            model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                        }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'no-diary-notion');
                         aiContent = data.choices?.[0]?.message?.content || '';
                         aiContent = normalizeAiContent(aiContent);
@@ -1294,10 +1289,9 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻开了自己 ${targetDate} 的日记（飞书），以下是你当时写的内容]\n\n${fsrdr.diaryText}\n\n[系统: 你已经看完了日记。现在请你：\n1. 先正常回应用户刚才说的话（这是最重要的！用户还在等你回复）\n2. 自然地把日记中的回忆融入你的回复中，比如"我想起来了那天..."、"看了日记才发现..."等\n3. 可以分享日记中有趣的细节，表达当时的情绪\n4. 用多条消息回复，别只说一句话就结束\n5. 严禁再输出[[FS_READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                        }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' });
+                        data = await completeChat(effectiveApi, {
+                            model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                        }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'read-diary-feishu');
                         aiContent = data.choices?.[0]?.message?.content || '';
                         aiContent = normalizeAiContent(aiContent);
@@ -1320,10 +1314,9 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻了翻飞书日记本，发现 ${targetDate} 那天没有写日记。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 自然地提到没找到那天的日记，比如"嗯...那天好像没写日记"、"翻了翻没找到诶"\n3. 用多条消息回复，保持对话自然\n4. 严禁再输出[[FS_READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                        }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' });
+                        data = await completeChat(effectiveApi, {
+                            model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                        }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'no-diary-feishu');
                         aiContent = data.choices?.[0]?.message?.content || '';
                         aiContent = normalizeAiContent(aiContent);
@@ -1370,10 +1363,9 @@ export async function applyAssistantPostProcessing(
                         { role: 'user', content: `[系统: 你翻阅了${userProfile.name}的笔记，以下是内容:\n\n${rnr.noteText}\n\n请你：\n1. 先正常回应用户刚才说的话\n2. 自然地提到你看到的笔记内容，语气温馨，像不经意间看到的\n3. 可以对内容表示好奇、关心或共鸣\n4. 用多条消息回复，保持对话自然\n5. 严禁再输出[[READ_NOTE:...]]标记]` }
                     ];
 
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify({ model: effectiveApi.model, messages: noteMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                    }, 2, 0, { ...apiLogMeta, purpose: '翻阅笔记' });
+                    data = await completeChat(effectiveApi, {
+                        model: effectiveApi.model, messages: noteMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                    }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅笔记' } });
                     updateTokenUsage(data, historyMsgCount, 'read-note');
                     aiContent = data.choices?.[0]?.message?.content || '';
                     aiContent = normalizeAiContent(aiContent);
@@ -1400,10 +1392,9 @@ export async function applyAssistantPostProcessing(
                         { role: 'user', content: `[系统: 你想看${userProfile.name}关于"${keyword}"的笔记，但没有找到。请你：\n1. 先正常回应用户刚才说的话\n2. 可以自然地提一下，比如"嗯，好像没找到那篇笔记"\n3. 继续正常聊天\n4. 严禁再输出[[READ_NOTE:...]]标记]` }
                     ];
 
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify({ model: effectiveApi.model, messages: nonoteMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                    }, 2, 0, { ...apiLogMeta, purpose: '翻阅笔记' });
+                    data = await completeChat(effectiveApi, {
+                        model: effectiveApi.model, messages: nonoteMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                    }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅笔记' } });
                     updateTokenUsage(data, historyMsgCount, 'read-note-empty');
                     aiContent = data.choices?.[0]?.message?.content || '';
                     aiContent = normalizeAiContent(aiContent);
@@ -1442,10 +1433,9 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 你在小红书搜索了"${keyword}"，以下是搜索结果]\n\n${xsr.notesText}\n\n[系统: 你已经看完了搜索结果（注意：以上只是摘要，想看某条笔记的完整正文可以用 [[XHS_DETAIL: noteId]]）。现在请你：\n1. 自然地分享你看到的内容，比如"我刚在小红书搜了一下..."、"诶小红书上有人说..."\n2. 可以评价、吐槽、分享感兴趣的内容\n3. 如果觉得某条笔记特别值得分享，可以用 [[XHS_SHARE: 序号]] 把它作为卡片分享给用户（序号从1开始），可以分享多条；不要手写“[你分享了小红书笔记]”及标题/作者/互动/简介，分享卡片必须使用该标记\n4. 如果想评论某条笔记，可以用 [[XHS_COMMENT: noteId | 评论内容]]\n5. 如果喜欢某条笔记，可以用 [[XHS_LIKE: noteId]] 点赞，[[XHS_FAV: noteId]] 收藏\n6. 如果想看某条笔记的完整内容和评论区，可以用 [[XHS_DETAIL: noteId]]\n7. 严禁再输出[[XHS_SEARCH:...]]标记]` }
                 ];
 
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                }, 2, 0, { ...apiLogMeta, purpose: '小红书搜索' });
+                data = await completeChat(effectiveApi, {
+                    model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书搜索' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-search');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 aiContent = normalizeAiContent(aiContent);
@@ -1488,10 +1478,9 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 你刷了一会儿小红书首页，以下是你看到的内容]\n\n${xbr.notesText}\n\n[系统: 你已经看完了（注意：以上只是摘要，想看某条笔记的完整正文可以用 [[XHS_DETAIL: noteId]]）。现在请你：\n1. 像在跟朋友分享一样，随意聊聊你看到了什么有趣的\n2. 不用全部都提，挑你感兴趣的1-3条聊就行\n3. 可以吐槽、感叹、分享想法\n4. 如果觉得某条笔记特别值得分享，可以用 [[XHS_SHARE: 序号]] 把它作为卡片分享给用户（序号从1开始），可以分享多条；不要手写“[你分享了小红书笔记]”及标题/作者/互动/简介，分享卡片必须使用该标记\n5. 如果想发一条自己的笔记，可以用 [[XHS_POST: 标题 | 内容 | #标签1 #标签2]]\n6. 如果喜欢某条笔记，可以用 [[XHS_LIKE: noteId]] 点赞，[[XHS_FAV: noteId]] 收藏\n7. 如果想看某条笔记的完整内容和评论区，可以用 [[XHS_DETAIL: noteId]]\n8. 严禁再输出[[XHS_BROWSE]]标记]` }
                 ];
 
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                }, 2, 0, { ...apiLogMeta, purpose: '小红书浏览' });
+                data = await completeChat(effectiveApi, {
+                    model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书浏览' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-browse');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 aiContent = normalizeAiContent(aiContent);
@@ -1817,10 +1806,9 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 你打开了自己的小红书]\n\n你的小红书账号昵称: ${nickname || '未知'}${userId ? ` (userId: ${userId})` : ''}${profileSection}\n\n${gotProfile ? '你的笔记' : `搜索「${nickname}」找到的相关笔记`}:\n${feedsStr}\n\n[系统: ${gotProfile ? '以上是按角色归属保存的主页数据，序号已根据用户刚才的说法按相关性和时间排序。' : '注意，搜索结果可能包含别人的帖子，你需要辨别哪些是你自己发的（看作者名字）。'}现在请你：\n1. 如果用户说“刚才那个帖子”“之前那篇”或要求查看自己帖子的评论区，选择最符合时间/标题的候选并输出 [[XHS_DETAIL: noteId]]；不要只口头说去看。\n2. 如果多个候选同样符合、无法判断是哪条，就自然地向用户确认，不能猜。\n3. 普通查看主页时，可以自然地聊聊看到的内容。\n4. 如果想发新笔记，可以用 [[XHS_POST: 标题 | 内容 | #标签1 #标签2]]。\n5. 严禁再输出[[XHS_MY_PROFILE]]标记。]` }
                 ];
 
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                }, 2, 0, { ...apiLogMeta, purpose: '小红书主页' });
+                data = await completeChat(effectiveApi, {
+                    model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书主页' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 aiContent = normalizeAiContent(aiContent);
@@ -1835,10 +1823,9 @@ export async function applyAssistantPostProcessing(
                     { role: 'assistant', content: cleanedForXhs },
                     { role: 'user', content: `[系统: 你打开了自己的小红书]\n\n你的小红书账号昵称: 未知${profileSection}\n\n搜索「」找到的相关笔记:\n（无法获取主页：请在设置-小红书中填写你的昵称或用户ID）\n\n[系统: 注意，搜索结果可能包含别人的帖子，你需要辨别哪些是你自己发的（看作者名字）。现在请你：\n1. 自然地聊聊你看到了什么，"我看了看我的小红书..."、"我之前发的那个帖子..."\n2. 如果想发新笔记，可以用 [[XHS_POST: 标题 | 内容 | #标签1 #标签2]]\n3. 如果想看某条笔记的详细内容，可以用 [[XHS_DETAIL: noteId]]\n4. 严禁再输出[[XHS_MY_PROFILE]]标记]` }
                 ];
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                }, 2, 0, { ...apiLogMeta, purpose: '小红书主页' });
+                data = await completeChat(effectiveApi, {
+                    model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书主页' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 aiContent = normalizeAiContent(aiContent);
@@ -1854,10 +1841,9 @@ export async function applyAssistantPostProcessing(
                     { role: 'assistant', content: cleanedForXhs },
                     { role: 'user', content: `[系统: 你想打开自己的小红书，但这次连不上，什么都没加载出来]\n\n[系统: 现在请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 自然地提一句"小红书打不开/刷不出来"就好\n3. 你这次什么都没看到，不要描述任何笔记、数据或评论\n4. 严禁再输出[[XHS_MY_PROFILE]]标记]` }
                 ];
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                }, 2, 0, { ...apiLogMeta, purpose: '小红书主页' });
+                data = await completeChat(effectiveApi, {
+                    model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+                }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书主页' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile-unreachable');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 aiContent = normalizeAiContent(aiContent);
@@ -1905,10 +1891,9 @@ export async function applyAssistantPostProcessing(
                         : `[系统: 你点开了一条小红书笔记的详情页（noteId=${noteId}）]\n\n${detailStr}\n\n[系统: 你已经看完了这条笔记的完整内容和真实评论区。现在请你：\n1. 自然地分享你看到的内容和感受\n2. 如果想评论这条笔记，可以用 [[XHS_COMMENT: ${noteId} | 评论内容]]\n3. 如果想回复某条评论，可以用 [[XHS_REPLY: ${noteId} | commentId | 回复内容]]（commentId 在上面的评论区数据里）\n4. 如果想点赞，可以用 [[XHS_LIKE: ${noteId}]]；想收藏可以用 [[XHS_FAV: ${noteId}]]\n5. 严禁再输出[[XHS_DETAIL:...]]标记]` }
             ];
 
-            data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                method: 'POST', headers,
-                body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-            }, 2, 0, { ...apiLogMeta, purpose: '小红书详情' });
+            data = await completeChat(effectiveApi, {
+                model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
+            }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书详情' } });
             updateTokenUsage(data, historyMsgCount, 'xhs-detail');
             aiContent = data.choices?.[0]?.message?.content || '';
             aiContent = normalizeAiContent(aiContent);

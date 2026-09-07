@@ -1,9 +1,10 @@
 
 import { useState, useRef, useEffect, MutableRefObject } from 'react';
-import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord } from '../types';
+import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord, ChatApiFormat } from '../types';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { safeFetchJson, safeResponseJson } from '../utils/safeApi';
+import { buildAssistantToolFollowUpMessage, completeChat } from '../utils/chatCompletionClient';
 import { KeepAlive } from '../utils/keepAlive';
 import { ProactiveChat } from '../utils/proactiveChat';
 import { ContextBuilder } from '../utils/context';
@@ -714,7 +715,14 @@ export const useChatAI = ({
 
     const triggerAI = async (
         currentMsgs: Message[],
-        overrideApiConfig?: { baseUrl: string; apiKey: string; model: string },
+        overrideApiConfig?: {
+            baseUrl: string;
+            apiKey: string;
+            model: string;
+            apiFormat?: ChatApiFormat;
+            stream?: boolean;
+            temperature?: number;
+        },
         onInstantPosted?: () => void,
         opts?: { skipEmotionInjection?: boolean },
     ) => {
@@ -777,9 +785,6 @@ export const useChatAI = ({
         };
 
         try {
-            const baseUrl = effectiveApi.baseUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}` };
-
             // ── 分段计时（从用户发送到 API 发出）──
             const perfSendT0 = performance.now();
             const perfStages: Record<string, number> = {};
@@ -1138,6 +1143,14 @@ export const useChatAI = ({
                 max_tokens: 8000,
                 stream: userStream,
             };
+            const mainCompletionConfig = {
+                baseUrl: effectiveApi.baseUrl,
+                apiKey: effectiveApi.apiKey || 'sk-none',
+                model: effectiveApi.model,
+                apiFormat: effectiveApi.apiFormat,
+            };
+            // 旧配置/非法值继续走 OpenAI；只有显式选择 Native 才切换协议。
+            const openAiCompatible = effectiveApi.apiFormat !== 'gemini-native';
             // 思考过程展示开启时显式向后端请求 extended thinking。
             // 不同代理认不同入口，全都试一遍，代理不识别的会自动忽略：
             //  - 模型名 -thinking 后缀：packycode / anyrouter 等第三方 Claude 中转的主流约定
@@ -1469,10 +1482,15 @@ export const useChatAI = ({
 
             let data: any;
             try {
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) })
-                }, 2, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' }, streamHooks);
+                data = await completeChat(
+                    mainCompletionConfig,
+                    { ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) },
+                    {
+                        maxRetries: 2,
+                        meta: { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' },
+                        streamHooks,
+                    },
+                );
             } catch (e) {
                 let requestError: unknown = e;
                 const attemptedBody = {
@@ -1484,13 +1502,18 @@ export const useChatAI = ({
                 // 组合在一起却在上游适配层失败。只对这一条高度特征化的 502 降级一次：
                 // tools 和正文完整保留，system 合到开头，thinking 参数让步。普通网络 502、
                 // 非 Claude、没工具的请求一律不重发，避免无依据地重复计费。
-                if (shouldRetryClaudeProxyCompatibility(requestError, attemptedBody)) {
+                if (openAiCompatible && shouldRetryClaudeProxyCompatibility(requestError, attemptedBody)) {
                     console.warn('🧩 [Claude compat] 中转拒绝 thinking + tools 组合，使用兼容请求体重试一次');
                     try {
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify(buildClaudeProxyCompatibilityBody(attemptedBody)),
-                        }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 中转兼容重试' }, streamHooks);
+                        data = await completeChat(
+                            mainCompletionConfig,
+                            buildClaudeProxyCompatibilityBody(attemptedBody),
+                            {
+                                maxRetries: 0,
+                                meta: { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 中转兼容重试' },
+                                streamHooks,
+                            },
+                        );
                         requestError = null;
                     } catch (compatError) {
                         requestError = compatError;
@@ -1505,7 +1528,7 @@ export const useChatAI = ({
                 // 现有正文假调用容错接手。真实鉴权失败会在这次重试中再次抛出原样错误。
                 const mcpOnly = payload.flags.mcpChatActive
                     && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive;
-                if (!mcpOnly || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(requestError)) throw requestError;
+                if (!openAiCompatible || !mcpOnly || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(requestError)) throw requestError;
                 console.warn('🔌 [MCP] 当前中转拒绝 tools 请求，降级为正文工具调用兼容模式');
                 // 这条路把 tools 全删了，角色排不了新任务；排程现状照样要带——它得知道
                 // 自己名下已经有哪些承诺，否则又会在正文里许一遍。
@@ -1513,10 +1536,10 @@ export const useChatAI = ({
                     ...baseReqBody,
                     messages: withAmsg2TaskContext(baseReqBody.messages),
                 });
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify(fallbackBody)
-                }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' });
+                data = await completeChat(mainCompletionConfig, fallbackBody, {
+                    maxRetries: 0,
+                    meta: { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' },
+                });
                 }
             }
             console.log(`⏱ [API call] ${Math.round(performance.now() - apiT0)}ms`);
@@ -1554,12 +1577,7 @@ export const useChatAI = ({
                 for (let it = 0; it < MAX_PROPOSE_LOOPS; it++) {
                     const toolCalls = data.choices?.[0]?.message?.tool_calls;
                     if (!toolCalls || !toolCalls.length) break;
-                    loopMessages.push({
-                        role: 'assistant',
-                        // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
-                        content: data.choices[0].message.content || '(调用工具中)',
-                        tool_calls: toolCalls,
-                    } as any);
+                    loopMessages.push(buildAssistantToolFollowUpMessage(data.choices[0].message, toolCalls) as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
                         let args: any = {};
@@ -1647,10 +1665,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `mcd-propose-${it + 1}`);
                     // 第二轮跳过 (我们已经禁用了 tools)
                     if (!data.choices?.[0]?.message?.tool_calls?.length) break;
@@ -1664,12 +1679,7 @@ export const useChatAI = ({
                 for (let it = 0; it < MAX_PROPOSE_LOOPS; it++) {
                     const toolCalls = data.choices?.[0]?.message?.tool_calls;
                     if (!toolCalls || !toolCalls.length) break;
-                    loopMessages.push({
-                        role: 'assistant',
-                        // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
-                        content: data.choices[0].message.content || '(调用工具中)',
-                        tool_calls: toolCalls,
-                    } as any);
+                    loopMessages.push(buildAssistantToolFollowUpMessage(data.choices[0].message, toolCalls) as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
                         let args: any = {};
@@ -1750,10 +1760,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `luckin-propose-${it + 1}`);
                     if (!data.choices?.[0]?.message?.tool_calls?.length) break;
                 }
@@ -1778,12 +1785,7 @@ export const useChatAI = ({
                     if (mcpToolResolve && toolCalls.some((tc: any) => mcpToolResolve?.has(tc.function?.name || ''))) {
                         await persistMcpLeadIn(data.choices?.[0]?.message?.content || '');
                     }
-                    loopMessages.push({
-                        role: 'assistant',
-                        // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
-                        content: data.choices[0].message.content || '(调用工具中)',
-                        tool_calls: toolCalls,
-                    } as any);
+                    loopMessages.push(buildAssistantToolFollowUpMessage(data.choices[0].message, toolCalls) as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
                         let args: any = {};
@@ -1863,10 +1865,7 @@ export const useChatAI = ({
                     // 排程现状现算一次贴上：本轮刚排的任务这时才进得了清单，角色下一轮
                     // 看到的是自己名下真实的排程，不会对着排程前的空清单再排一条。
                     const followBody = { ...baseReqBody, messages: withAmsg2TaskContext(loopMessages) };
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : 'mcp-chat'}-${it + 1}`);
                 }
                 if (mcpToolResolve) setSearchStatus('');
@@ -1908,10 +1907,7 @@ export const useChatAI = ({
                     });
                     setSearchStatus('正在整理 MCP 工具结果...');
                     const followBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `mcp-text-${it + 1}`);
                 }
                 setSearchStatus('');
@@ -1989,8 +1985,11 @@ export const useChatAI = ({
                 mcdInheritMeta,
                 xhsCaches,
                 api: {
-                    baseUrl,
-                    headers,
+                    baseUrl: effectiveApi.baseUrl.replace(/\/+$/, ''),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}`,
+                    },
                     effectiveApi,
                 },
                 hooks: {
