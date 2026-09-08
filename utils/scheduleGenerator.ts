@@ -3,6 +3,9 @@ import { CharacterProfile, UserProfile, DailySchedule, ScheduleSlot, Message, Em
 import { ContextBuilder } from './context';
 import { DB } from './db';
 import { safeResponseJson, extractContent, extractJson } from './safeApi';
+// safeResponseJson 仅供同文件下方的 evolveFlowNarrative（既有死代码，本轮未迁移）使用
+import { completeChat } from './chatCompletionClient';
+import type { ChatApiFormat } from '../types';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { getScheduleDateKey, getScheduleWallClock } from './scheduleTime';
@@ -17,6 +20,8 @@ interface ApiConfig {
     baseUrl: string;
     apiKey: string;
     model: string;
+    /** 通用 API 的请求格式；gemini-native 时统一客户端自动改走原生流式端点。 */
+    apiFormat?: ChatApiFormat;
 }
 
 /**
@@ -287,26 +292,27 @@ export async function generateDailyScheduleForChar(
         : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock);
 
     try {
-        const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-            body: JSON.stringify({
+        // 统一走 chatCompletionClient：OpenAI-compatible 仍请求原 OpenAI 兼容端点，
+        // body 与原手写 fetch 完全一致（同样零重试，429 不自动重发）；
+        // apiFormat=gemini-native 时自动改走 Gemini 原生流式端点，上游错误原样抛出。
+        let data: any;
+        try {
+            data = await completeChat(apiConfig, {
                 model: apiConfig.model,
                 messages: [{ role: 'user', content: prompt }],
                 temperature: 0.85,
-                max_tokens: 8000
-            }),
-            // API 调用记录标签（全局 fetch 拦截器读取）；不传会兜底成「用户当时打开的 App」，
-            // 后台任务被标成 Message/群聊 之类，用户看记录一头雾水。
-            __sullyMeta: { appName: '日程系统', charId: char.id, charName: char.name, purpose: '生成当日日程' },
-        } as RequestInit);
-
-        if (!response.ok) {
-            console.error('[Schedule] API error:', response.status);
+                max_tokens: 8000,
+            }, {
+                maxRetries: 0,
+                // API 调用记录标签（全局 fetch 拦截器读取）；不传会兜底成「用户当时打开的 App」，
+                // 后台任务被标成 Message/群聊 之类，用户看记录一头雾水。
+                meta: { appName: '日程系统', charId: char.id, charName: char.name, purpose: '生成当日日程' },
+            });
+        } catch (apiError: any) {
+            console.error('[Schedule] API error:', apiError instanceof Error ? apiError.message : apiError);
             return null;
         }
 
-        const data = await safeResponseJson(response);
         // 与主链路对齐：extractContent 会剥掉思维链模型(<think>...)并回落 reasoning_content，
         // extractJson 负责去围栏 / 从 prose 里抽 {...} / 修截断 + 尾逗号等多重兜底。
         // 之前这里手搓 JSON.parse，碰到推理模型的 <think> 前缀会在 "line 1 column 1" 直接炸。
