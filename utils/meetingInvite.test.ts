@@ -1,15 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { DB } from './db';
 import {
     buildMeetInviteGuide,
     executeMeetInvite,
     extractMeetInviteIntent,
+    findPendingMeetInvitation,
     meetingInviteLaunch,
+    parseMeetTimestamp,
     readMeetInvitation,
     resolveMeetIdentity,
     updateMeetInviteStatus,
+    validateMeetInviteTiming,
     type MeetInviteIntent,
 } from './meetingInvite';
+
+const applyPostSource = readFileSync(
+    fileURLToPath(new URL('./applyAssistantPostProcessing.ts', import.meta.url)),
+    'utf-8',
+);
+const cardSource = readFileSync(
+    fileURLToPath(new URL('../components/chat/MeetingInviteCard.tsx', import.meta.url)),
+    'utf-8',
+);
 
 const CHAR = { id: 'c1', name: '小星', avatar: 'data:image/png;base64,x' } as any;
 const OTHER = { id: 'c2', name: '阿月', avatar: '' } as any;
@@ -174,5 +188,141 @@ describe('meetingInviteLaunch — 跳转意图', () => {
         expect(meetingInviteLaunch.peek()?.invitation.id).toBe('mi_1');
         expect(meetingInviteLaunch.consume()?.primaryCharId).toBe('c1');
         expect(meetingInviteLaunch.peek()).toBeNull();
+    });
+});
+
+describe('parseMeetTimestamp — 时间解析', () => {
+    it('接受 ISO 与 YYYY-MM-DD HH:mm，拒绝垃圾值', () => {
+        expect(parseMeetTimestamp('2026-09-09 15:30')).toBe('2026-09-09T15:30');
+        expect(parseMeetTimestamp('2026-09-09T15:30:00')).toBe('2026-09-09T15:30:00');
+        expect(parseMeetTimestamp('2026-09-09')).toBe('2026-09-09');
+        expect(parseMeetTimestamp('明天下午')).toBeNull();
+        expect(parseMeetTimestamp('')).toBeNull();
+        expect(parseMeetTimestamp(123)).toBeNull();
+    });
+
+    it('标签解析携带 meetingMode / scheduledAt / earliestFeasibleAt；坏时间被丢弃', () => {
+        const TAG = (p: string) => `[[MEET_INVITE: ${p}]]`;
+        const good = extractMeetInviteIntent(TAG(JSON.stringify({
+            initiatorName: '小星', participantNames: ['小星'], invitationText: '周五晚上给我留着。',
+            meetingMode: 'scheduled', scheduledAt: '2026-09-11 19:00', earliestFeasibleAt: '2026-09-11 18:00',
+            sceneSeed: '周五晚上角色抵达上海。',
+        })));
+        expect(good.intent).toMatchObject({
+            meetingMode: 'scheduled',
+            scheduledAt: '2026-09-11T19:00',
+            earliestFeasibleAt: '2026-09-11T18:00',
+        });
+        // 无显式 mode 但带合法 scheduledAt → 推断 scheduled
+        const inferred = extractMeetInviteIntent(TAG(JSON.stringify({
+            initiatorName: '小星', invitationText: 'x', sceneSeed: 'y', scheduledAt: '2030-01-01 10:00',
+        })));
+        expect(inferred.intent!.meetingMode).toBe('scheduled');
+        // 坏 scheduledAt 丢弃（落卡前由 timing guard 拦下）
+        const bad = extractMeetInviteIntent(TAG(JSON.stringify({
+            initiatorName: '小星', invitationText: 'x', sceneSeed: 'y', meetingMode: 'scheduled', scheduledAt: '周五傍晚',
+        })));
+        expect(bad.intent!.scheduledAt).toBeUndefined();
+        // 老格式（无任何新字段）不受影响
+        const legacy = extractMeetInviteIntent(TAG(JSON.stringify({ initiatorName: '小星', invitationText: '下来。', sceneSeed: '楼下' })));
+        expect(legacy.intent!.meetingMode).toBe('immediate');
+        expect(legacy.intent!.scheduledAt).toBeUndefined();
+    });
+});
+
+describe('validateMeetInviteTiming — 前端轻量 feasibility', () => {
+    const NOW = Date.parse('2026-09-08T21:30:00');
+    const intentOf = (over: Partial<MeetInviteIntent> = {}): MeetInviteIntent => ({
+        initiatorName: '小星', participantNames: ['小星'], invitationText: 'x', sceneSeed: 'y', ...over,
+    });
+
+    it('immediate 通过（无结构化地点状态，跨城判断交给 prompt 规则）', () => {
+        expect(validateMeetInviteTiming(intentOf({ meetingMode: 'immediate' }), NOW)).toEqual({ ok: true });
+    });
+
+    it('scheduled 缺 scheduledAt → reject', () => {
+        expect(validateMeetInviteTiming(intentOf({ meetingMode: 'scheduled' }), NOW))
+            .toEqual({ ok: false, reason: 'scheduled_at_missing' });
+    });
+
+    it('scheduledAt 在当前时间之前 → reject', () => {
+        expect(validateMeetInviteTiming(intentOf({ meetingMode: 'scheduled', scheduledAt: '2026-09-08 20:00' }), NOW))
+            .toEqual({ ok: false, reason: 'scheduled_at_in_past' });
+    });
+
+    it('scheduledAt 早于 earliestFeasibleAt → reject；不早于则通过', () => {
+        expect(validateMeetInviteTiming(intentOf({ meetingMode: 'scheduled', scheduledAt: '2026-09-09 13:00', earliestFeasibleAt: '2026-09-09 14:30' }), NOW))
+            .toEqual({ ok: false, reason: 'scheduled_before_earliest_feasible' });
+        expect(validateMeetInviteTiming(intentOf({ meetingMode: 'scheduled', scheduledAt: '2026-09-09 15:30', earliestFeasibleAt: '2026-09-09 14:30' }), NOW))
+            .toEqual({ ok: true });
+    });
+
+    it('prompt 指南包含物理连续性 / meetingMode / 不编造位置 / 刚婉拒不重发等规则', () => {
+        const guide = buildMeetInviteGuide();
+        expect(guide).toContain('meetingMode');
+        expect(guide).toContain('scheduledAt');
+        expect(guide).toContain('earliestFeasibleAt');
+        expect(guide).toContain('瞬移');
+        expect(guide).toContain('不要发 immediate 邀请');
+        expect(guide).toContain('编造对方的精确位置');
+        expect(guide).toContain('再发新邀请');
+    });
+});
+
+describe('findPendingMeetInvitation — pending 去重', () => {
+    const meetMsg = (id: number, status: string) => ({
+        id, charId: 'c1', role: 'assistant' as const, type: 'meet_card' as const, content: '', timestamp: id,
+        metadata: { meet: { id: `mi_${id}`, status, initiatorId: 'c1', participantIds: ['c1'], invitationText: 'x', sceneSeed: 'y', sourceCharId: 'c1', createdAt: id } },
+    });
+
+    it('已有 pending → 命中；accepted/declined/无卡 → null', () => {
+        expect(findPendingMeetInvitation([meetMsg(1, 'accepted'), meetMsg(2, 'pending')] as any)).toMatchObject({ id: 2 });
+        expect(findPendingMeetInvitation([meetMsg(1, 'declined'), meetMsg(2, 'accepted')] as any)).toBeNull();
+        expect(findPendingMeetInvitation([{ id: 3, charId: 'c1', role: 'user', type: 'text', content: '旧消息', timestamp: 3 }] as any)).toBeNull();
+    });
+});
+
+describe('scheduled 邀请持久化与婉拒 — Phase 1 delta', () => {
+    it('meetingMode/scheduledAt/earliestFeasibleAt 落卡后刷新读回不丢', async () => {
+        const res = await executeMeetInvite({
+            intent: {
+                initiatorName: '小星', participantNames: ['小星'], invitationText: '周五晚上给我留着。',
+                meetingMode: 'scheduled', scheduledAt: '2030-01-01T19:00', earliestFeasibleAt: '2030-01-01T18:00',
+                locationText: '上海 外滩', sceneSeed: '角色出差结束后抵达上海。',
+            },
+            char: CHAR,
+            characters: CHARS,
+            persistMessage: m => DB.saveMessage(m),
+        });
+        const card = (await DB.getMessagesByCharId('c1', true)).find(m => m.id === res.messageId)!;
+        const inv = readMeetInvitation(card)!;
+        expect(inv.meetingMode).toBe('scheduled');
+        expect(inv.scheduledAt).toBe('2030-01-01T19:00');
+        expect(inv.earliestFeasibleAt).toBe('2030-01-01T18:00');
+        expect(inv.locationText).toBe('上海 外滩');
+    });
+
+    it('婉拒 → declined + resolvedAt 持久化；刷新后仍是 declined', async () => {
+        const res = await executeMeetInvite({ intent: {
+            initiatorName: '小星', participantNames: ['小星'], invitationText: '下来。', sceneSeed: '楼下',
+        }, char: CHAR, persistMessage: m => DB.saveMessage(m) });
+        await updateMeetInviteStatus(res.messageId, 'declined');
+        const inv = readMeetInvitation((await DB.getMessagesByCharId('c1', true)).find(m => m.id === res.messageId)!)!;
+        expect(inv.status).toBe('declined');
+        expect(typeof inv.resolvedAt).toBe('number');
+    });
+
+    it('历史渲染层：chatPrompts 把 declined 译成「已婉拒」供下一轮模型感知', () => {
+        const chatPromptsSource = readFileSync(fileURLToPath(new URL('./chatPrompts.ts', import.meta.url)), 'utf-8');
+        expect(chatPromptsSource).toContain("'declined' ? '已婉拒'");
+    });
+
+    it('接线：后处理层有 timing guard + pending 去重；卡片有婉拒按钮与 scheduled 展示', () => {
+        expect(applyPostSource).toContain('validateMeetInviteTiming(meetInviteExtraction.intent)');
+        expect(applyPostSource).toContain('findPendingMeetInvitation(recentMessages)');
+        expect(cardSource).toContain('婉拒');
+        expect(cardSource).toContain('handleDecline');
+        expect(cardSource).toContain("invitation.meetingMode === 'scheduled' ? '约好时间' : '现在见面'");
+        expect(cardSource).toContain('formatScheduleText(invitation.scheduledAt)');
     });
 });

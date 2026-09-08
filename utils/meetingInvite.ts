@@ -36,6 +36,16 @@ export interface MeetInviteIntent {
     invitationText: string;
     locationText?: string;
     timeText?: string;
+    /**
+     * immediate = 双方已在可短时间见面的范围内（同城/同楼/已在附近/已抵达）；
+     * scheduled = 真心想见但当下无法立刻见（跨城/在途/太晚/要等未来行程），
+     * 此时必须给 scheduledAt（可实现的时间）。缺省按「是否带合法 scheduledAt」推断。
+     */
+    meetingMode?: 'immediate' | 'scheduled';
+    /** scheduled 时的预计见面时间（ISO 8601 或 YYYY-MM-DD HH:mm）。 */
+    scheduledAt?: string;
+    /** 最早现实可到达时间（可选；scheduledAt 不得早于它）。 */
+    earliestFeasibleAt?: string;
     /** 见面当下的情境种子（进入见面后的场景起点）。 */
     sceneSeed: string;
     /** 邀请前与见面直接相关的聊天背景摘要。 */
@@ -54,11 +64,15 @@ export interface MeetingInvitation {
     invitationText: string;
     locationText?: string;
     timeText?: string;
+    meetingMode?: 'immediate' | 'scheduled';
+    scheduledAt?: string;
+    earliestFeasibleAt?: string;
     sceneSeed: string;
     contextSummary?: string;
     /** 来源聊天角色（恢复 / 回跳用）。 */
     sourceCharId: string;
     createdAt: number;
+    resolvedAt?: number;
 }
 
 // ─── 标签解析（严格 JSON，与 giftIntent 同风格） ───────────────────────────────
@@ -118,15 +132,76 @@ function parseMeetInvitePayload(raw: string): MeetInviteIntent | null {
     const summary = typeof o.contextSummary === 'string' && o.contextSummary.trim()
         ? o.contextSummary.trim().slice(0, MAX_SUMMARY)
         : undefined;
+    // 时间字段：只接受可解析的时间串（ISO 8601 / YYYY-MM-DD HH:mm），坏值直接丢弃不落卡。
+    const scheduledAt = parseMeetTimestamp(o.scheduledAt);
+    const earliestFeasibleAt = parseMeetTimestamp(o.earliestFeasibleAt);
+    const explicitMode = o.meetingMode === 'scheduled' ? 'scheduled' : o.meetingMode === 'immediate' ? 'immediate' : undefined;
+    const meetingMode = explicitMode ?? (scheduledAt ? 'scheduled' : 'immediate');
     return {
         initiatorName: initiatorName.slice(0, 60),
         participantNames: participants.length > 0 ? participants : [initiatorName.slice(0, 60)],
         invitationText: invitationText.slice(0, MAX_TEXT),
         locationText: typeof o.locationText === 'string' && o.locationText.trim() ? o.locationText.trim().slice(0, MAX_LOCATION) : undefined,
         timeText: typeof o.timeText === 'string' && o.timeText.trim() ? o.timeText.trim().slice(0, MAX_TIME) : undefined,
+        meetingMode,
+        ...(meetingMode === 'scheduled' && scheduledAt ? { scheduledAt } : {}),
+        ...(earliestFeasibleAt ? { earliestFeasibleAt } : {}),
         sceneSeed: seed,
         contextSummary: summary,
     };
+}
+
+// ─── 前端轻量 feasibility：只拦明显错误，不做地理推理 ──────────────────────────
+
+/** 解析模型输出的时间串（ISO 8601 或 YYYY-MM-DD HH:mm[:ss]）；不可解析 → null。 */
+export function parseMeetTimestamp(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const text = value.trim();
+    if (!text || text.length > 40) return null;
+    const normalized = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/.test(text)
+        ? text.replace(' ', 'T')
+        : text;
+    const ms = Date.parse(normalized);
+    return Number.isFinite(ms) ? normalized : null;
+}
+
+export type MeetTimingCheck =
+    | { ok: true }
+    | { ok: false; reason: 'scheduled_at_missing' | 'scheduled_at_unparseable' | 'scheduled_at_in_past' | 'scheduled_before_earliest_feasible' };
+
+/**
+ * invitation 落卡前的轻量时间校验（spec Phase 1 feasibility guard）：
+ *  - scheduled：scheduledAt 必须存在、可解析、晚于当前时间，且不早于 earliestFeasibleAt；
+ *  - immediate：通过（跨城等空间拦截依赖 prompt 物理连续性规则与结构化地点状态，
+ *    本项目当前没有结构化 city state，前端不做城市距离表）。
+ * 校验失败只忽略邀请卡，正文照常显示。
+ */
+export function validateMeetInviteTiming(intent: MeetInviteIntent, nowMs: number = Date.now()): MeetTimingCheck {
+    if (intent.meetingMode !== 'scheduled') return { ok: true };
+    if (!intent.scheduledAt) return { ok: false, reason: 'scheduled_at_missing' };
+    const at = parseMeetTimestamp(intent.scheduledAt);
+    if (!at) return { ok: false, reason: 'scheduled_at_unparseable' };
+    const atMs = Date.parse(at);
+    if (atMs <= nowMs) return { ok: false, reason: 'scheduled_at_in_past' };
+    if (intent.earliestFeasibleAt) {
+        const earliest = parseMeetTimestamp(intent.earliestFeasibleAt);
+        if (earliest && atMs < Date.parse(earliest)) return { ok: false, reason: 'scheduled_before_earliest_feasible' };
+    }
+    return { ok: true };
+}
+
+/**
+ * pending 去重（spec #34）：同一角色会话内已有未回应的见面邀请时，不再落第二张 pending 卡。
+ * 返回那条 pending 的 meet_card 消息（没有则 null）。旧消息无 meet 字段自然跳过。
+ */
+export function findPendingMeetInvitation(messages: Message[]): Message | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if ((m.type as string) !== 'meet_card') continue;
+        const meet = (m.metadata as any)?.meet;
+        if (meet && typeof meet === 'object' && meet.status === 'pending') return m;
+    }
+    return null;
 }
 
 // ─── 身份解析：名字 → id（注册表优先，NPC/已删角色用稳定 slug + 快照） ─────────
@@ -194,6 +269,9 @@ export async function executeMeetInvite(args: ExecuteMeetInviteArgs): Promise<Ex
         invitationText: intent.invitationText,
         locationText: intent.locationText,
         timeText: intent.timeText,
+        meetingMode: intent.meetingMode,
+        ...(intent.meetingMode === 'scheduled' && intent.scheduledAt ? { scheduledAt: intent.scheduledAt } : {}),
+        ...(intent.earliestFeasibleAt ? { earliestFeasibleAt: intent.earliestFeasibleAt } : {}),
         sceneSeed: intent.sceneSeed,
         contextSummary: intent.contextSummary,
         sourceCharId: char.id,
@@ -210,11 +288,11 @@ export async function executeMeetInvite(args: ExecuteMeetInviteArgs): Promise<Ex
     return { messageId, invitation };
 }
 
-/** 卡片按钮 → 状态回写（只改 metadata.meet.status，不动消息本体）。 */
+/** 卡片按钮 → 状态回写（只改 metadata.meet.status / resolvedAt，不动消息本体）。 */
 export async function updateMeetInviteStatus(messageId: number, status: MeetingInviteStatus): Promise<void> {
     await DB.updateMessageMetadata(messageId, prev => ({
         ...(prev || {}),
-        meet: { ...(prev?.meet || {}), status },
+        meet: { ...(prev?.meet || {}), status, resolvedAt: Date.now() },
     }));
 }
 
@@ -245,10 +323,16 @@ let pendingLaunch: MeetingLaunchIntent | null = null;
  *  - 支持"自己约" / "替别人传话" / "多人场合"（participantNames）；
  *  - 玩家自主权：发出邀请后**不得**叙述玩家已答应/已动身/已见面，
  *    等玩家在邀请卡上点「去见TA」才真正进入见面；
- *  - 一条回复最多一个邀请；纯聊天不硬凑。
+ *  - 一条回复最多一个邀请；纯聊天不硬凑；
+ *  - 物理连续性：邀请必须符合双方当前的时间线与所在地——角色不能瞬移，
+ *    "想见"不等于"现在能见"；跨城/在途/太晚只能约未来时间（scheduled + scheduledAt），
+ *    时间要保守可实现（把路程、班次、准备时间算进去）；地点或时间信息不足时
+ *    不要发邀请，先自然聊天问清；不编造对方的精确位置；邀请应是低频、真实有行动
+ *    意图的主动行为——只是想念、开玩笑、回忆过去或假设性讨论都不发邀请；
+ *    玩家刚婉拒过、或上一张邀请还没有回应时，不要再发新邀请。
  */
 export function buildMeetInviteGuide(): string {
-    return `   - **发起见面邀请**: 当你根据当前情境**真心想和对方见面**（约会、陪伴、办事、剧情事件、传话转达他人的邀约、多人聚会等任何"见面"语义，不限于恋爱约会），可以在正常说话之外，**单独一行**输出**恰好一次**: \`[[MEET_INVITE: {"initiatorName":"发起者名字(自己就写你的名字)","participantNames":["真正到场见面的角色名","可以多个"],"invitationText":"一句你自己的邀请原话，用你的语气","locationText":"地点(可省)","timeText":"时间(可省)","sceneSeed":"如果你见到对方，此刻的场景起点(你在哪/在做什么/周围环境)","contextSummary":"这次见面直接相关的最近聊天背景(可省)"}]]\`。要点：invitationText 必须是你本人的口吻（例如简短的"下来，我在楼下。"或郑重的邀请都行），不要写"XX邀请你见面"这类系统腔；替别人传话时 initiatorName 写传话人、participantNames 写真正会到场的人；多人见面 participantNames 写多个名字。输出邀请后**只把它当作"你提出了请求"**：不要接着描写对方已经答应、已经动身、已经到你面前——是否赴约完全由对方决定，你可以在后续回复里等待或自然催促，但绝不代替对方行动。没有真实见面动机时不要使用。`;
+    return `   - **发起见面邀请**: 当你根据当前情境**真心想和对方见面**（约会、陪伴、办事、剧情事件、传话转达他人的邀约、多人聚会等任何"见面"语义，不限于恋爱约会），可以在正常说话之外，**单独一行**输出**恰好一次**: \`[[MEET_INVITE: {"initiatorName":"发起者名字(自己就写你的名字)","participantNames":["真正到场见面的角色名","可以多个"],"invitationText":"一句你自己的邀请原话，用你的语气","locationText":"地点(可省)","timeText":"时间(可省)","meetingMode":"immediate或scheduled","scheduledAt":"scheduled时的预计见面时间,格式YYYY-MM-DD HH:mm","earliestFeasibleAt":"最早现实能到的时间,同格式(可省)","sceneSeed":"如果你见到对方，此刻的场景起点(你在哪/在做什么/周围环境)","contextSummary":"这次见面直接相关的最近聊天背景(可省)"}]]\`。要点：invitationText 必须是你本人的口吻（例如简短的"下来，我在楼下。"或郑重的邀请都行），不要写"XX邀请你见面"这类系统腔；替别人传话时 initiatorName 写传话人、participantNames 写真正会到场的人；多人见面 participantNames 写多个名字。**meetingMode 判断**：只有当你与对方已经同城、就在附近、已在楼下或在来对方这里的路上等**短时间真能见到**的情况才用 immediate；跨城市、你还在出差/在途/上班、时间太晚、要等飞机高铁、要等到明天或以后，就用 scheduled 并给出**保守、可实现**的 scheduledAt（把赶车、路途、准备时间都算进去，宁可约晚一点），必要时给 earliestFeasibleAt；已知自己未来某天会到对方城市时，可以提前约那天的 scheduled 邀请。**物理连续性**：你无法瞬移——发邀请前先从对话、记忆与当前情境确认双方各自在哪、现在几点；只是想念、开玩笑说"过来啊"、回忆过去见面或假设性聊天**不要**发邀请，可以先自然表达"想见你"，等时间地点聊清楚了再发；不确定对方在哪、或你们明显短时间到不了彼此身边时，不要发 immediate 邀请，先问清楚（例如"你今晚还在上海？"是普通聊天）；绝不编造对方的精确位置；玩家刚婉拒过你的见面邀请、或你发出的邀请还没得到回应时，**不要**再发新邀请。输出邀请后**只把它当作"你提出了请求"**：不要接着描写对方已经答应、已经动身、已经到你面前——是否赴约完全由对方决定，你可以在后续回复里等待或自然催促，但绝不代替对方行动。没有真实见面动机时不要使用。`;
 }
 
 export const meetingInviteLaunch = {

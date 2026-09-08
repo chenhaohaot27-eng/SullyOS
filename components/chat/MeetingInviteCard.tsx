@@ -3,15 +3,17 @@
  *
  * 数据全部来自 metadata.meet（MeetingInvitation）；前端只做视觉骨架、按钮与跳转，
  * 正文（invitationText / locationText / timeText）一律是模型产出，绝不拼接。
- * 状态：pending 显示两个按钮；稍后 → deferred（保留在历史，不算拒绝）；
+ * 状态：pending 显示「婉拒 / 去见TA」两个按钮（busy 防双击）；
+ * 婉拒 → declined（留在聊天，角色经历史 [邀请记录] 知道被婉拒）；
  * 去见TA → accepted + 经 meetingInviteLaunch 跳转见面（DateApp 侧做陪伴/剧情选择）。
  * 头像/名字优先快照（角色已删除也不崩），兜底 characters 注册表实时查。
+ * scheduled 邀请展示 meetingMode 标签与 scheduledAt 的人类可读时间。
  */
 
 import React, { useMemo, useState } from 'react';
 import { CalendarX, MapPin, Clock } from '@phosphor-icons/react';
 import type { Message } from '../../types';
-import { readMeetInvitation, updateMeetInviteStatus, meetingInviteLaunch, type MeetingInviteStatus } from '../../utils/meetingInvite';
+import { readMeetInvitation, updateMeetInviteStatus, meetingInviteLaunch, parseMeetTimestamp, type MeetingInviteStatus } from '../../utils/meetingInvite';
 
 type CommonLayout = (node: React.ReactNode, extra?: any) => React.ReactNode;
 
@@ -21,6 +23,16 @@ const STATUS_LABEL: Partial<Record<MeetingInviteStatus, string>> = {
     declined: '已婉拒',
     expired: '已过期',
     cancelled: '已取消',
+};
+
+/** scheduledAt → 「M月D日 HH:mm」；不可解析时回退原文。 */
+const formatScheduleText = (raw?: string): string => {
+    const parsed = parseMeetTimestamp(raw);
+    if (!parsed) return raw || '';
+    const d = new Date(parsed);
+    if (Number.isNaN(d.getTime())) return raw || '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
 const MeetingInviteCard: React.FC<{
@@ -41,12 +53,12 @@ const MeetingInviteCard: React.FC<{
 
     if (!invitation) return null; // 旧数据容错：无 meet 字段不渲染
 
-    const handleDefer = async () => {
+    const handleDecline = async () => {
         if (busy || status !== 'pending') return;
         setBusy(true);
         try {
-            setStatus('deferred');
-            await updateMeetInviteStatus(m.id, 'deferred');
+            setStatus('declined');
+            await updateMeetInviteStatus(m.id, 'declined');
         } finally {
             setBusy(false);
         }
@@ -85,6 +97,11 @@ const MeetingInviteCard: React.FC<{
                         <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">见面对象：{participantsText}</div>
                     )}
                 </div>
+                {invitation.meetingMode && (
+                    <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-300">
+                        {invitation.meetingMode === 'scheduled' ? '约好时间' : '现在见面'}
+                    </span>
+                )}
             </div>
             {/* 正文：模型生成的邀请原话 */}
             <div className="px-3 pb-2 space-y-1.5">
@@ -101,6 +118,11 @@ const MeetingInviteCard: React.FC<{
                         <Clock size={11} /> {invitation.timeText}
                     </div>
                 )}
+                {formatScheduleText(invitation.scheduledAt) && (
+                    <div className="flex items-center gap-1 text-[10px] text-violet-500 dark:text-violet-300">
+                        <Clock size={11} /> 预定：{formatScheduleText(invitation.scheduledAt)}
+                    </div>
+                )}
             </div>
             {/* 操作 / 状态 */}
             <div className="px-3 pb-2.5">
@@ -109,10 +131,10 @@ const MeetingInviteCard: React.FC<{
                         <button
                             type="button"
                             disabled={busy}
-                            onClick={handleDefer}
+                            onClick={handleDecline}
                             className="flex-1 py-1.5 rounded-full bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:scale-95 transition disabled:opacity-50"
                         >
-                            稍后
+                            婉拒
                         </button>
                         <button
                             type="button"

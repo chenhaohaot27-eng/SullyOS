@@ -58,7 +58,7 @@ import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceH
 import { extractChatPhotoIntent } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
-import { executeMeetInvite, extractMeetInviteIntent } from './meetingInvite';
+import { executeMeetInvite, extractMeetInviteIntent, findPendingMeetInvitation, validateMeetInviteTiming } from './meetingInvite';
 import { applyGiftReaction } from './giftActions';
 import { executeGiftSend } from './giftCharacterSend';
 
@@ -2196,15 +2196,30 @@ export async function applyAssistantPostProcessing(
     // ─── Step 7.7: 见面邀请 MEET_INVITE ───
     // 落一张 meet_card 消息（metadata.meet 全量邀请数据）；正文已先渲染，
     // 邀请是"请求"，后续推进等玩家在卡片上选择。解析失败/无意图零开销。
+    // 落卡前两道轻量防线（失败只忽略邀请卡，正文照常显示，不让消息报错）：
+    //  1) 时间可行性：scheduled 邀请的 scheduledAt 必须晚于当前时间、且不早于
+    //     earliestFeasibleAt（跨城/在途的物理可行性由模型按 prompt 规则判断，
+    //     前端不做城市距离推理）；
+    //  2) pending 去重：该会话已有未回应的邀请时不落第二张 pending 卡。
     if (meetInviteExtraction.intent) {
         try {
-            await executeMeetInvite({
-                intent: meetInviteExtraction.intent,
-                char,
-                persistMessage,
-                inheritMeta: mcdInheritMeta,
-            });
-            setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            const timing = validateMeetInviteTiming(meetInviteExtraction.intent);
+            if (!timing.ok) {
+                console.warn('[Meet] 见面邀请时间不可行，已忽略邀请卡（正文不受影响）:', timing.reason);
+            } else {
+                const recentMessages = await DB.getRecentMessagesByCharId(char.id, 200);
+                if (findPendingMeetInvitation(recentMessages)) {
+                    console.warn('[Meet] 已存在未回应的见面邀请，忽略新邀请（正文不受影响）');
+                } else {
+                    await executeMeetInvite({
+                        intent: meetInviteExtraction.intent,
+                        char,
+                        persistMessage,
+                        inheritMeta: mcdInheritMeta,
+                    });
+                    setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+                }
+            }
         } catch (e) {
             console.warn('[Meet] 见面邀请卡落库失败（不影响正文）:', e instanceof Error ? e.message : e);
         }
