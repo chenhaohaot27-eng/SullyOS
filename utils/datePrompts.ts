@@ -24,8 +24,24 @@ import { ChatPrompts } from './chatPrompts';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { getVoicePromptOverride } from './ttsProvider';
+import { injectWorldbookDepthEntries, resolveWorldbookEntries, splitWorldbookSections, type WorldbookScanMessage } from './worldbook';
 
 export type ApiMessage = { role: string; content: any };
+
+/**
+ * 世界书关键词扫描窗口（陪伴 Date 世界书增强）：
+ * 只用 buildMessageHistory 已压缩后的 api 消息文本（html/score/chat_forward/emoji 等卡片
+ * 已是短摘要，图片是 [图片] 占位），不复制原始 base64 / 大 HTML / JSON，也不额外读取
+ * 数据库历史；scanDepth 由 worldbook.ts 既有语义继续控制每本书扫多深。
+ */
+const toWorldbookScanMessages = (apiMessages: ApiMessage[], currentUserText?: string): WorldbookScanMessage[] => {
+    const base: WorldbookScanMessage[] = apiMessages
+        .map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : '' }))
+        .filter(m => typeof m.content === 'string' && m.content.trim());
+    return currentUserText && currentUserText.trim()
+        ? [...base, { role: 'user', content: currentUserText }]
+        : base;
+};
 
 /**
  * 见面（DateApp）专用的「语音情绪」格式规则（VN 模式下、char.dateVoiceEnabled 时注入）。
@@ -757,8 +773,10 @@ export const DatePrompts = {
         );
         const recentMsgs = flattenHistoryToText(apiMessages);
 
-        // 线下时间感知关掉 → 抑制 buildCoreContext 的时间注入，让见面真正脱离现实时间线（纯架空）
-        const baseContext = ContextBuilder.buildCoreContext(char, userProfile, false, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char) });
+        // 线下时间感知关掉 → 抑制 buildCoreContext 的时间注入，让见面真正脱离现实时间线（纯架空）。
+        // 世界书扫描：用压缩后的近期记录（peek 上限 50 条）激活关键词词条；constant/position 0/1/2/3/5/6
+        // 仍由 buildCoreContext 既有语义注入，这里不另建第二套解析器。
+        const baseContext = ContextBuilder.buildCoreContext(char, userProfile, false, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char), worldbookMessages: toWorldbookScanMessages(apiMessages) });
 
         // 文风预设也作用于开场感知；人称（pov）刻意不作用——peek 的设计就是
         // 第三人称旁观镜头（用户还没"走过去"），人称指令只影响 session 内叙述
@@ -828,7 +846,23 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
 
         // 向量召回挂到 char.memoryPalaceInjection，buildCoreContext 会读取
         await injectMemoryPalace(char, allMsgs, undefined, userProfile?.name);
-        const systemPrompt = ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char) })
+
+        // 世界书动态激活（陪伴增强）：扫描窗口 = 与 Date context 对齐的压缩历史 + 本轮玩家输入。
+        // constant 与 position 0/1/2/3/5/6 由 buildCoreContext 既有语义注入（作者注释顶部/底部
+        // 在其输出尾部、VN 规则附近）；position 4（指定深度）复用与聊天侧同一套
+        // injectWorldbookDepthEntries，按 depth/role 插进历史消息数组，而不是拼进巨型 system。
+        // 概率条目（useProbability<100）在此与 buildCoreContext 内部各掷一次，与聊天主链路
+        // 现状一致；Memory Palace 高水位过滤在 buildDateHistory 内保持不变。
+        const worldbookScan = toWorldbookScanMessages(historyMsgs, userText);
+        const depthEntries = splitWorldbookSections(resolveWorldbookEntries(
+            char.mountedWorldbooks || [],
+            worldbookScan,
+            char.name,
+            userProfile?.name || '',
+        )).atDepth;
+        const messagesWithWorldbookDepth = injectWorldbookDepthEntries(historyMsgs, depthEntries);
+
+        const systemPrompt = ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char), worldbookMessages: worldbookScan })
             + buildVNModeBlock(char, userProfile?.name || '')
             + (input.meetingContext ? `\n\n### 本场见面情境（来自玩家接受的聊天邀请）\n${input.meetingContext}\n（这是玩家应约而来的见面，自然衔接该情境；不要重新邀请，也不要描述玩家赴约前的犹豫。）` : '');
 
@@ -841,7 +875,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         return {
             messages: [
                 { role: 'system', content: systemPrompt },
-                ...historyMsgs,
+                ...messagesWithWorldbookDepth,
                 { role: 'user', content: `${isParentheticalNarrationOn(char) ? formatDatePlayerInputForModel(userText) : userText}\n\n${note}` },
             ],
         };

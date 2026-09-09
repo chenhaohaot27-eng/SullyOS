@@ -26,11 +26,19 @@ import { deleteStoryTheaterData } from '../../../utils/storyTheaterDeletion';
 interface Props {
     onSwitchCompanion: () => void;
     onClose: () => void;
+    /**
+     * 来自聊天见面邀请的「剧情」入口：用邀请内容预填一个**未落库**的新剧情草稿
+     * （title/premise/参与角色），直接进编辑器；玩家开始/保存后才成为正式剧情，
+     * 不会每次邀请都产生永久记录。mask 默认用户本人、预设默认内置。
+     */
+    launchDraft?: { title: string; premise: string; characterIds: string[] } | null;
+    /** launchDraft 被消费后回调（父组件清空，避免重进剧情页时重复预填）。 */
+    onLaunchConsumed?: () => void;
 }
 
 type View = 'list' | 'editor' | 'session' | 'preset' | 'masks' | 'vectors';
 
-const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose }) => {
+const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose, launchDraft, onLaunchConsumed }) => {
     const { characters, userProfile, addToast, remoteVectorConfig } = useOS();
     const [view, setView] = useState<View>('list');
     const [entries, setEntries] = useState<StoryTheaterEntry[]>([]);
@@ -52,6 +60,27 @@ const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose }) =>
     }, []);
 
     useEffect(() => { void reload(); }, [reload]);
+
+    // 聊天邀请「剧情」入口：一次性预填草稿（不落库），直接进编辑器让玩家确认角色/预设后开始。
+    const launchDraftRef = useRef(launchDraft);
+    launchDraftRef.current = launchDraft;
+    useEffect(() => {
+        const draft = launchDraftRef.current;
+        if (!draft) return;
+        setMaskLocked(false);
+        setActiveEntry({
+            ...createStoryTheaterDraft(),
+            presetId: presets[0]?.id,
+            title: draft.title || '来自见面邀请的剧情',
+            premise: draft.premise || '',
+            characterIds: draft.characterIds || [],
+        });
+        setView('editor');
+        addToast('已用邀请预填剧情草稿：确认角色与预设后开始', 'info');
+        onLaunchConsumed?.();
+    // 仅在父组件下发新的 launchDraft 时触发；presets 内置项在首次挂载即可用。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [launchDraft]);
 
     const importPreset = useCallback(async (file: File): Promise<StoryTheaterPreset | null> => {
         try {

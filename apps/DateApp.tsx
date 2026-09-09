@@ -45,6 +45,9 @@ const DateApp: React.FC = () => {
     const [meetSurface, setMeetSurface] = useState<'companion' | 'story'>(() => dateLaunch.peek()?.surface ?? 'companion');
     // 聊天邀请跳转（MeetingInviteCard「去见TA」）：先让玩家选陪伴/剧情，再进入对应见面流程。
     const [pendingMeetInvite, setPendingMeetInvite] = useState<MeetingLaunchIntent | null>(() => meetingInviteLaunch.consume());
+    // 邀请→「剧情」：不进陪伴链路，而是用邀请内容预填一个 StoryTheater 草稿（不落库，
+    // 用户在编辑器里开始/保存才成为正式剧情），保证真正进入 StoryTheaterSession。
+    const [meetStoryLaunch, setMeetStoryLaunch] = useState<{ title: string; premise: string; characterIds: string[] } | null>(null);
     // 本场见面的邀请上下文（sceneSeed/contextSummary/参与者）：peek 与整场 session 共用。
     const [activeMeetingContext, setActiveMeetingContext] = useState<{ sceneSeed: string; contextSummary?: string; participantsText?: string } | null>(null);
 
@@ -299,6 +302,24 @@ const DateApp: React.FC = () => {
         }
         const c = target || characters.find(ch => ch.id === current.invitation.sourceCharId);
         if (!c) { addToast('找不到可用的见面角色', 'error'); return; }
+        if (surface === 'story') {
+            // 剧情：绝不走陪伴的 peek / Date Session 链路，而是用邀请内容预填 StoryTheater 草稿。
+            // 参与者只收注册表角色（npc: 快照角色没有全局档案，交给玩家在编辑器里另选）；
+            // sceneSeed + contextSummary 作为本剧情的场景起点；mask 默认用户本人、预设默认内置。
+            const participantIds = (current.invitation.participantIds || [])
+                .filter(id => !id.startsWith('npc:') && characters.some(ch => ch.id === id));
+            setMeetStoryLaunch({
+                title: `与${current.participantsText || c.name}的见面`,
+                premise: [
+                    current.invitation.sceneSeed,
+                    current.invitation.contextSummary ? `（赴约前背景）${current.invitation.contextSummary}` : '',
+                ].filter(Boolean).join('\n\n'),
+                characterIds: participantIds.length > 0 ? participantIds : [c.id],
+            });
+            setMode('select'); // StoryTheater 在 select 模式渲染；确保从任何当前模式都能进入
+            trackEvent('接受见面邀请', { surface });
+            return;
+        }
         if (c.savedDateState) {
             // 有旧存档：沿用既有"继续/新开"流程；上下文待新开时生效（继续旧进度不覆盖旧场景）。
             setPendingSessionChar(c);
@@ -800,8 +821,15 @@ const DateApp: React.FC = () => {
         );
     }
 
-    if (meetSurface === 'story' && mode === 'select' && !cameFromChat) {
-        return <StoryTheater onSwitchCompanion={() => setMeetSurface('companion')} onClose={closeApp} />;
+    // 剧情模式：聊天邀请/聊天按钮选「剧情」时同样进入（cameFromChat 只影响退出导航），
+    // 不再因为来自聊天而被挡在 StoryTheater 外、静默落回陪伴列表。
+    if (meetSurface === 'story' && mode === 'select') {
+        return <StoryTheater
+            onSwitchCompanion={() => { setMeetStoryLaunch(null); setMeetSurface('companion'); }}
+            onClose={() => { setMeetStoryLaunch(null); if (cameFromChat) { returnToChat(); } else { closeApp(); } }}
+            launchDraft={meetStoryLaunch}
+            onLaunchConsumed={() => setMeetStoryLaunch(null)}
+        />;
     }
 
     if (mode === 'select' || !char) {
