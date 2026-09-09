@@ -56,6 +56,8 @@ export interface MeetInviteIntent {
 export interface MeetingInvitation {
     id: string;
     status: MeetingInviteStatus;
+    /** 邀请方向：角色→玩家（旧数据缺省，兼容为 character_to_user）或 玩家→角色。 */
+    direction?: 'character_to_user' | 'user_to_character';
     initiatorId: string;
     initiatorName: string;
     initiatorAvatar?: string;
@@ -74,6 +76,10 @@ export interface MeetingInvitation {
     createdAt: number;
     resolvedAt?: number;
 }
+
+/** 旧邀请无 direction 字段 → 按既有行为解释为角色→玩家。 */
+export const meetInviteDirection = (invitation: MeetingInvitation | null | undefined): 'character_to_user' | 'user_to_character' =>
+    invitation?.direction === 'user_to_character' ? 'user_to_character' : 'character_to_user';
 
 // ─── 标签解析（严格 JSON，与 giftIntent 同风格） ───────────────────────────────
 
@@ -296,6 +302,96 @@ export async function updateMeetInviteStatus(messageId: number, status: MeetingI
     }));
 }
 
+// ─── 玩家 → 角色 邀请（双向协议）：不调 API，直接落一条 meet_card ───────────────
+
+export const PLAYER_MEET_INVITE_NOTE_MAX = 200;
+
+/**
+ * 玩家在聊天里主动发起见面邀请：复用同一 MeetingInvitation schema（direction =
+ * 'user_to_character'），落一条 user 角色的 meet_card 消息，不额外调用模型；
+ * 下一轮主聊天由 chatPrompts 把「用户向你发出了见面邀请」注入上下文，由角色自行回应。
+ */
+export async function createUserMeetInvite(args: {
+    char: CharacterProfile;
+    userName: string;
+    /** 可选附言，≤200 字，原样保存。 */
+    note?: string;
+    persistMessage: (msg: Parameters<typeof DB.saveMessage>[0]) => Promise<number>;
+}): Promise<ExecuteMeetInviteResult> {
+    const { char, userName, note, persistMessage } = args;
+    const invitation: MeetingInvitation = {
+        id: `mi_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        status: 'pending',
+        direction: 'user_to_character',
+        initiatorId: 'user',
+        initiatorName: userName || '你',
+        participantIds: [char.id],
+        participantNames: [char.name],
+        invitationText: (note || '').trim().slice(0, PLAYER_MEET_INVITE_NOTE_MAX),
+        sceneSeed: '（玩家主动发起的见面邀请；接受后由见面模式开场自行衔接当前情境。）',
+        sourceCharId: char.id,
+        createdAt: Date.now(),
+    };
+    const messageId = await persistMessage({
+        charId: char.id,
+        role: 'user',
+        type: 'meet_card',
+        content: '',
+        metadata: { meet: invitation },
+    } as Parameters<typeof DB.saveMessage>[0]);
+    return { messageId, invitation };
+}
+
+// ─── 角色回应玩家邀请：[[MEET_REPLY: accepted|declined|deferred]] ───────────────
+
+export type MeetReplyKind = 'accepted' | 'declined' | 'deferred';
+
+const MEET_REPLY_TAG_RE = /\[\[MEET_REPLY[:：]\s*(accepted|declined|deferred)\s*\]\]/gi;
+
+export interface MeetReplyExtraction {
+    reply: MeetReplyKind | null;
+    cleanedContent: string;
+}
+
+export function extractMeetReplyIntent(content: string): MeetReplyExtraction {
+    let reply: MeetReplyKind | null = null;
+    const cleanedContent = content.replace(MEET_REPLY_TAG_RE, (_m: string, kind: string) => {
+        if (!reply) reply = kind as MeetReplyKind;
+        return '';
+    })
+        .replace(/\n[ \t]*\n+/g, '\n')
+        .trim();
+    return { reply, cleanedContent };
+}
+
+/** 最近一条待回应的「玩家→角色」邀请卡（旧数据无 direction → 视为角色邀请，不匹配）。 */
+export function findPendingUserMeetInvite(messages: Message[]): Message | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if ((m.type as string) !== 'meet_card') continue;
+        const meet = (m.metadata as any)?.meet;
+        if (meet && typeof meet === 'object' && meet.status === 'pending' && meet.direction === 'user_to_character') return m;
+    }
+    return null;
+}
+
+/**
+ * 应用角色对玩家邀请的回应：accepted / declined / deferred 写回原玩家邀请卡，
+ * 正文（角色自己的话）不受影响；找不到待回应的玩家邀请时静默忽略（正文照常）。
+ */
+export async function applyMeetReply(args: {
+    reply: MeetReplyKind;
+    messages: Message[];
+}): Promise<{ messageId: number; invitation: MeetingInvitation } | null> {
+    const target = findPendingUserMeetInvite(args.messages);
+    if (!target) return null;
+    const invitation = readMeetInvitation(target);
+    if (!invitation) return null;
+    const nextStatus: MeetingInviteStatus = args.reply === 'deferred' ? 'deferred' : args.reply;
+    await updateMeetInviteStatus(target.id, nextStatus);
+    return { messageId: target.id, invitation: { ...invitation, status: nextStatus } };
+}
+
 /** 从消息恢复邀请（旧消息无字段 → null，卡片分支不渲染，天然兼容）。 */
 export function readMeetInvitation(m: Message): MeetingInvitation | null {
     const meet = (m.metadata as any)?.meet;
@@ -310,6 +406,11 @@ export interface MeetingLaunchIntent {
     primaryCharId: string;
     /** 展示用：参与者名字列表。 */
     participantsText: string;
+    /**
+     * 直接指定赴约方式（双向协议）：带值时 DateApp 不再弹「陪伴/剧情」选择层，
+     * 直接走对应链路；角色→玩家的旧流程不带值，仍弹选择层。
+     */
+    surface?: 'companion' | 'story';
 }
 
 const MEETING_LAUNCH_EVENT = 'sullyos:meeting-launch';
@@ -332,7 +433,15 @@ let pendingLaunch: MeetingLaunchIntent | null = null;
  *    玩家刚婉拒过、或上一张邀请还没有回应时，不要再发新邀请。
  */
 export function buildMeetInviteGuide(): string {
-    return `   - **发起见面邀请**: 当你根据当前情境**真心想和对方见面**（约会、陪伴、办事、剧情事件、传话转达他人的邀约、多人聚会等任何"见面"语义，不限于恋爱约会），可以在正常说话之外，**单独一行**输出**恰好一次**: \`[[MEET_INVITE: {"initiatorName":"发起者名字(自己就写你的名字)","participantNames":["真正到场见面的角色名","可以多个"],"invitationText":"一句你自己的邀请原话，用你的语气","locationText":"地点(可省)","timeText":"时间(可省)","meetingMode":"immediate或scheduled","scheduledAt":"scheduled时的预计见面时间,格式YYYY-MM-DD HH:mm","earliestFeasibleAt":"最早现实能到的时间,同格式(可省)","sceneSeed":"如果你见到对方，此刻的场景起点(你在哪/在做什么/周围环境)","contextSummary":"这次见面直接相关的最近聊天背景(可省)"}]]\`。要点：invitationText 必须是你本人的口吻（例如简短的"下来，我在楼下。"或郑重的邀请都行），不要写"XX邀请你见面"这类系统腔；替别人传话时 initiatorName 写传话人、participantNames 写真正会到场的人；多人见面 participantNames 写多个名字。**meetingMode 判断**：只有当你与对方已经同城、就在附近、已在楼下或在来对方这里的路上等**短时间真能见到**的情况才用 immediate；跨城市、你还在出差/在途/上班、时间太晚、要等飞机高铁、要等到明天或以后，就用 scheduled 并给出**保守、可实现**的 scheduledAt（把赶车、路途、准备时间都算进去，宁可约晚一点），必要时给 earliestFeasibleAt；已知自己未来某天会到对方城市时，可以提前约那天的 scheduled 邀请。**物理连续性**：你无法瞬移——发邀请前先从对话、记忆与当前情境确认双方各自在哪、现在几点；只是想念、开玩笑说"过来啊"、回忆过去见面或假设性聊天**不要**发邀请，可以先自然表达"想见你"，等时间地点聊清楚了再发；不确定对方在哪、或你们明显短时间到不了彼此身边时，不要发 immediate 邀请，先问清楚（例如"你今晚还在上海？"是普通聊天）；绝不编造对方的精确位置；玩家刚婉拒过你的见面邀请、或你发出的邀请还没得到回应时，**不要**再发新邀请。输出邀请后**只把它当作"你提出了请求"**：不要接着描写对方已经答应、已经动身、已经到你面前——是否赴约完全由对方决定，你可以在后续回复里等待或自然催促，但绝不代替对方行动。没有真实见面动机时不要使用。`;
+    return `   - **发起见面邀请**: 当你根据当前情境**真心想和对方见面**（约会、陪伴、办事、剧情事件、传话转达他人的邀约、多人聚会等任何"见面"语义，不限于恋爱约会），可以在正常说话之外，**单独一行**输出**恰好一次**: \`[[MEET_INVITE: {"initiatorName":"发起者名字(自己就写你的名字)","participantNames":["真正到场见面的角色名","可以多个"],"invitationText":"一句你自己的邀请原话，用你的语气","locationText":"地点(可省)","timeText":"时间(可省)","meetingMode":"immediate或scheduled","scheduledAt":"scheduled时的预计见面时间,格式YYYY-MM-DD HH:mm","earliestFeasibleAt":"最早现实能到的时间,同格式(可省)","sceneSeed":"如果你见到对方，此刻的场景起点(你在哪/在做什么/周围环境)","contextSummary":"这次见面直接相关的最近聊天背景(可省)"}]]\`。要点：invitationText 必须是你本人的口吻（例如简短的"下来，我在楼下。"或郑重的邀请都行），不要写"XX邀请你见面"这类系统腔；替别人传话时 initiatorName 写传话人、participantNames 写真正会到场的人；多人见面 participantNames 写多个名字。**meetingMode 判断**：只有当你与对方已经同城、就在附近、已在楼下或在来对方这里的路上等**短时间真能见到**的情况才用 immediate；跨城市、你还在出差/在途/上班、时间太晚、要等飞机高铁、要等到明天或以后，就用 scheduled 并给出**保守、可实现**的 scheduledAt（把赶车、路途、准备时间都算进去，宁可约晚一点），必要时给 earliestFeasibleAt；已知自己未来某天会到对方城市时，可以提前约那天的 scheduled 邀请。**物理连续性**：你无法瞬移——发邀请前先从对话、记忆与当前情境确认双方各自在哪、现在几点；只是想念、开玩笑说"过来啊"、回忆过去见面或假设性聊天**不要**发邀请，可以先自然表达"想见你"，等时间地点聊清楚了再发；不确定对方在哪、或你们明显短时间到不了彼此身边时，不要发 immediate 邀请，先问清楚（例如"你今晚还在上海？"是普通聊天）；绝不编造对方的精确位置；玩家刚婉拒过你的见面邀请、或你发出的邀请还没得到回应时，**不要**再发新邀请。**线上→线下的硬协议**：当你准备把线上聊天真正切换为现实见面——尤其是要表达"等我，我过去""我已经出门了""我到你楼下了""我上电梯了""开门""我进来了"这类**已经动身/已经抵达/即将与对方处于同一物理空间**的内容时，**必须**先输出上面的 MEET_INVITE 邀请，再在正文里说想说的话；只有对方在邀请卡上接受后，实际见面叙事才由见面模式承接。普通地表达"我想见你""今晚有空吗""要不要出来走走"**不需要**也**不应该**调用邀请——只有真正准备发生物理见面时才用它。输出邀请后**只把它当作"你提出了请求"**：不要接着描写对方已经答应、已经动身、已经到你面前——是否赴约完全由对方决定，你可以在后续回复里等待或自然催促，但绝不代替对方行动。没有真实见面动机时不要使用。`;
+}
+
+/**
+ * 给模型的「玩家邀请回应协议」：注入在历史渲染层（chatPrompts buildMessageHistory 的
+ * meet_card 分支），只在存在待回应的玩家→角色邀请时随该条历史出现，短且低 token。
+ */
+export function buildPlayerInviteReplyGuide(): string {
+    return `用户刚刚向你发送了一份真实的见面邀请。你可以根据当前关系、时间安排、双方所在地和你的性格自行决定：接受就单独一行输出 \`[[MEET_REPLY: accepted]]\`；婉拒就输出 \`[[MEET_REPLY: declined]]\`；暂时定不下来想改时间就输出 \`[[MEET_REPLY: deferred]]\` 并在正文里说明。无论哪种都可以正常说话表达你的想法。接受后不要在聊天正文里描写已经见面——实际见面要等用户从邀请卡进入见面模式。`;
 }
 
 export const meetingInviteLaunch = {

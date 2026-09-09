@@ -24,7 +24,8 @@ describe('邀请「剧情」路由 — 接线断言', () => {
         expect(fnSource).toContain('current.invitation.sceneSeed');
         expect(fnSource).toContain('current.invitation.contextSummary');
         expect(fnSource).toContain('current.invitation.participantIds');
-        expect(fnSource).toContain("premise: [");
+        expect(fnSource).toContain('premise: fromPlayer');
+        expect(fnSource).toContain('（赴约前背景）');
     });
 
     it('StoryTheater 渲染不再被 cameFromChat 挡住；携带 launchDraft；退出回来源聊天', () => {

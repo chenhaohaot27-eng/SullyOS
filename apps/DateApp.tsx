@@ -288,12 +288,16 @@ const DateApp: React.FC = () => {
     const handleMeetInviteChoice = (surface: 'companion' | 'story') => {
         if (!pendingMeetInvite) return;
         const target = resolveMeetPrimaryChar(pendingMeetInvite);
-        const hint = {
-            sceneSeed: pendingMeetInvite.invitation.sceneSeed,
-            contextSummary: pendingMeetInvite.invitation.contextSummary,
-            participantsText: pendingMeetInvite.participantsText,
-        };
         const current = pendingMeetInvite;
+        // 双向协议：玩家→角色的邀请，情境锚点用玩家附言表达「玩家主动邀请并已到场」。
+        const fromPlayer = current.invitation.direction === 'user_to_character';
+        const hint = {
+            sceneSeed: fromPlayer
+                ? `玩家主动发起见面邀请并已到场${current.invitation.invitationText ? `（附言：${current.invitation.invitationText}）` : ''}。`
+                : current.invitation.sceneSeed,
+            contextSummary: current.invitation.contextSummary,
+            participantsText: current.participantsText,
+        };
         setPendingMeetInvite(null);
         setCameFromChat(true);
         setMeetSurface(surface);
@@ -310,10 +314,12 @@ const DateApp: React.FC = () => {
                 .filter(id => !id.startsWith('npc:') && characters.some(ch => ch.id === id));
             setMeetStoryLaunch({
                 title: `与${current.participantsText || c.name}的见面`,
-                premise: [
-                    current.invitation.sceneSeed,
-                    current.invitation.contextSummary ? `（赴约前背景）${current.invitation.contextSummary}` : '',
-                ].filter(Boolean).join('\n\n'),
+                premise: fromPlayer
+                    ? `玩家主动发起见面邀请${current.invitation.invitationText ? `：「${current.invitation.invitationText}」` : ''}，并已赴约到场；从这里开始这场面对面的剧情。`
+                    : [
+                        current.invitation.sceneSeed,
+                        current.invitation.contextSummary ? `（赴约前背景）${current.invitation.contextSummary}` : '',
+                    ].filter(Boolean).join('\n\n'),
                 characterIds: participantIds.length > 0 ? participantIds : [c.id],
             });
             setMode('select'); // StoryTheater 在 select 模式渲染；确保从任何当前模式都能进入
@@ -334,6 +340,13 @@ const DateApp: React.FC = () => {
         setPendingMeetInvite(null);
         setActiveMeetingContext(null);
     };
+
+    // 双向协议：launch 自带 surface（玩家邀请卡「进入陪伴 / 进入剧情」）时跳过「陪伴/剧情」
+    // 选择层，直接走对应链路；角色→玩家的旧流程不带 surface，仍弹选择层。
+    useEffect(() => {
+        if (pendingMeetInvite?.surface) handleMeetInviteChoice(pendingMeetInvite.surface);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingMeetInvite]);
 
     const handleResumeSession = () => {
         if (!pendingSessionChar) return;

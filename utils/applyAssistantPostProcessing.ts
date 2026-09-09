@@ -58,7 +58,7 @@ import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceH
 import { extractChatPhotoIntent } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
-import { executeMeetInvite, extractMeetInviteIntent, findPendingMeetInvitation, validateMeetInviteTiming } from './meetingInvite';
+import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
 import { applyGiftReaction } from './giftActions';
 import { executeGiftSend } from './giftCharacterSend';
 
@@ -613,12 +613,16 @@ export async function applyAssistantPostProcessing(
         console.warn('[Gift] GIFT_SEND 标签解析失败，已剥掉不执行', { charId: char.id });
     }
     aiContent = giftSendExtraction.cleanedContent;
-    // ─── Step 1.7: 见面邀请意图 MEET_INVITE ───
+    // ─── Step 1.7: 见面邀请意图 MEET_INVITE + 角色对玩家邀请的回应 MEET_REPLY ───
     const meetInviteExtraction = extractMeetInviteIntent(aiContent);
     if (meetInviteExtraction.invalidTagFound) {
         console.warn('[Meet] MEET_INVITE 标签解析失败，已剥掉不执行', { charId: char.id });
     }
     aiContent = meetInviteExtraction.cleanedContent;
+    // 双向协议：[[MEET_REPLY: accepted|declined|deferred]] = 角色回应玩家发出的 pending 邀请，
+    // 标签永远剥掉，回应结果写回原玩家邀请卡；正文（角色自己的话）不受影响。
+    const meetReplyExtraction = extractMeetReplyIntent(aiContent);
+    aiContent = meetReplyExtraction.cleanedContent;
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
@@ -2193,7 +2197,7 @@ export async function applyAssistantPostProcessing(
         });
     }
 
-    // ─── Step 7.7: 见面邀请 MEET_INVITE ───
+    // ─── Step 7.7: 见面邀请 MEET_INVITE + 角色回应玩家邀请 MEET_REPLY ───
     // 落一张 meet_card 消息（metadata.meet 全量邀请数据）；正文已先渲染，
     // 邀请是"请求"，后续推进等玩家在卡片上选择。解析失败/无意图零开销。
     // 落卡前两道轻量防线（失败只忽略邀请卡，正文照常显示，不让消息报错）：
@@ -2201,6 +2205,20 @@ export async function applyAssistantPostProcessing(
     //     earliestFeasibleAt（跨城/在途的物理可行性由模型按 prompt 规则判断，
     //     前端不做城市距离推理）；
     //  2) pending 去重：该会话已有未回应的邀请时不落第二张 pending 卡。
+    if (meetReplyExtraction.reply) {
+        try {
+            const replyMessages = await DB.getRecentMessagesByCharId(char.id, 200);
+            const applied = await applyMeetReply({ reply: meetReplyExtraction.reply, messages: replyMessages });
+            if (applied) {
+                console.info('[Meet] 角色回应玩家邀请:', meetReplyExtraction.reply);
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            } else {
+                console.warn('[Meet] 收到 MEET_REPLY 但没有待回应的玩家邀请，忽略（正文不受影响）');
+            }
+        } catch (e) {
+            console.warn('[Meet] 玩家邀请回应写回失败（正文不受影响）:', e instanceof Error ? e.message : e);
+        }
+    }
     if (meetInviteExtraction.intent) {
         try {
             const timing = validateMeetInviteTiming(meetInviteExtraction.intent);

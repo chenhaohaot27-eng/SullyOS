@@ -13,7 +13,8 @@
 import React, { useMemo, useState } from 'react';
 import { CalendarX, MapPin, Clock } from '@phosphor-icons/react';
 import type { Message } from '../../types';
-import { readMeetInvitation, updateMeetInviteStatus, meetingInviteLaunch, parseMeetTimestamp, type MeetingInviteStatus } from '../../utils/meetingInvite';
+import { useOS } from '../../context/OSContext';
+import { readMeetInvitation, updateMeetInviteStatus, meetingInviteLaunch, meetInviteDirection, parseMeetTimestamp, type MeetingInviteStatus } from '../../utils/meetingInvite';
 
 type CommonLayout = (node: React.ReactNode, extra?: any) => React.ReactNode;
 
@@ -42,8 +43,11 @@ const MeetingInviteCard: React.FC<{
     commonLayout: CommonLayout;
 }> = ({ m, isUser, charName, commonLayout }) => {
     const invitation = readMeetInvitation(m);
+    const { openDateWithChar } = useOS();
     const [status, setStatus] = useState<MeetingInviteStatus>(invitation?.status || 'pending');
     const [busy, setBusy] = useState(false);
+    // 双向协议：玩家→角色的邀请由角色回应；玩家可取消，接受后可从卡上直接进入陪伴/剧情。
+    const fromPlayer = meetInviteDirection(invitation) === 'user_to_character';
 
     const participantsText = useMemo(() => {
         if (!invitation) return '';
@@ -65,7 +69,7 @@ const MeetingInviteCard: React.FC<{
     };
 
     const handleAccept = async () => {
-        if (busy || status !== 'pending') return;
+        if (busy || status !== 'pending' || fromPlayer) return;
         setBusy(true);
         try {
             setStatus('accepted');
@@ -82,22 +86,49 @@ const MeetingInviteCard: React.FC<{
         }
     };
 
+    // 玩家邀请：取消（pending → cancelled，不物理删除历史）
+    const handleCancelInvite = async () => {
+        if (busy || status !== 'pending' || !fromPlayer) return;
+        setBusy(true);
+        try {
+            setStatus('cancelled');
+            await updateMeetInviteStatus(m.id, 'cancelled');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // 玩家邀请被接受后：直接指定赴约方式进入现有见面链路（surface 让 DateApp 跳过选择层）
+    const handleEnterSurface = async (surface: 'companion' | 'story') => {
+        if (busy || status !== 'accepted' || !fromPlayer) return;
+        setBusy(true);
+        try {
+            const primaryCharId = invitation.participantIds?.[0] || invitation.sourceCharId;
+            meetingInviteLaunch.request({ invitation, primaryCharId, participantsText, surface });
+            openDateWithChar(primaryCharId);
+        } finally {
+            setBusy(false);
+        }
+    };
+
     return commonLayout(
         <div className="w-64 rounded-2xl overflow-hidden shadow-sm border bg-violet-50/80 dark:bg-violet-500/10 border-violet-100 dark:border-violet-500/20">
             {/* 卡头：发起者 */}
             <div className="px-3 pt-2.5 pb-1.5 flex items-center gap-2">
-                {invitation.initiatorAvatar
+                {!fromPlayer && invitation.initiatorAvatar
                     ? <img src={invitation.initiatorAvatar} className="w-7 h-7 rounded-full object-cover ring-1 ring-black/5" alt="" />
                     : <span className={`w-7 h-7 rounded-full flex items-center justify-center text-sm ${isUser ? 'bg-rose-100' : 'bg-violet-100 dark:bg-violet-500/20'}`}>🤝</span>}
                 <div className="min-w-0 flex-1">
                     <div className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
-                        {invitation.initiatorName || charName}的见面邀请
+                        {fromPlayer
+                            ? `你邀请${participantsText || charName}见面`
+                            : `${invitation.initiatorName || charName}的见面邀请`}
                     </div>
-                    {participantsText && participantsText !== invitation.initiatorName && (
+                    {!fromPlayer && participantsText && participantsText !== invitation.initiatorName && (
                         <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">见面对象：{participantsText}</div>
                     )}
                 </div>
-                {invitation.meetingMode && (
+                {invitation.meetingMode && !fromPlayer && (
                     <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-violet-100 dark:bg-violet-500/20 text-violet-600 dark:text-violet-300">
                         {invitation.meetingMode === 'scheduled' ? '约好时间' : '现在见面'}
                     </span>
@@ -126,7 +157,52 @@ const MeetingInviteCard: React.FC<{
             </div>
             {/* 操作 / 状态 */}
             <div className="px-3 pb-2.5">
-                {status === 'pending' ? (
+                {fromPlayer ? (
+                    // 玩家→角色：等待角色回应；接受后可直接进入陪伴/剧情；可取消
+                    status === 'pending' ? (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500">
+                                <Clock size={11} /> 等待回应
+                            </div>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={handleCancelInvite}
+                                className="w-full py-1.5 rounded-full bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-semibold active:scale-95 transition disabled:opacity-50"
+                            >
+                                取消邀请
+                            </button>
+                        </div>
+                    ) : status === 'accepted' ? (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-500">
+                                <CalendarX size={11} /> {participantsText || charName}已接受邀请
+                            </div>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => void handleEnterSurface('companion')}
+                                    className="flex-1 py-1.5 rounded-full bg-violet-500 text-white text-[11px] font-bold shadow active:scale-95 transition disabled:opacity-50"
+                                >
+                                    进入陪伴
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => void handleEnterSurface('story')}
+                                    className="flex-1 py-1.5 rounded-full bg-white dark:bg-slate-700 text-violet-600 dark:text-violet-300 text-[11px] font-bold ring-1 ring-violet-200 dark:ring-violet-500/30 active:scale-95 transition disabled:opacity-50"
+                                >
+                                    进入剧情
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500">
+                            <CalendarX size={11} /> {status === 'declined' ? `${participantsText || charName}婉拒了这次邀请` : status === 'deferred' ? `${participantsText || charName}想改个时间` : STATUS_LABEL[status] || status}
+                        </div>
+                    )
+                ) : status === 'pending' ? (
                     <div className="flex gap-2">
                         <button
                             type="button"

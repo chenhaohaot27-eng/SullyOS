@@ -24,7 +24,7 @@ import { formatRelativeAge } from './groupChat/relativeTime';
 import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
 import { buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { buildGiftSendTagGuide, isGiftSendTagEnabled } from './giftIntent';
-import { buildMeetInviteGuide } from './meetingInvite';
+import { buildMeetInviteGuide, buildPlayerInviteReplyGuide } from './meetingInvite';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -1212,19 +1212,32 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 }
                 // 见面邀请卡（MEET_INVITE）：模型需要记得自己发过邀请、玩家是否接受——
                 // 避免重复邀请 / 与已接受但未赴约的状态冲突。不暴露 invitation.id 等内部字段。
+                // 双向协议：direction=user_to_character 是玩家发出的邀请，角色用
+                // [[MEET_REPLY: accepted|declined|deferred]] 回应（guide 随 pending 卡注入）。
                 else if ((m.type as string) === 'meet_card') {
                     const meet = (m.metadata?.meet || {}) as {
-                        initiatorName?: string; participantNames?: string[];
+                        initiatorName?: string; participantNames?: string[]; direction?: string;
                         invitationText?: string; locationText?: string; timeText?: string; status?: string;
                     };
                     const participants = Array.isArray(meet.participantNames) && meet.participantNames.length > 0
                         ? meet.participantNames.join('、') : '用户';
-                    const meetLines = [`${timeStr} [邀请记录] ${meet.initiatorName || '某人'}向用户发出了见面邀请（见面对象：${participants}）`];
-                    if (meet.invitationText) meetLines.push(`邀请内容：「${meet.invitationText}」`);
-                    if (meet.locationText) meetLines.push(`地点：${meet.locationText}`);
-                    if (meet.timeText) meetLines.push(`时间：${meet.timeText}`);
-                    meetLines.push(`玩家回应：${meet.status === 'accepted' ? '已接受' : meet.status === 'deferred' ? '暂缓（稍后见）' : meet.status === 'declined' ? '已婉拒' : '尚未回应'}`);
-                    content = meetLines.join('\n');
+                    if (meet.direction === 'user_to_character') {
+                        // 玩家→角色：压成短文本 + 待回应时的回应协议（不塞 UI JSON）
+                        const replyLines = [`${timeStr} [见面邀请] 用户邀请${participants}见面${meet.invitationText ? `：「${meet.invitationText}」` : ''}`];
+                        if (meet.status === 'pending') {
+                            replyLines.push(buildPlayerInviteReplyGuide());
+                        } else {
+                            replyLines.push(`[见面邀请结果] ${participants}${meet.status === 'accepted' ? '接受了邀请' : meet.status === 'deferred' ? '暂缓了邀请（可以继续商量时间）' : meet.status === 'cancelled' ? '（用户已取消这次邀请）' : '婉拒了这次邀请'}。`);
+                        }
+                        content = replyLines.join('\n');
+                    } else {
+                        const meetLines = [`${timeStr} [邀请记录] ${meet.initiatorName || '某人'}向用户发出了见面邀请（见面对象：${participants}）`];
+                        if (meet.invitationText) meetLines.push(`邀请内容：「${meet.invitationText}」`);
+                        if (meet.locationText) meetLines.push(`地点：${meet.locationText}`);
+                        if (meet.timeText) meetLines.push(`时间：${meet.timeText}`);
+                        meetLines.push(`玩家回应：${meet.status === 'accepted' ? '已接受' : meet.status === 'deferred' ? '暂缓（稍后见）' : meet.status === 'declined' ? '已婉拒' : '尚未回应'}`);
+                        content = meetLines.join('\n');
+                    }
                 }
                 else if (m.type === 'interaction') content = `${timeStr} [系统: 用户戳了你一下]`;
                 else if (m.type === 'transfer') {

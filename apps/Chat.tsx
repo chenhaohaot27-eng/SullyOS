@@ -41,6 +41,7 @@ import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
+import { createUserMeetInvite, findPendingMeetInvitation, PLAYER_MEET_INVITE_NOTE_MAX } from '../utils/meetingInvite';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
@@ -213,6 +214,10 @@ const Chat: React.FC = () => {
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [archiveProgress, setArchiveProgress] = useState('');
     const [showProactiveModal, setShowProactiveModal] = useState(false);
+    // 双向见面协议：玩家主动发起邀请的确认层（附言 ≤200 字，不调用 API）
+    const [showMeetInviteModal, setShowMeetInviteModal] = useState(false);
+    const [meetInviteNote, setMeetInviteNote] = useState('');
+    const [meetInviteSending, setMeetInviteSending] = useState(false);
     const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
@@ -1471,7 +1476,7 @@ const Chat: React.FC = () => {
         }
     };
 
-    const handlePanelAction = (type: string, payload?: any) => {
+    const handlePanelAction = async (type: string, payload?: any) => {
         // 只统计「打开某个面板 / 开关某个能力」这几个固定入口，名单写死在这里；
         // 选表情、选分类之类的动作不上报。
         if ([
@@ -1502,6 +1507,19 @@ const Chat: React.FC = () => {
             case 'category-options': setSelectedCategory(payload); setModalType('category-options'); break;
             case 'delete-category-req': setSelectedCategory(payload); setModalType('delete-category'); break;
             case 'meetup': if (char) { setShowPanel('none'); openDateWithChar(char.id); } break;
+            case 'meet-invite': {
+                // 玩家主动邀请：pending 去重（角色或玩家任一方向的未回应邀请都占用名额）
+                if (!char) break;
+                setShowPanel('none');
+                const recent = await DB.getRecentMessagesByCharId(char.id, 200);
+                if (findPendingMeetInvitation(recent)) {
+                    addToast('已有一份待回应的见面邀请', 'info');
+                    break;
+                }
+                setMeetInviteNote('');
+                setShowMeetInviteModal(true);
+                break;
+            }
             case 'proactive': setShowProactiveModal(true); break;
             case 'active-msg-2': setShowActiveMsg2Modal(true); break;
             case 'emotion': setModalType('schedule'); break; // 情绪已并入日程，打开同一 modal
@@ -1552,6 +1570,34 @@ const Chat: React.FC = () => {
 
     // 当前会话麦请求是否激活 (从消息历史推导, 无新存储)
     const mcdActivated = useMemo(() => isMcdActivatedInMessages(messages), [messages]);
+
+    // 双向见面协议：确认层「发送邀请」→ 落一条 user 方向的 meet_card（不调 API），
+    // 下一轮主聊天由历史注入告知角色并等待其 [[MEET_REPLY]] 回应。
+    const handleSendMeetInvite = async () => {
+        if (!char || meetInviteSending) return;
+        setMeetInviteSending(true);
+        try {
+            const recent = await DB.getRecentMessagesByCharId(char.id, 200);
+            if (findPendingMeetInvitation(recent)) {
+                addToast('已有一份待回应的见面邀请', 'info');
+                setShowMeetInviteModal(false);
+                return;
+            }
+            await createUserMeetInvite({
+                char,
+                userName: userProfile?.name || '你',
+                note: meetInviteNote,
+                persistMessage: m => DB.saveMessage(m),
+            });
+            setMeetInviteNote('');
+            setShowMeetInviteModal(false);
+            setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            addToast(`已向${char.name}发送见面邀请`, 'success');
+            trackEvent('发送见面邀请', { withNote: meetInviteNote.trim().length > 0 });
+        } finally {
+            setMeetInviteSending(false);
+        }
+    };
     const [mcdAppOpen, setMcdAppOpen] = useState(false);
     // mcdMiniAppRef 声明在文件靠前 (传给 useChatAI), 这里仅占位
     const mcdConfiguredFlag = useMemo(() => isMcdConfigured(), [showPanel, mcdActivated]);
@@ -3783,6 +3829,33 @@ const Chat: React.FC = () => {
 
 
             {/* Proactive Settings Modal */}
+            {char && (
+                <Modal
+                    isOpen={showMeetInviteModal}
+                    onClose={() => setShowMeetInviteModal(false)}
+                    title={`邀请${char.name}见面`}
+                    footer={
+                        <div className="flex gap-2">
+                            <button onClick={() => setShowMeetInviteModal(false)} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-500 text-sm font-bold active:scale-95 transition">取消</button>
+                            <button onClick={() => void handleSendMeetInvite()} disabled={meetInviteSending} className="flex-1 py-2.5 rounded-xl bg-violet-500 text-white text-sm font-bold shadow active:scale-95 transition disabled:opacity-50">发送邀请</button>
+                        </div>
+                    }
+                >
+                    <div className="space-y-2">
+                        <p className="text-xs text-slate-500 leading-relaxed">邀请会以一张见面邀请卡出现在聊天里，{char.name}会在下一轮回复时回应；TA可以接受、婉拒或和你商量时间。</p>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">可以附一句话（可空）</label>
+                        <textarea
+                            value={meetInviteNote}
+                            onChange={e => setMeetInviteNote(e.target.value.slice(0, PLAYER_MEET_INVITE_NOTE_MAX))}
+                            maxLength={PLAYER_MEET_INVITE_NOTE_MAX}
+                            rows={2}
+                            placeholder="想见你。"
+                            className="w-full bg-slate-50 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-violet-300 resize-none"
+                        />
+                        <div className="text-right text-[10px] text-slate-300">{meetInviteNote.length}/{PLAYER_MEET_INVITE_NOTE_MAX}</div>
+                    </div>
+                </Modal>
+            )}
             {char && (
                 <ProactiveSettingsModal
                     isOpen={showProactiveModal}
