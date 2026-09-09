@@ -90,6 +90,37 @@ if (typeof window !== 'undefined') {
 
 // ─── 情绪评估（副API，fire & forget）───
 
+/**
+ * Phase 2A：情绪评估历史独立窗口 —— 最近 20 条有效文字消息。
+ * 主聊天的 history/contextLimit 完全不受影响；角色核心设定、关系/当前状态、
+ * 世界书/记忆等仍由 mainSystemPrompt（与主 API 一致）+ 下方 Buff 段完整提供。
+ * 图片在展平时只留 [图片] 占位，不带 data URL/大附件；纯图片/空消息不占窗口名额。
+ */
+export const EMOTION_EVAL_HISTORY_LIMIT = 20;
+
+export function takeEmotionEvalHistory(
+    apiMessages: Array<{ role: string; content: any }>,
+    charName: string,
+): string[] {
+    const lines: string[] = [];
+    for (const m of apiMessages) {
+        const role = m.role === 'user' ? '用户' : (m.role === 'assistant' ? charName : '系统');
+        let text = '';
+        if (typeof m.content === 'string') {
+            text = m.content;
+        } else if (Array.isArray(m.content)) {
+            text = m.content.map((part: any) => {
+                if (part?.type === 'text') return part.text || '';
+                if (part?.type === 'image_url') return '[图片]';
+                return '';
+            }).filter(Boolean).join(' ');
+        }
+        if (!text.trim()) continue;
+        lines.push(`[${role}]: ${text}`);
+    }
+    return lines.slice(-EMOTION_EVAL_HISTORY_LIMIT);
+}
+
 function buildEmotionEvalPrompt(
     char: CharacterProfile,
     userProfile: UserProfile,
@@ -104,22 +135,9 @@ function buildEmotionEvalPrompt(
     // （包含：角色设定、印象档案、世界书、记忆宫殿、实时信息、日程内心旁白、群聊、日记标题等）
     const currentBuffs = char.activeBuffs || [];
 
-    // 将主 API 的消息数组展平成文本（保留时间戳、引用、特殊消息类型等格式）
-    // 不截断：与主 API 完全对齐（contextLimit 条），让情绪 eval 能看到完整的情绪演变轨迹
-    const recentLines = apiMessages.map(m => {
-        const role = m.role === 'user' ? '用户' : (m.role === 'assistant' ? char.name : '系统');
-        let text = '';
-        if (typeof m.content === 'string') {
-            text = m.content;
-        } else if (Array.isArray(m.content)) {
-            text = m.content.map((part: any) => {
-                if (part?.type === 'text') return part.text || '';
-                if (part?.type === 'image_url') return '[图片]';
-                return '';
-            }).filter(Boolean).join(' ');
-        }
-        return `[${role}]: ${text}`;
-    }).join('\n');
+    // Phase 2A 起情绪评估只带最近 20 条有效文字聊天（见 takeEmotionEvalHistory），
+    // 主 API 的完整 system prompt 仍整段保留，确保角色设定/世界书/记忆/实时状态信息不丢。
+    const recentLines = takeEmotionEvalHistory(apiMessages, char.name).join('\n');
 
     const buffStr = currentBuffs.length > 0
         ? JSON.stringify(currentBuffs, null, 2)
