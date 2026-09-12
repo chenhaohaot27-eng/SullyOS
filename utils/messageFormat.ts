@@ -187,10 +187,15 @@ export function normalizeMessageContent(
     // "[音乐卡片]" 这种没信息量的占位，丢掉"谁因为什么歌做了什么"的语义
     if (type === 'music_card') {
         const song = msg.metadata?.song as { name?: string; artists?: string } | undefined;
-        const intent = msg.metadata?.intent as 'join' | 'add' | 'join_and_add' | undefined;
+        const intent = msg.metadata?.intent as 'join' | 'add' | 'join_and_add' | 'share' | undefined;
         const addedTo = msg.metadata?.addedToPlaylistTitle as string | undefined;
         if (song?.name) {
             const songDesc = song.artists ? `《${song.name}》— ${song.artists}` : `《${song.name}》`;
+            // 用户分享出去的歌（role=user / intent=share）：是"用户把这首歌发给了角色"，
+            // 不是角色自己的动作——套用下方角色侧文案会变成"角色决定和用户一起听"，语义错位。
+            if (msg.role === 'user' || intent === 'share') {
+                return `[音乐卡片] ${userName}分享了一首歌：${songDesc}（来源：网易云音乐）`;
+            }
             const action =
                 intent === 'join' ? `决定和${userName}一起听这首`
                 : intent === 'add' ? `把这首收进了自己的歌单${addedTo ? `《${addedTo}》` : ''}`

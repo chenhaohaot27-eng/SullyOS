@@ -41,6 +41,8 @@ import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
+import MusicShareModal from '../components/chat/MusicShareModal';
+import { buildSharedMusicCardMessage, type SharedMusicSong } from '../utils/musicShare';
 import { createUserMeetInvite, findPendingMeetInvitation, PLAYER_MEET_INVITE_NOTE_MAX } from '../utils/meetingInvite';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
@@ -216,6 +218,8 @@ const Chat: React.FC = () => {
     const [showProactiveModal, setShowProactiveModal] = useState(false);
     // 双向见面协议：玩家主动发起邀请的确认层（附言 ≤200 字，不调用 API）
     const [showMeetInviteModal, setShowMeetInviteModal] = useState(false);
+    // 分享音乐：网易云歌曲 → user 方向 music_card（0 token，不触发任何模型）
+    const [showMusicShareModal, setShowMusicShareModal] = useState(false);
     const [meetInviteNote, setMeetInviteNote] = useState('');
     const [meetInviteSending, setMeetInviteSending] = useState(false);
     const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
@@ -1482,7 +1486,7 @@ const Chat: React.FC = () => {
         if ([
             'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
             'meetup', 'proactive', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
-            'html-mode-toggle', 'html-mode-settings', 'thinking-settings',
+            'html-mode-toggle', 'html-mode-settings', 'thinking-settings', 'share-music',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
             // send-emoji / select-category 这些是「挑哪一个」，不进名单。
             'poke', 'emoji-import', 'add-category', 'mcd-end', 'luckin-end',
@@ -1507,6 +1511,7 @@ const Chat: React.FC = () => {
             case 'category-options': setSelectedCategory(payload); setModalType('category-options'); break;
             case 'delete-category-req': setSelectedCategory(payload); setModalType('delete-category'); break;
             case 'meetup': if (char) { setShowPanel('none'); openDateWithChar(char.id); } break;
+            case 'share-music': setShowPanel('none'); setShowMusicShareModal(true); break;
             case 'meet-invite': {
                 // 玩家主动邀请：pending 去重（角色或玩家任一方向的未回应邀请都占用名额）
                 if (!char) break;
@@ -1601,6 +1606,17 @@ const Chat: React.FC = () => {
     const [mcdAppOpen, setMcdAppOpen] = useState(false);
     // mcdMiniAppRef 声明在文件靠前 (传给 useChatAI), 这里仅占位
     const mcdConfiguredFlag = useMemo(() => isMcdConfigured(), [showPanel, mcdActivated]);
+
+    // 分享音乐（网易云歌曲卡片）：只构建 music_card → 落库 → 刷新聊天，然后 STOP。
+    // 全程 0 次 LLM 调用 —— 禁止在这里或下游接入 triggerAI / completeChat / safeFetchJson 等模型链路；
+    // 角色对歌曲的回应留给玩家下一次正常触发回复（Phase 3 再把歌词注入那条上下文）。
+    const shareMusicMessage = useCallback(async (song: SharedMusicSong, shareUrl?: string) => {
+        if (!char) return;
+        await DB.saveMessage(buildSharedMusicCardMessage({ charId: char.id, song, shareUrl }));
+        await reloadMessages(visibleCountRef.current);
+        trackEvent('分享音乐卡片');
+        addToast(`已把《${song.name}》分享给${char.name}`, 'success');
+    }, [char, reloadMessages, addToast]);
 
     // 瑞幸聊天点单模式: 激活态用 React state (临时会话态, 不落库)
     const [luckinMode, setLuckinMode] = useState(false);
@@ -3855,6 +3871,15 @@ const Chat: React.FC = () => {
                         <div className="text-right text-[10px] text-slate-300">{meetInviteNote.length}/{PLAYER_MEET_INVITE_NOTE_MAX}</div>
                     </div>
                 </Modal>
+            )}
+            {/* 分享音乐（网易云 → user 方向 music_card）：解析/预览在弹窗内完成，落库走 shareMusicMessage（0 模型调用） */}
+            {char && (
+                <MusicShareModal
+                    isOpen={showMusicShareModal}
+                    onClose={() => setShowMusicShareModal(false)}
+                    charName={char.name}
+                    onShare={shareMusicMessage}
+                />
             )}
             {char && (
                 <ProactiveSettingsModal

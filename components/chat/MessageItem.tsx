@@ -2127,6 +2127,84 @@ const MessageItem = React.memo(({
         const isTogether = intent === 'join' || intent === 'join_and_add';
         const addedTo = m.metadata.addedToPlaylistTitle as string | undefined;
 
+        // --- 用户分享的网易云歌曲卡（role=user / intent=share）---
+        // 只表达「你分享了一首歌」；角色侧「一起听 / 收入歌单」语义是 assistant 的动作卡，
+        // 不能套在用户头上。样式沿用同一张卡的视觉语言。
+        if (m.role === 'user') {
+            const shareSong = m.metadata.song as { songId: number; name: string; artists: string; album?: string; albumPic: string; duration?: number };
+            const durationSec = typeof shareSong.duration === 'number' && shareSong.duration > 0 ? shareSong.duration : 0;
+            const durationText = durationSec > 0
+                ? `${Math.floor(durationSec / 60)}:${String(Math.round(durationSec % 60)).padStart(2, '0')}`
+                : '';
+            return commonLayout(
+                <div className="w-64 rounded-2xl overflow-hidden shadow-sm border"
+                    style={{
+                        borderColor: '#f3d9e6',
+                        background: 'linear-gradient(135deg, #fff2f7 0%, #f5edff 55%, #eaf1ff 100%)',
+                    }}>
+
+                    {/* 头部：你分享了一首歌 */}
+                    <div className="px-3 pt-3 pb-2 text-center">
+                        <div className="text-[9px] tracking-[0.3em] uppercase font-semibold" style={{ color: '#9c6fc2', opacity: 0.8 }}>
+                            Shared Song
+                        </div>
+                        <div className="mt-0.5 text-[11px]" style={{ color: '#5a49a8', fontFamily: `'Noto Serif','Georgia',serif` }}>
+                            你分享了一首歌
+                        </div>
+                    </div>
+
+                    {/* Cover（与角色侧同款，含 ♪ 兜底） */}
+                    <div className="relative w-full h-28 overflow-hidden">
+                        {shareSong.albumPic ? (
+                            <img
+                                src={shareSong.albumPic}
+                                alt=""
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                                onError={(e: any) => {
+                                    const img = e.target;
+                                    const container = img.parentElement;
+                                    if (!container) return;
+                                    img.style.display = 'none';
+                                    if (container.querySelector('.music-cover-fallback')) return;
+                                    const fallback = document.createElement('div');
+                                    fallback.className = 'music-cover-fallback w-full h-full flex items-center justify-center';
+                                    fallback.style.background = 'linear-gradient(135deg, #8b7ab8 0%, #6b95c7 100%)';
+                                    fallback.innerHTML = `<div style="color:rgba(255,255,255,0.9);font-size:24px;">♪</div>`;
+                                    container.appendChild(fallback);
+                                }}
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center"
+                                style={{ background: 'linear-gradient(135deg, #8b7ab8 0%, #6b95c7 100%)' }}>
+                                <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: '28px' }}>♪</span>
+                            </div>
+                        )}
+                    </div>
+                    <div className="p-3">
+                        <div className="font-bold text-sm line-clamp-1 leading-snug"
+                            style={{ color: '#2a1f4d', fontFamily: `'Noto Serif','Georgia',serif` }}>
+                            {shareSong.name || '未命名'}
+                        </div>
+                        <div className="text-[10px] mt-0.5 truncate" style={{ color: '#6b5b8f' }}>
+                            {shareSong.artists || '—'}
+                        </div>
+                        {(shareSong.album || durationText) && (
+                            <div className="text-[9px] mt-1 truncate" style={{ color: '#8d7fb3' }}>
+                                {shareSong.album ? `专辑：${shareSong.album}` : ''}{shareSong.album && durationText ? ' · ' : ''}{durationText}
+                            </div>
+                        )}
+                        <div className="mt-2 pt-1.5 flex items-center gap-1 text-[9px] border-t" style={{ color: '#a89bc5', borderColor: '#e0d9f0' }}>
+                            <span style={{ color: '#5a49a8', fontWeight: 600 }}>Shizuku Music</span>
+                            <span>·</span>
+                            <span>网易云音乐</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         // 头像渲染：有图用图，无图显姓名首字
         const renderAvatar = (src: string | undefined, name: string, ring: string) => (
             <div
