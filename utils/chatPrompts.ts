@@ -1453,6 +1453,18 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                     // 复用 normalizeMessageContent 翻成完整文本，让角色"记得"一起玩过/写过什么。
                     content = `${timeStr} ${normalizeMessageContent(m, char?.name || '你', userProfile?.name || '用户')}`;
                 }
+                else if ((m.type as string) === 'music_card' && m.role === 'user') {
+                    // 用户分享的网易云歌曲：历史里只留一行短引用。完整歌词/理解材料只在
+                    // 该歌"待回应"（最后一条 assistant 回复之后）时由 buildChatRequestPayload
+                    // 的音乐块注入（见 utils/musicContext.ts），历史里几十首旧分享不会把歌词带进上下文。
+                    const shareSong = (m.metadata as any)?.song as { name?: string; artists?: string } | undefined;
+                    if (shareSong?.name) {
+                        const songDesc = shareSong.artists ? `《${shareSong.name}》— ${shareSong.artists}` : `《${shareSong.name}》`;
+                        content = `${timeStr} [用户分享音乐：${songDesc}（网易云音乐）]`;
+                    } else {
+                        content = `${timeStr} [用户分享音乐]`;
+                    }
+                }
                 else content = `${timeStr} ${sourceTag} ${content}`;
 
                 return { role: m.role, content };

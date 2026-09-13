@@ -6,6 +6,7 @@ import { sanitizeForBubble } from './sanitize';
 import { extractTransferCommands } from './transferFormat';
 import { executeLifeDirectives } from './lifeRecords';
 import { wallClockToTimestamp } from './timezone';
+import { harvestMusicInsight } from './musicContext';
 
 export interface MusicActionSnapshot {
     songId: number;
@@ -343,6 +344,14 @@ export const ChatParser = {
         } else if (musicMatch) {
             // 没有 hooks（无音乐上下文）— 静默丢弃
             content = content.replace(MUSIC_TAG_GLOBAL_RE, '').trim();
+        }
+
+        // MUSIC_INSIGHT — 模型在同一次正常回复末尾附带的隐藏歌曲理解标记
+        // （只在"待回应分享"的音乐块里被要求输出，见 utils/musicContext.ts）。
+        // 这里只做本地提取 + localStorage 缓存 + 彻底剥离：0 模型调用、0 网络。
+        // JSON 不合法 = 本轮 insight 放弃，但标记照样剥干净 —— 绝不进气泡 / TTS / 归档 / 下一轮上下文。
+        if (content.includes('[[MUSIC_INSIGHT:')) {
+            content = harvestMusicInsight(content);
         }
 
         // NEWS_CARD — char 主动把某条热点当作新闻卡片分享（来源 + 标题）

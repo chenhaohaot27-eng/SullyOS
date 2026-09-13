@@ -24,6 +24,8 @@ import type { LuckinMiniAppSnapshot, LuckinChatState } from './luckinToolBridge'
 import { isMcpChatAvailable } from './mcpClient';
 import { buildMcpSystemBlock, MCP_TAIL_REMINDER } from './mcpToolBridge';
 import type { MusicCfg, Song, LyricLine, MusicPlaybackSnapshot, RecentTrackChange } from '../context/MusicContext';
+import { loadMusicCfgStandalone } from '../context/MusicContext';
+import { findPendingSharedSong, buildSharedSongContextBlock } from './musicContext';
 import { isPromptBuildSkipped, isSystemMessageMergeEnabled } from './devDebug';
 import { mergeSystemMessages } from './systemMessageMerge';
 import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldbook';
@@ -406,7 +408,25 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         }
     }
 
-    // ── 9d. 通用 MCP 工具模式 (用户自配的远程 MCP 服务器, 见 docs/mcp-client.md) ──
+    // ── 9d. 用户刚分享、尚未被回应的网易云歌曲（音乐理解材料 → 易变尾段） ──
+    // 只有"最后一条 assistant 回复之后"的用户分享卡才算待回应（见 musicContext
+    // findPendingSharedSong）；历史里的旧分享在 buildMessageHistory 只是一行短投影，
+    // 不会带歌词。歌词/insight 拉取是普通 HTTP，失败静默降级为 metadata-only，
+    // 绝不影响这一次正常角色回复，更不存在第二次模型调用。
+    const pendingSharedSong = findPendingSharedSong(input.historyMsgs);
+    if (pendingSharedSong) {
+        try {
+            const musicBlock = await buildSharedSongContextBlock({
+                song: pendingSharedSong.song,
+                shareUrl: pendingSharedSong.shareUrl,
+                cfg: musicCfg ?? loadMusicCfgStandalone(),
+                userName: userProfile?.name,
+            });
+            if (musicBlock) volatileTail += `\n\n${musicBlock}`;
+        } catch { /* 音乐材料失败不拦主回复 */ }
+    }
+
+    // ── 9e. 通用 MCP 工具模式 (用户自配的远程 MCP 服务器, 见 docs/mcp-client.md) ──
     // 工具清单来自持久化的发现结果，变化很慢 → 稳定段。
     //
     // 即时对话路径：MCP 说明由 worker 的 buildMcpFireBlock 独家供给（与凭据同源同拍），
