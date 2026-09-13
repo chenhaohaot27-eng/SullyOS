@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import Modal from '../os/Modal';
 import { useMusic } from '../../context/MusicContext';
 import {
-    parseNeteaseSongId,
-    isNeteaseShortLink,
+    resolveNeteaseShareInput,
     resolveSharedSong,
     type SharedMusicSong,
 } from '../../utils/musicShare';
@@ -49,28 +48,24 @@ const MusicShareModal: React.FC<Props> = ({ isOpen, onClose, charName, onShare }
         onClose();
     };
 
-    // 粘贴/输入 → 解析 songId → 拉 song detail 出预览
+    // 粘贴/输入 → 解析 songId（完整链接/ID 纯本地；163cn.tv 短链多一次 Worker 展开）→ 拉 song detail 出预览
     const handleResolve = async () => {
         if (resolving) return;
         setError('');
         setPreview(null);
         const raw = input.trim();
         if (!raw) return;
-        if (isNeteaseShortLink(raw)) {
-            setError('暂不支持 163cn.tv 短链，请打开歌曲页复制完整链接，或直接输入歌曲 ID。');
-            return;
-        }
-        const songId = parseNeteaseSongId(raw);
-        if (songId == null) {
-            setError('没有识别到网易云歌曲，请检查链接或歌曲 ID。');
-            return;
-        }
         setResolving(true);
         try {
-            const song = await resolveSharedSong(cfg, songId);
+            const parsed = await resolveNeteaseShareInput(raw);
+            if (!parsed) {
+                setError('没有识别到这首网易云歌曲，请检查分享链接后重试。');
+                return;
+            }
+            const song = await resolveSharedSong(cfg, parsed.songId);
             setPreview(song);
         } catch (e) {
-            console.warn('[MusicShare] song/detail 拉取失败:', e);
+            console.warn('[MusicShare] 解析/歌曲信息拉取失败:', e);
             setError('暂时无法获取这首歌，请稍后再试。');
         } finally {
             setResolving(false);
@@ -119,7 +114,7 @@ const MusicShareModal: React.FC<Props> = ({ isOpen, onClose, charName, onShare }
         >
             <div className="space-y-2">
                 <p className="text-xs text-slate-500 leading-relaxed">
-                    粘贴网易云音乐歌曲链接或歌曲 ID，确认后卡片会出现在聊天里；{charName}会在你下一次让 TA 回复时看到这首歌。
+                    粘贴网易云音乐的分享链接、完整歌曲链接或歌曲 ID（支持直接粘贴 App 里「分享 → 复制链接」的文案），确认后卡片会出现在聊天里；{charName}会在你下一次让 TA 回复时看到这首歌。
                 </p>
                 <div className="flex gap-2">
                     <input

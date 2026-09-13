@@ -10,6 +10,7 @@
  * 本文件禁止 import 任何 LLM client —— 分享动作必须是 0 token 的。
  */
 import { musicApi, toHttps, type MusicCfg } from '../context/MusicContext';
+import { expandShortUrl } from './webpageExtractor';
 import type { Message } from '../types';
 
 /**
@@ -29,9 +30,69 @@ export interface SharedMusicSong {
 
 const NETEASE_SHORT_LINK_RE = /163cn\.tv/i;
 
-/** 163cn.tv 短链本阶段不展开（避免新造解析链路），调用方据此给出「请粘贴完整链接」提示。 */
+/** 163cn.tv 短链检测（网易云 App「分享 → 复制链接」产物）。展开走 resolveNeteaseShareInput。 */
 export function isNeteaseShortLink(input: string): boolean {
     return NETEASE_SHORT_LINK_RE.test((input || '').trim());
+}
+
+/**
+ * 从任意分享文案里提取第一个 http(s) URL（网易云 App 的分享文本形如
+ * 「分享陈绮贞的单曲《天天想你》https://163cn.tv/xxx (@网易云音乐)」）。
+ * 纯函数，不做任何网络请求。
+ */
+export function extractUrlFromShareText(raw: string): string | null {
+    const text = (raw || '').trim();
+    if (!text) return null;
+    const m = text.match(/https?:\/\/[^\s，。！？；、"'《》【】（）]+/i);
+    if (!m) return null;
+    // 去掉蹭在链接尾部的英文标点（中文标点已被上面的字符集挡在外面）
+    return m[0].replace(/[.,;:!?'"）)\]】]+$/, '') || null;
+}
+
+/** 是否网易云手机短域名（只有这个域名允许送进短链展开）。 */
+export function isNeteaseCnShortUrl(url: string): boolean {
+    try {
+        const host = new URL(url).hostname.toLowerCase();
+        return host === '163cn.tv' || host === 'www.163cn.tv';
+    } catch { return false; }
+}
+
+/** 短链展开后允许落地的网易云域名白名单——绝不做成任意 URL 代理。 */
+const NETEASE_ALLOWED_FINAL_HOSTS = ['music.163.com', 'y.music.163.com'];
+
+function isAllowedNeteaseFinalUrl(url: string): boolean {
+    try {
+        const host = new URL(url).hostname.toLowerCase().replace(/\.$/, '');
+        return NETEASE_ALLOWED_FINAL_HOSTS.some(d => host === d || host.endsWith(`.${d}`));
+    } catch { return false; }
+}
+
+/**
+ * 解析用户输入 → songId。支持的输入：
+ *   纯数字 songId / 完整 music.163.com 链接（含 #/ hash 路由）/ 夹在分享文案里的完整链接 /
+ *   夹在分享文案里的 163cn.tv 短链（经现有 Worker /expand-url 展开后再解析）。
+ *
+ * 网络行为：只有 163cn.tv 短链会触发一次普通 HTTP 展开（复用 expandShortUrl，非 LLM）；
+ * 展开失败/超时抛错（UI 给网络提示），展开结果不是网易云域名 / 无 songId 返回 null（UI 给
+ * 「没识别到」提示）。安全边界：只主动展开 163cn.tv，展开结果必须落在网易云白名单域名。
+ */
+export async function resolveNeteaseShareInput(raw: string): Promise<{ songId: number; viaShortLink: boolean } | null> {
+    const text = (raw || '').trim();
+    if (!text) return null;
+    // ① 纯数字 / 文案里带 id= 的完整链接：纯同步解析就够了
+    const direct = parseNeteaseSongId(text);
+    if (direct != null) return { songId: direct, viaShortLink: false };
+    // ② 从分享文案提取第一个 URL 再试一次（文案形态五花八门，先抽链接再判断）
+    const url = extractUrlFromShareText(text);
+    if (!url) return null;
+    const directFromUrl = parseNeteaseSongId(url);
+    if (directFromUrl != null) return { songId: directFromUrl, viaShortLink: false };
+    // ③ 163cn.tv 短链：Worker 展开（普通 HTTP，0 LLM）→ 域名白名单 → 复用同一个纯解析器
+    if (!isNeteaseCnShortUrl(url)) return null;
+    const finalUrl = await expandShortUrl(url);
+    if (!isAllowedNeteaseFinalUrl(finalUrl)) return null;
+    const songId = parseNeteaseSongId(finalUrl);
+    return songId != null ? { songId, viaShortLink: true } : null;
 }
 
 /**
@@ -40,7 +101,7 @@ export function isNeteaseShortLink(input: string): boolean {
  *   - https://music.163.com/song?id=123
  *   - https://music.163.com/#/song?id=123（hash 路由）
  *   - 分享文案里任意带 id=123 的网易云链接
- * 认不出返回 null（含 163cn.tv 短链——它们不带 id 参数）。
+ * 认不出返回 null（含 163cn.tv 短链——短链不带 id，展开由 resolveNeteaseShareInput 负责）。
  */
 export function parseNeteaseSongId(input: string): number | null {
     const raw = (input || '').trim();

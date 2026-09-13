@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
     parseNeteaseSongId,
     isNeteaseShortLink,
+    isNeteaseCnShortUrl,
+    extractUrlFromShareText,
+    resolveNeteaseShareInput,
     buildNeteaseShareUrl,
     buildSharedMusicCardMessage,
     type SharedMusicSong,
@@ -42,14 +45,100 @@ describe('parseNeteaseSongId', () => {
         expect(parseNeteaseSongId('hello world')).toBeNull();
         expect(parseNeteaseSongId('https://music.163.com/song?idx=123')).toBeNull();
     });
-    it('163cn.tv 短链识别（本阶段不展开，只给提示）', () => {
+    it('163cn.tv 短链识别（展开交给 resolveNeteaseShareInput，纯 parser 仍不认）', () => {
         expect(isNeteaseShortLink('https://163cn.tv/AbCdEf')).toBe(true);
         expect(isNeteaseShortLink('https://music.163.com/song?id=1')).toBe(false);
-        // 短链不带 id 参数，解析必然返回 null —— 由 UI 层用 isNeteaseShortLink 给出定向提示
+        // 短链不带 id 参数，纯同步解析必然 null —— 展开链路见下方 resolveNeteaseShareInput
         expect(parseNeteaseSongId('https://163cn.tv/AbCdEf')).toBeNull();
+        expect(isNeteaseCnShortUrl('https://163cn.tv/AbCdEf')).toBe(true);
+        expect(isNeteaseCnShortUrl('https://www.163cn.tv/x')).toBe(true);
+        expect(isNeteaseCnShortUrl('https://music.163.com/song?id=1')).toBe(false);
+        expect(isNeteaseCnShortUrl('not a url')).toBe(false);
     });
     it('shareUrl 可从 songId 反推', () => {
         expect(buildNeteaseShareUrl(123456)).toBe('https://music.163.com/song?id=123456');
+    });
+});
+
+describe('extractUrlFromShareText（网易云 App 分享文案）', () => {
+    it('真实手机分享文案 → 提取 163cn.tv 短链', () => {
+        expect(extractUrlFromShareText('分享陈绮贞的单曲《天天想你》https://163cn.tv/bgi1Tu0V (@网易云音乐)'))
+            .toBe('https://163cn.tv/bgi1Tu0V');
+    });
+    it('文案里夹完整链接 → 提取完整链接', () => {
+        expect(extractUrlFromShareText('听听这首 https://music.163.com/song?id=186016 好吗'))
+            .toBe('https://music.163.com/song?id=186016');
+    });
+    it('纯链接原样返回 / 无 URL 返回 null / 尾部标点剥掉', () => {
+        expect(extractUrlFromShareText('https://163cn.tv/abc')).toBe('https://163cn.tv/abc');
+        expect(extractUrlFromShareText('没有任何链接的文案')).toBeNull();
+        expect(extractUrlFromShareText('')).toBeNull();
+        expect(extractUrlFromShareText('看这个 https://163cn.tv/abc。')).toBe('https://163cn.tv/abc');
+    });
+});
+
+describe('resolveNeteaseShareInput（短链展开 + 白名单 + songId）', () => {
+    // expandShortUrl 走 sfworker /expand-url：{success, data:{finalUrl}}（res.text() 后 JSON.parse）
+    const stubWorker = (finalUrl: string | null) => {
+        const mock = vi.fn(async () => ({
+            ok: true, status: 200,
+            text: async () => JSON.stringify({ success: true, data: { finalUrl: finalUrl || '' } }),
+        }));
+        vi.stubGlobal('fetch', mock);
+        return mock;
+    };
+    const stubNoNetwork = () => {
+        const mock = vi.fn(async () => { throw new Error('不应有网络请求'); });
+        vi.stubGlobal('fetch', mock);
+        return mock;
+    };
+    beforeEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    it('真实手机分享文案（163cn.tv）→ Worker 展开到 music.163.com → songId', async () => {
+        const fetchMock = stubWorker('https://music.163.com/song?id=123456&userid=1') as any;
+        const r = await resolveNeteaseShareInput('分享陈绮贞的单曲《天天想你》https://163cn.tv/bgi1Tu0V (@网易云音乐)');
+        expect(r).toEqual({ songId: 123456, viaShortLink: true });
+        // 只发生了一次普通 HTTP（短链展开）；随后 song/detail 由上层另取
+        expect(fetchMock.mock.calls.length).toBe(1);
+        expect(fetchMock.mock.calls[0][0]).toContain('/expand-url');
+    });
+    it('展开到 y.music.163.com（手机端最终域）同样接受', async () => {
+        stubWorker('https://y.music.163.com/m/song?id=65786');
+        const r = await resolveNeteaseShareInput('https://163cn.tv/bgi1Tu0V');
+        expect(r).toEqual({ songId: 65786, viaShortLink: true });
+    });
+    it('完整链接 / 纯数字 / 文案夹完整链接：不触发任何网络请求', async () => {
+        const fetchMock = stubNoNetwork();
+        expect(await resolveNeteaseShareInput('https://music.163.com/song?id=123456')).toEqual({ songId: 123456, viaShortLink: false });
+        expect(await resolveNeteaseShareInput('https://music.163.com/#/song?id=123456')).toEqual({ songId: 123456, viaShortLink: false });
+        expect(await resolveNeteaseShareInput(' 123456 ')).toEqual({ songId: 123456, viaShortLink: false });
+        expect(await resolveNeteaseShareInput('分享单曲 https://y.music.163.com/m/song?id=65786&userid=1')).toEqual({ songId: 65786, viaShortLink: false });
+        expect(fetchMock.mock.calls.length).toBe(0);
+    });
+    it('展开到非网易云域名 → 拒绝（null），不做开放代理', async () => {
+        stubWorker('https://evil.example.com/song?id=123456');
+        expect(await resolveNeteaseShareInput('https://163cn.tv/xxx')).toBeNull();
+    });
+    it('展开后没有 songId（如跳到网易云首页）→ null', async () => {
+        stubWorker('https://music.163.com/#/discover/toplist');
+        expect(await resolveNeteaseShareInput('https://163cn.tv/yyy')).toBeNull();
+    });
+    it('非网易云短链 / 纯文案没有 URL → null 且不发请求', async () => {
+        const fetchMock = stubNoNetwork();
+        expect(await resolveNeteaseShareInput('https://bitly.com/abc123')).toBeNull();
+        expect(await resolveNeteaseShareInput('就是随便一句话')).toBeNull();
+        expect(fetchMock.mock.calls.length).toBe(0);
+    });
+    it('短链展开网络失败 → 抛错（UI 给"暂时无法获取"网络提示，不落卡）', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+        await expect(resolveNeteaseShareInput('https://163cn.tv/dead')).rejects.toThrow();
+    });
+    it('短链解析全程 0 LLM：源码不含任何模型客户端', () => {
+        const src = readFileSync(fileURLToPath(new URL('./musicShare.ts', import.meta.url)), 'utf-8');
+        for (const banned of ['chatCompletionClient', 'useChatAI', 'safeApi', 'gemini', 'openai', 'triggerAI', 'chat/completions']) {
+            expect(src).not.toContain(banned);
+        }
     });
 });
 
