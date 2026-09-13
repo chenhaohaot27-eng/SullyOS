@@ -31,6 +31,7 @@ import {
     getActiveStoryMiniTheaterPrompt,
     getPendingStoryRetryInput,
     isStoryUserLastCompatibilityError,
+    limitStoryHistoryByCharBudget,
     makeStoryTheaterId,
     makeStoryTheaterFileName,
     memoryTimestampForCharacter,
@@ -66,7 +67,9 @@ interface Props {
     onEntryChange: (entry: StoryTheaterEntry) => Promise<void> | void;
 }
 
-const textFromHistory = (messages: Message[], identityName: string): string => buildStoryHistory(messages).map(message => {
+// Phase 2B1：剧情原始历史窗口加 40k 字符预算（统一时间线，仅裁旧原文；见 storyTheater.ts）。
+// 预算只作用于 history 槽位——事件盒/向量召回/persona/worldbook/场景等共享内容不受影响。
+const textFromHistory = (messages: Message[], identityName: string): string => limitStoryHistoryByCharBudget(buildStoryHistory(messages)).map(message => {
     const label = message.role === 'user' ? `${identityName}给出的推进（用户侧）` : '上一层剧场正文';
     return `[${label}]\n${message.content}`;
 }).join('\n\n');

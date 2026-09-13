@@ -1261,6 +1261,32 @@ export const buildStoryHistory = (messages: Message[]): StoryApiMessage[] => mes
     .sort((a, b) => a.timestamp - b.timestamp)
     .map(message => ({ role: message.role as StoryApiRole, content: String(message.content || '') }));
 
+// ─── Phase 2B1：见面-剧情原始历史字符预算 ──────────────────────────────────────
+//
+// 微信聊天 / 见面 / 剧情仍属同一角色时间线；本预算只减少剧情请求中重复携带的旧原文，
+// 不建第二时间线、不动 continuity/事件盒/向量档案/跨 App 记忆。角色与玩家消息共用同一
+// 总预算（不按角色分别限额，保持轮次对应）；从最新向旧保留完整消息，绝不从中间截断正文，
+// 超出预算的最旧整条被丢弃；至少保留最新一条（当前玩家输入作为本轮新 turn 另行追加，恒在）。
+
+export const STORY_HISTORY_CHAR_BUDGET = 40000;
+
+export const limitStoryHistoryByCharBudget = (
+    messages: StoryApiMessage[],
+    budget: number = STORY_HISTORY_CHAR_BUDGET,
+): StoryApiMessage[] => {
+    if (!Number.isFinite(budget) || budget <= 0) return [...messages];
+    const kept: StoryApiMessage[] = [];
+    let total = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const length = String(messages[i].content || '').length;
+        // kept 已有内容且再加会超预算 → 停在完整消息边界；单条超长消息完整保留（不腰斩）
+        if (kept.length > 0 && total + length > budget) break;
+        kept.unshift(messages[i]);
+        total += length;
+    }
+    return kept;
+};
+
 /** 仅当最后一条剧场消息是尚未得到回复的用户推进时，提供中断续跑输入。 */
 export const getPendingStoryRetryInput = (messages: Message[]): string => {
     const latest = messages[messages.length - 1];
