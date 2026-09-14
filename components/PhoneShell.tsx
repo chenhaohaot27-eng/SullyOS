@@ -91,6 +91,7 @@ const HotNewsApp = lazyApp(() => import('../apps/HotNewsApp'));
 const VRWorldApp = lazyApp(() => import('../apps/VRWorldApp'));
 const WorldHomeApp = lazyApp(() => import('../apps/WorldHomeApp'));
 const GiftApp = lazyApp(() => import('../apps/Gift'));
+const FoodDeliveryApp = lazyApp(() => import('../apps/FoodDelivery'));
 const CharCreatorDevApp = lazyApp(() => import('../apps/CharCreatorDevApp'));
 const SpecialMomentsApp = lazyApp(() => import('./ValentineEvent').then(m => ({ default: m.SpecialMomentsApp })));
 
@@ -101,7 +102,7 @@ const APP_PRELOAD_ORDER: PreloadableLazy[] = [
   StudyApp, GameApp, NovelApp, BankApp, WorldbookApp, MemoryPalaceApp, HandbookApp,
   VRWorldApp, WorldHomeApp, LifeSimApp, SongwritingApp, GuidebookApp, FAQApp, HotNewsApp,
   XhsStockApp, XhsFreeRoamApp, BrowserApp, VoiceDesignerApp, ThemeMaker, QQBridge,
-  SpecialMomentsApp, CharCreatorDevApp,
+  SpecialMomentsApp, FoodDeliveryApp, CharCreatorDevApp,
 ];
 
 const ROLE_ENTRY_PRELOAD_ORDER: PreloadableLazy[] = [
@@ -127,6 +128,7 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.VRWorld]: VRWorldApp, [AppID.CharCreatorDev]: CharCreatorDevApp, [AppID.SpecialMoments]: SpecialMomentsApp,
   [AppID.WorldHome]: WorldHomeApp,
   [AppID.Gift]: GiftApp,
+  [AppID.FoodDelivery]: FoodDeliveryApp,
 };
 // 注入负载预热器：AppIcon 的 pointerdown → preloadApp(id) → 这里 warmLazy，连 React.lazy 负载一起解析。
 setAppPayloadWarmer((id: AppID) => { const c = APP_BY_ID[id]; if (c) warmLazy(c); });
@@ -903,6 +905,7 @@ const PhoneShell: React.FC = () => {
       case AppID.VRWorld: return <VRWorldApp />;
       case AppID.WorldHome: return <WorldHomeApp />;
       case AppID.Gift: return <GiftApp />;
+      case AppID.FoodDelivery: return <FoodDeliveryApp />;
       case AppID.CharCreatorDev: return <CharCreatorDevApp />;
       case AppID.Launcher:
       default: return <Launcher />;

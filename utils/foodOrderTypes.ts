@@ -1,0 +1,82 @@
+export type FoodOrderSource = 'catalog_imported' | 'simulated';
+
+export type FoodOrderStatus =
+    | 'confirmed'
+    | 'preparing'
+    | 'picked_up'
+    | 'delivering'
+    | 'delivered'
+    | 'cancelled'
+    | 'failed';
+
+export interface FoodOrderParty {
+    type: 'user' | 'character';
+    id: string;
+    nameSnapshot: string;
+}
+
+export interface FoodOrderItemSnapshot {
+    catalogItemId?: string;
+    name: string;
+    merchantName?: string;
+    quantity: number;
+    unitPrice?: number;
+    description?: string;
+    note?: string;
+    imageRef?: string;
+    originalUrl?: string;
+}
+
+export interface FoodOrderTimeline {
+    confirmedAt: number;
+    preparingAt: number;
+    pickedUpAt: number;
+    deliveringAt: number;
+    estimatedDeliveredAt: number;
+    deliveredAt?: number;
+}
+
+export interface FoodOrderChatState {
+    orderCardMessageId?: string;
+    orderReactionMessageIds?: string[];
+    /** 自动回应先持久认领再请求；失败也不无限自动重试。 */
+    orderReactionAttemptedAt?: number;
+    deliveryEventClaimedAt?: number;
+    deliveryEventMessageId?: string;
+    /** 备份恢复的旧订单禁止补发历史送达事件或 API 回应。 */
+    deliveryEventSuppressed?: boolean;
+    deliveryReactionMessageIds?: string[];
+    deliveryReactionAttemptedAt?: number;
+}
+
+export interface FoodOrderRecord {
+    schemaVersion: 1;
+    id: string;
+    eventKey: string;
+    source: FoodOrderSource;
+    orderer: FoodOrderParty;
+    recipient: FoodOrderParty;
+    charId: string;
+    merchantName?: string;
+    items: FoodOrderItemSnapshot[];
+    subtotal?: number;
+    deliveryFee?: number;
+    total?: number;
+    currency: 'CNY';
+    locationLabel?: string;
+    status: FoodOrderStatus;
+    timeline: FoodOrderTimeline;
+    chat?: FoodOrderChatState;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export const FOOD_ORDER_STATUS_LABEL: Record<FoodOrderStatus, string> = {
+    confirmed: '已下单',
+    preparing: '商家备餐中',
+    picked_up: '骑手已取餐',
+    delivering: '配送中',
+    delivered: '已送达',
+    cancelled: '已取消',
+    failed: '订单异常',
+};

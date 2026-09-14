@@ -22,6 +22,7 @@ import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBac
 import { normalizeEmojiRecords } from './emojiImageCompat';
 import { normalizeGiftRecordsAfterRestore } from './giftBackup';
 import type { GiftRecord } from './giftTypes';
+import { normalizeFoodBackupAfterRestore, prepareFoodBackupForExport } from './foodBackup';
 
 /**
  * exportFullData 的礼物导出辅助：把 imageRef 的 blobref 令牌解析回 data URL，
@@ -51,7 +52,9 @@ const DB_NAME = 'AetherOS_Data';
 // v71：角色小红书伪主页；发帖归属与可删除的自由活动日志分离。
 // v72：Living World 被动基础层（只存 state / agent state / append-only event ledger，不接入调度）。
 // v73：礼物 GiftRecord 数据底座（gift_records store；eventKey 唯一索引做持久幂等）。
-const DB_VERSION = 73;
+// v74：外卖商品目录（food_catalog；fingerprint 唯一索引防重复导入）。
+// v75：外卖订单唯一真相源（food_orders；eventKey 唯一索引持久幂等）。
+const DB_VERSION = 75;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -105,6 +108,8 @@ const STORE_WORLDS = 'worlds';                    // 家园·世界定义（成�
 const STORE_WORLD_EPISODES = 'world_episodes';    // 家园·演绎历史（每轮一条，index worldId）
 const STORE_LIVING_WORLD = 'living_world';         // Living World 被动基础层（state + append-only events）
 const STORE_GIFT_RECORDS = 'gift_records';         // 礼物 GiftRecord（utils/giftStore.ts 独占数据访问；eventKey 唯一索引做持久幂等）
+const STORE_FOOD_CATALOG = 'food_catalog';         // 外卖商品目录（Phase 1；订单留待后续独立 store）
+const STORE_FOOD_ORDERS = 'food_orders';           // 外卖订单（Phase 2；Chat 卡片只做投影）
 const STORE_LIFE_RECORDS = 'life_records';        // 生活记录：生理期/药盒打卡/锻炼（记账走 bank_transactions）
 const STORE_MED_PLANS = 'med_plans';              // 药盒计划（每天几点吃什么药）
 const STORE_LIFE_SETTINGS = 'life_record_settings'; // 生活记录设置单例（id='main'：周期长度等）
@@ -364,6 +369,30 @@ export const openDB = (): Promise<IDBDatabase> => {
           if (giftStore && !giftStore.indexNames.contains('eventKey')) giftStore.createIndex('eventKey', 'eventKey', { unique: true });
           if (giftStore && !giftStore.indexNames.contains('charId')) giftStore.createIndex('charId', 'charId', { unique: false });
           if (giftStore && !giftStore.indexNames.contains('createdAt')) giftStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+
+      // ─── v74: 外卖商品目录（只建 Catalog，不在本阶段建立订单） ──────────
+      if (!db.objectStoreNames.contains(STORE_FOOD_CATALOG)) {
+          const foodStore = db.createObjectStore(STORE_FOOD_CATALOG, { keyPath: 'id' });
+          foodStore.createIndex('fingerprint', 'fingerprint', { unique: true });
+          foodStore.createIndex('createdAt', 'createdAt', { unique: false });
+      } else {
+          const foodStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_FOOD_CATALOG);
+          if (foodStore && !foodStore.indexNames.contains('fingerprint')) foodStore.createIndex('fingerprint', 'fingerprint', { unique: true });
+          if (foodStore && !foodStore.indexNames.contains('createdAt')) foodStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+
+      // ─── v75: 外卖订单（canonical truth；Chat 只存 orderId 投影） ──────
+      if (!db.objectStoreNames.contains(STORE_FOOD_ORDERS)) {
+          const orderStore = db.createObjectStore(STORE_FOOD_ORDERS, { keyPath: 'id' });
+          orderStore.createIndex('eventKey', 'eventKey', { unique: true });
+          orderStore.createIndex('charId', 'charId', { unique: false });
+          orderStore.createIndex('createdAt', 'createdAt', { unique: false });
+      } else {
+          const orderStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_FOOD_ORDERS);
+          if (orderStore && !orderStore.indexNames.contains('eventKey')) orderStore.createIndex('eventKey', 'eventKey', { unique: true });
+          if (orderStore && !orderStore.indexNames.contains('charId')) orderStore.createIndex('charId', 'charId', { unique: false });
+          if (orderStore && !orderStore.indexNames.contains('createdAt')) orderStore.createIndex('createdAt', 'createdAt', { unique: false });
       }
 
       createStore(STORE_BANK_TX, { keyPath: 'id' });
@@ -2976,7 +3005,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts, foodCatalogRecords, foodOrderRecords] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3032,6 +3061,8 @@ export const DB = {
           getAllFromStore(STORE_MED_PLANS),
           getAllFromStore(STORE_LIFE_SETTINGS),
           getAllFromStore(STORE_GIFT_RECORDS),
+          getAllFromStore(STORE_FOOD_CATALOG),
+          getAllFromStore(STORE_FOOD_ORDERS),
       ]);
 
       const userProfile = userProfiles.length > 0 ? {
@@ -3042,6 +3073,7 @@ export const DB = {
 
       const mainState = bankData.find((d: any) => d.id === 'main_state');
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
+      const foodBackup = await prepareFoodBackupForExport(foodCatalogRecords, foodOrderRecords);
 
       return {
           characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
@@ -3079,6 +3111,8 @@ export const DB = {
           worldEpisodes,
           livingWorld,
           gifts: await resolveGiftBlobRefsForExport(gifts),
+          foodCatalog: foodBackup.foodCatalog,
+          foodOrders: foodBackup.foodOrders,
           worldHomeLocal: exportWorldHomeLocal(), // 家园本机配置：全局 API + 文风收藏（存 localStorage）
           luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
@@ -3124,7 +3158,7 @@ export const DB = {
           STORE_LIFE_SETTINGS,
           STORE_HOTNEWS,
           STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS,
-          STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIVING_WORLD, STORE_GIFT_RECORDS,
+          STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIVING_WORLD, STORE_GIFT_RECORDS, STORE_FOOD_CATALOG, STORE_FOOD_ORDERS,
           'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
           'room_plates', 'digest_reports',
           'memory_batches', 'pixel_home_assets', 'pixel_home_layouts'
@@ -3224,6 +3258,7 @@ export const DB = {
           data.worlds !== undefined,
           data.worldEpisodes !== undefined,
           data.livingWorld !== undefined,
+          data.foodCatalog !== undefined || data.foodOrders !== undefined,
           (data as any).worldHomeLocal !== undefined,
           (data as any).luckinLocal !== undefined,
           (data as any).mcdLocal !== undefined,
@@ -3546,6 +3581,13 @@ export const DB = {
           await clearAndAdd(STORE_GIFT_RECORDS, restored, '礼物', false); // 资产已在 normalize 内经 beforeWrite 还原
           data.gifts = undefined as any;
       }, data.gifts?.length || 0);
+      await runSection('外卖', data.foodCatalog !== undefined || data.foodOrders !== undefined, async () => {
+          const restored = await normalizeFoodBackupAfterRestore(data.foodCatalog, data.foodOrders, options.beforeWrite);
+          if (data.foodCatalog !== undefined) await clearAndAdd(STORE_FOOD_CATALOG, restored.foodCatalog, '外卖商品', false);
+          if (data.foodOrders !== undefined) await clearAndAdd(STORE_FOOD_ORDERS, restored.foodOrders, '外卖订单', false);
+          data.foodCatalog = undefined;
+          data.foodOrders = undefined;
+      }, (data.foodCatalog?.length || 0) + (data.foodOrders?.length || 0));
       await runSection('家园本机配置', (data as any).worldHomeLocal !== undefined, async () => {
           importWorldHomeLocal((data as any).worldHomeLocal); // 全局 API + 文风收藏
           (data as any).worldHomeLocal = undefined;

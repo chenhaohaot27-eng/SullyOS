@@ -37,6 +37,7 @@ import {
   Wrench,
   HouseLine,
   Gift as GiftIcon,
+  BowlFood,
 } from '@phosphor-icons/react';
 
 // SVG 图标库 - Phosphor Icons
@@ -78,6 +79,7 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   CharCreatorDev: ({ className }) => <Wrench className={className} weight="regular" />,
   WorldHome: ({ className }) => <HouseLine className={className} weight="regular" />,
   Gift: ({ className }) => <GiftIcon className={className} weight="regular" />,
+  FoodDelivery: ({ className }) => <BowlFood className={className} weight="regular" />,
 };
 
 export const INSTALLED_APPS: AppConfig[] = [
@@ -88,6 +90,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.GroupChat, name: '群聊', icon: 'GroupChat', color: 'violet' },
   { id: AppID.Room, name: '小小窝', icon: 'Room', color: 'rose' },
   { id: AppID.Gift, name: '礼物', icon: 'Gift', color: 'rose' },
+  { id: AppID.FoodDelivery, name: '外卖', icon: 'FoodDelivery', color: 'orange' },
   // 家园不再做独立桌面图标，改从「小小窝 · 像素家园」里进入（openApp(AppID.WorldHome) 仍可渲染）
   // { id: AppID.WorldHome, name: '家园', icon: 'WorldHome', color: 'emerald' },
   { id: AppID.CheckPhone, name: '查手机', icon: 'CheckPhone', color: 'slate' },

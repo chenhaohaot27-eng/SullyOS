@@ -61,6 +61,8 @@ import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
 import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
 import { applyGiftReaction } from './giftActions';
 import { executeGiftSend } from './giftCharacterSend';
+import { extractFoodOrderIntent } from './foodIntent';
+import { executeCharacterFoodOrder, isExplicitFoodRequest } from './foodCharacterOrder';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -613,6 +615,12 @@ export async function applyAssistantPostProcessing(
         console.warn('[Gift] GIFT_SEND 标签解析失败，已剥掉不执行', { charId: char.id });
     }
     aiContent = giftSendExtraction.cleanedContent;
+    // FOOD_ORDER 永远剥标签；仅前台正常 Chat 在正文落库后执行，worker 路径不执行。
+    const foodOrderExtraction = extractFoodOrderIntent(aiContent);
+    if (foodOrderExtraction.invalidTagFound) {
+        console.warn('[Food] FOOD_ORDER 标签解析失败，已剥掉不执行', { charId: char.id });
+    }
+    aiContent = foodOrderExtraction.cleanedContent;
     // ─── Step 1.7: 见面邀请意图 MEET_INVITE + 角色对玩家邀请的回应 MEET_REPLY ───
     const meetInviteExtraction = extractMeetInviteIntent(aiContent);
     if (meetInviteExtraction.invalidTagFound) {
@@ -2195,6 +2203,26 @@ export async function applyAssistantPostProcessing(
             onToast: addToast,
             refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
         });
+    }
+
+    // ─── Step 7.65: 角色真实点外卖 FOOD_ORDER ───
+    // 正文就是 placed 表达，因此不再追加角色自回应；Catalog 匹配与 fallback 都在本地完成。
+    // skipSecondPassLLM 表示 Instant Push/worker 落库路径：标签已剥，但明确禁止执行 Food action。
+    if (foodOrderExtraction.intent && !skipSecondPassLLM) {
+        try {
+            const trigger = [...contextMsgs].reverse().find(message => message.role === 'user');
+            await executeCharacterFoodOrder({
+                intent: foodOrderExtraction.intent,
+                char,
+                userName: userProfile?.name,
+                triggerMessageId: trigger?.id,
+                explicitFoodRequest: isExplicitFoodRequest(trigger?.content),
+                now: messageTimestamp ?? Date.now(),
+            });
+            setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+        } catch (e) {
+            console.warn('[Food] 角色外卖订单执行失败（正文不受影响）:', e instanceof Error ? e.message : e);
+        }
     }
 
     // ─── Step 7.7: 见面邀请 MEET_INVITE + 角色回应玩家邀请 MEET_REPLY ───

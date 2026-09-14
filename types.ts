@@ -2,6 +2,8 @@
 // 礼物 GiftRecord（utils/giftTypes.ts，纯类型文件无反向依赖）——完整备份的 gifts 字段直接
 // 引用真相源类型，不复制第二份 schema（BackupGiftRecord 禁止）。
 import type { GiftRecord } from './utils/giftTypes';
+import type { FoodCatalogItem } from './utils/foodTypes';
+import type { FoodOrderRecord } from './utils/foodOrderTypes';
 
 export enum AppID {
   Launcher = 'launcher',
@@ -43,6 +45,7 @@ export enum AppID {
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Gift = 'gift', // 礼物 — 玩家与角色互赠礼物的记录（GiftRecord 唯一真相源，utils/giftStore.ts）
+  FoodDelivery = 'food_delivery', // 外卖 — 导入并收藏真实商品（Phase 1 仅 Catalog）
 }
 
 export interface SystemLog {
@@ -3756,7 +3759,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'gift_card' | 'meet_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'gift_card' | 'meet_card' | 'food_order_card';
 
 export interface Message {
     id: number;
@@ -3847,6 +3850,8 @@ export interface FullBackupData {
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
     livingWorld?: any[];                       // Living World 被动基础层（state + append-only event ledger）
     gifts?: GiftRecord[];                      // 礼物记录（gift_records store；旧备份缺失 → 导入端按空处理）
+    foodCatalog?: FoodCatalogItem[];            // 外卖商品目录（直接引用 canonical type）
+    foodOrders?: FoodOrderRecord[];             // 外卖订单（完整 timeline/chat links；直接引用 canonical type）
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）

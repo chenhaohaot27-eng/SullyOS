@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Message, ChatTheme } from '../../types';
 import GiftChatCard from './GiftChatCard';
 import MeetingInviteCard from './MeetingInviteCard';
+import FoodOrderCard from './FoodOrderCard';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
@@ -3434,6 +3435,11 @@ const MessageItem = React.memo(({
     // 见面邀请卡：正文全部来自模型输出（metadata.meet），前端只做骨架与按钮。
     if (m.type === 'meet_card') {
         return <MeetingInviteCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} />;
+    }
+
+    // 外卖订单卡：Message 只带 orderId + 极简 fallback，动态回读 food_orders 真相源。
+    if (m.type === 'food_order_card') {
+        return <FoodOrderCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} />;
     }
 
     if (m.type === 'life_card') {

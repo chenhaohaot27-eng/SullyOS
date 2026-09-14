@@ -25,6 +25,7 @@ import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
 import { buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { buildGiftSendTagGuide, isGiftSendTagEnabled } from './giftIntent';
 import { buildMeetInviteGuide, buildPlayerInviteReplyGuide } from './meetingInvite';
+import { buildFoodOrderTagGuide } from './foodIntent';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -68,6 +69,7 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'world_card': return `[家园生活记录${meta.worldName ? '：' + meta.worldName : ''}]`;
         case 'gift_card': return `[礼物${meta.gift?.name ? '：' + meta.gift.name : ''}]`;
         case 'meet_card': return `[见面邀请${meta.meet?.initiatorName ? '：' + meta.meet.initiatorName : ''}]`;
+        case 'food_order_card': return `[外卖订单${meta.foodOrder?.merchantName ? '：' + meta.foodOrder.merchantName : ''}]`;
         case 'sim_card': return `[一段回忆${meta.simCard?.theme ? '：' + meta.simCard.theme : ''}]`;
         case 'phone_card': return `[手机内容${meta.phoneCard?.title ? '：' + meta.phoneCard.title : ''}]`;
         case 'group_topic_card': return `[群聊公共话题盒${meta.groupTopicBox?.title ? '：' + meta.groupTopicBox.title : ''}] ${meta.groupTopicBox?.summary || m.content || ''}`;
@@ -636,6 +638,8 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
         const chatPhotoTagEnabled = !forFirePack && isChatPhotoTagEnabled();
         // GIFT_SEND（Phase 4 角色送礼）：独立生图配置启用才教——关着时教了只会得到 failed 礼物。
         const giftSendTagEnabled = !forFirePack && isGiftSendTagEnabled();
+        // FOOD_ORDER 只教给前台正常 Chat；worker / Instant Push 不执行 Food action。
+        const foodOrderTagEnabled = !forFirePack;
 
         baseSystemPrompt += `### 聊天 App 行为规范 (Chat App Rules)
 **TOP 1｜ChatApp 格式（本节最高优先级）**：你是发消息的真实存在，以自然短句、短气泡为主；一个气泡一行，气泡间直接另起一行（实际换行，不要输出“\\n”字样）。
@@ -676,7 +680,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
    - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
-${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${giftSendTagEnabled ? buildGiftSendTagGuide() : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}${buildMeetInviteGuide()}
+${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${giftSendTagEnabled ? buildGiftSendTagGuide() : ''}${foodOrderTagEnabled ? buildFoodOrderTagGuide() : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}${buildMeetInviteGuide()}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `
    - **翻阅日记(飞书)**: 同上——回忆优先靠记忆和 \`[[RECALL]]\`，只有你自己想重温那天日记的内容时才用: \`[[FS_READ_DIARY: 日期]]\`。支持格式同上。` : ''}${notionNotesEnabled ? `
    - **翻阅用户笔记**: 当你想看${userProfile.name}写的某篇笔记的详细内容时，使用: \`[[READ_NOTE: 标题关键词]]\`。系统会搜索匹配的笔记并返回内容给你。` : ''}
@@ -1209,6 +1213,32 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                         giftLines.push(`图片识别：${typeof g.visualSummary === 'string' && g.visualSummary.trim() ? g.visualSummary.trim() : '不可用'}`);
                     }
                     content = giftLines.join('\n');
+                }
+                // 外卖订单卡：只给模型已发生事实与极简快照，不暴露 orderId/eventKey/timeline。
+                else if ((m.type as string) === 'food_order_card') {
+                    const food = (m.metadata?.foodOrder || {}) as {
+                        ordererType?: 'user' | 'character'; ordererName?: string;
+                        recipientType?: 'user' | 'character'; source?: 'catalog_imported' | 'simulated';
+                        status?: string;
+                        recipientName?: string; merchantName?: string;
+                        items?: Array<{ name?: string; quantity?: number; note?: string }>;
+                        total?: number;
+                    };
+                    const items = Array.isArray(food.items)
+                        ? food.items.map(item => `${item.name || '商品'} ×${item.quantity || 1}${item.note ? `（${item.note}）` : ''}`).join('；')
+                        : '商品信息不可用';
+                    const foodLines = [
+                        `${timeStr} [外卖订单] ${food.ordererType === 'character'
+                            ? food.recipientType === 'character' ? '你给自己点了外卖。' : '你给用户点了外卖。'
+                            : '用户给你点了外卖。'}这是 Lemuria 中已发生的订单，这不是假设。`,
+                        `收餐人：${food.recipientName || char.name}`,
+                        `商家：${food.merchantName || '未记录'}`,
+                        `商品：${items}`,
+                        `状态：${food.status === 'preparing' ? '商家备餐中' : food.status === 'picked_up' ? '骑手已取餐' : food.status === 'delivering' ? '配送中' : food.status === 'delivered' ? '已送达' : food.status === 'cancelled' ? '已取消' : '已下单'}`,
+                        `商品来源：${food.source === 'simulated' ? 'Lemuria 模拟' : '用户此前导入'}`,
+                    ];
+                    if (typeof food.total === 'number') foodLines.push(`总价：¥${food.total}`);
+                    content = foodLines.join('\n');
                 }
                 // 见面邀请卡（MEET_INVITE）：模型需要记得自己发过邀请、玩家是否接受——
                 // 避免重复邀请 / 与已接受但未赴约的状态冲突。不暴露 invitation.id 等内部字段。
