@@ -12,6 +12,7 @@ import {
 } from './music/MusicUI';
 import NeteaseProfilePage from './music/NeteaseProfilePage';
 import CharVisitPage from './music/CharVisitPage';
+import ShareSongToCharModal from '../components/music/ShareSongToCharModal';
 
 // ------------------------- 工具 -------------------------
 const fmtTime = (s: number) => {
@@ -38,6 +39,9 @@ const MusicApp: React.FC = () => {
     regeneratingId, regeneratingStatus,
   } = useMusic();
   const isCurrentRegenerating = !!current && current.id === regeneratingId;
+  // 「分享给角色」：待分享歌曲（来自播放页 Share / 列表 ···），非空即弹角色选择面板。
+  // 落库走 utils/musicShare.shareSongToCharacter —— 0 LLM、0 song/detail 请求，分享后留在音乐 App。
+  const [shareSong, setShareSong] = useState<Song | null>(null);
   // 把对轴入口和单曲循环按钮移到 SubActions 里，避免散乱
   // 下载本地生成的歌曲到本地文件系统
   const downloadCurrentLocal = useCallback(async () => {
@@ -229,6 +233,7 @@ const MusicApp: React.FC = () => {
             isVip={s.fee === 1}
             isActive={current?.id === s.id}
             onClick={() => { playSong(s); trackEvent('播放搜索结果里的一首歌'); }}
+            onMore={() => setShareSong(s)}
           />
         ))}
       </div>
@@ -436,6 +441,7 @@ const MusicApp: React.FC = () => {
             <SubActions
               liked={liked}
               onLike={() => { toggleLike(); trackEvent('收藏或取消收藏当前歌', { action: liked ? 'unlike' : 'like' }); }}
+              onShare={() => { if (current) setShareSong(current); }}
               showSync={!!(current.local && current.localLyrics && lyric.length > 0)}
               onSync={() => {
                 setSyncDraft(lyric.map(l => l.t));
@@ -564,8 +570,15 @@ const MusicApp: React.FC = () => {
           onOpenSearch={() => setView('search')}
           onOpenSettings={() => setView('settings')}
           onVisitChar={id => { setVisitCharId(id); setView('visit_char'); trackEvent('进入角色音乐角落'); }}
+          onShareSong={setShareSong}
         />
       )}
+      {/* 分享给角色 — 任何 view 下都可弹出（播放页 Share / 搜索列表 ··· / 我的歌单 ···） */}
+      <ShareSongToCharModal
+        open={!!shareSong}
+        song={shareSong}
+        onClose={() => setShareSong(null)}
+      />
       {/* 手动对轴 modal — 全屏覆盖，不开新 view */}
       {showLyricSync && current && current.local && (() => {
         const fmt = (s: number) => {

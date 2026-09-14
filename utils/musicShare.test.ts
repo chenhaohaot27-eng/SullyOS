@@ -9,8 +9,12 @@ import {
     resolveNeteaseShareInput,
     buildNeteaseShareUrl,
     buildSharedMusicCardMessage,
+    songToSharedSnapshot,
+    shareSongToCharacter,
     type SharedMusicSong,
 } from './musicShare';
+import { findPendingSharedSong } from './musicContext';
+import { DB } from './db';
 import { normalizeMessageContent } from './messageFormat';
 
 const chatSource = readFileSync(fileURLToPath(new URL('../apps/Chat.tsx', import.meta.url)), 'utf-8');
@@ -193,7 +197,7 @@ describe('0 token 分享链路（源码约束）', () => {
     };
     it('shareMusicMessage 只落库 + 刷新，不调用任何模型', () => {
         const slice = shareFn();
-        expect(slice).toContain('DB.saveMessage');
+        expect(slice).toContain('shareSongToCharacter(');
         expect(slice).toContain('reloadMessages');
         expect(slice).not.toContain('triggerAI(');
         expect(slice).not.toContain('completeChat(');
@@ -206,8 +210,72 @@ describe('0 token 分享链路（源码约束）', () => {
     });
     it('musicShare.ts 不 import 任何 LLM 客户端', () => {
         const src = readFileSync(fileURLToPath(new URL('./musicShare.ts', import.meta.url)), 'utf-8');
-        for (const banned of ['chatCompletionClient', 'useChatAI', 'safeApi', 'gemini', 'openai']) {
+        for (const banned of ['chatCompletionClient', 'useChatAI', 'safeApi', 'gemini', 'openai', 'triggerAI', 'chat/completions']) {
             expect(src).not.toContain(banned);
         }
+    });
+});
+
+describe('音乐 App 直接分享（songToSharedSnapshot + shareSongToCharacter）', () => {
+    const NeteaseSong = {
+        id: 186016, name: '晴天', artists: '周杰伦', album: '叶惠美',
+        albumPic: 'http://p1.music.126.net/x.jpg', duration: 269, fee: 8,
+    };
+
+    beforeEach(async () => { await DB.deleteDB(); });
+
+    it('已有 Song → 快照：字段对齐且封面升 https', () => {
+        const snap = songToSharedSnapshot(NeteaseSong);
+        expect(snap).toEqual({
+            songId: 186016, name: '晴天', artists: '周杰伦', album: '叶惠美',
+            albumPic: 'https://p1.music.126.net/x.jpg', duration: 269, fee: 8,
+        });
+    });
+    it('本地/合成歌曲 → null（不伪造网易云 songId）', () => {
+        expect(songToSharedSnapshot({ ...NeteaseSong, local: true })).toBeNull();          // 写歌 App 本地曲
+        expect(songToSharedSnapshot({ ...NeteaseSong, id: -12345 })).toBeNull();           // SongwritingApp 合成 id
+        expect(songToSharedSnapshot({ ...NeteaseSong, id: 0 })).toBeNull();
+        expect(songToSharedSnapshot(null)).toBeNull();
+    });
+    it('落库：role=user / type=music_card / metadata.song 正确，且带 shareOrigin 埋点', async () => {
+        const snap = songToSharedSnapshot(NeteaseSong)!;
+        const id = await shareSongToCharacter({ song: snap, charId: 'charA', shareOrigin: 'music_app' });
+        expect(id).not.toBeNull();
+        const msgs = await DB.getRecentMessagesByCharId('charA', 10);
+        const saved: any = msgs.find(m => m.id === id);
+        expect(saved.role).toBe('user');
+        expect(saved.type).toBe('music_card');
+        expect(saved.metadata.intent).toBe('share');
+        expect(saved.metadata.source).toBe('netease');      // 入口是 music_app，歌曲 provider 仍是 netease
+        expect(saved.metadata.shareOrigin).toBe('music_app');
+        expect(saved.metadata.song).toEqual(snap);
+        expect(saved.metadata.shareUrl).toBe('https://music.163.com/song?id=186016');
+    });
+    it('目标隔离：分享给 A 只出现在 A 的聊天，不污染 B', async () => {
+        const snap = songToSharedSnapshot(NeteaseSong)!;
+        await shareSongToCharacter({ song: snap, charId: 'charA' });
+        const aMsgs = await DB.getRecentMessagesByCharId('charA', 10);
+        const bMsgs = await DB.getRecentMessagesByCharId('charB', 10);
+        expect(aMsgs.some(m => m.type === 'music_card')).toBe(true);
+        expect(bMsgs.length).toBe(0);
+    });
+    it('内部分享 0 网络：歌曲数据已持有，不触发 /song/detail / 短链展开（fetch 直接抛错仍成功）', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('内部分享不应有任何网络请求'); }));
+        try {
+            const snap = songToSharedSnapshot(NeteaseSong)!;
+            const id = await shareSongToCharacter({ song: snap, charId: 'charA', shareOrigin: 'music_app' });
+            expect(id).not.toBeNull();
+            expect((globalThis.fetch as any).mock.calls.length).toBe(0);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+    it('Phase 3 理解回归：内部分享的卡能被 findPendingSharedSong 识别', async () => {
+        const snap = songToSharedSnapshot(NeteaseSong)!;
+        await shareSongToCharacter({ song: snap, charId: 'charA', shareOrigin: 'music_app' });
+        const msgs = await DB.getRecentMessagesByCharId('charA', 10);
+        const pending = findPendingSharedSong(msgs);
+        expect(pending?.song.songId).toBe(186016);
+        expect(pending?.song.name).toBe('晴天');
     });
 });

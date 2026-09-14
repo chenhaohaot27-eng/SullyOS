@@ -34,6 +34,8 @@ interface Props {
   onOpenSearch?: () => void;
   onOpenSettings?: () => void;
   onVisitChar?: (charId: string) => void;
+  /** Phase 3.3：把已有 Song 直接分享给角色（弹出 MusicApp 挂载的角色选择面板） */
+  onShareSong?: (song: Song) => void;
 }
 
 // ─── 「一起写的歌」本地专辑卡 — 写歌 App 同步过来的 ACE-Step / MiniMax 出歌 ───
@@ -153,7 +155,7 @@ const LocalAlbumCard: React.FC<LocalAlbumCardProps> = ({ songs, expanded, setExp
   </div>
 );
 
-const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearch, onOpenSettings, onVisitChar }) => {
+const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearch, onOpenSettings, onVisitChar, onShareSong }) => {
   const { addToast, characters, userProfile } = useOS();
   const {
     cfg, setCfg, profile, refreshProfile, playSong,
@@ -690,6 +692,18 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                           <div className="text-[11px] truncate" style={{ color: C.text }}>{s.name}</div>
                           <div className="text-[9px] truncate" style={{ color: C.muted }}>{s.artists}</div>
                         </div>
+                        {onShareSong && (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label="分享给角色"
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); onShareSong(s); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onShareSong(s); } }}
+                            className="shrink-0 text-[13px] leading-none px-1.5 rounded-full transition-transform active:scale-90"
+                            style={{ color: C.muted }}
+                            title="分享给角色"
+                          >···</span>
+                        )}
                       </button>
                     ))}
                     {(plTracks[pl.id] || []).length === 0 && (

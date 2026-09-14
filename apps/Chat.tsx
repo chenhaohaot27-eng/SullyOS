@@ -42,7 +42,7 @@ import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import MusicShareModal from '../components/chat/MusicShareModal';
-import { buildSharedMusicCardMessage, type SharedMusicSong } from '../utils/musicShare';
+import { shareSongToCharacter, type SharedMusicSong } from '../utils/musicShare';
 import { createUserMeetInvite, findPendingMeetInvitation, PLAYER_MEET_INVITE_NOTE_MAX } from '../utils/meetingInvite';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
@@ -1607,12 +1607,13 @@ const Chat: React.FC = () => {
     // mcdMiniAppRef 声明在文件靠前 (传给 useChatAI), 这里仅占位
     const mcdConfiguredFlag = useMemo(() => isMcdConfigured(), [showPanel, mcdActivated]);
 
-    // 分享音乐（网易云歌曲卡片）：只构建 music_card → 落库 → 刷新聊天，然后 STOP。
-    // 全程 0 次 LLM 调用 —— 禁止在这里或下游接入 triggerAI / completeChat / safeFetchJson 等模型链路；
-    // 角色对歌曲的回应留给玩家下一次正常触发回复（Phase 3 再把歌词注入那条上下文）。
+    // 分享音乐（网易云歌曲卡片）：只落一张 music_card → 刷新聊天，然后 STOP。
+    // 落库走 utils/musicShare.shareSongToCharacter —— 与音乐 App 直接分享共用同一入口。
+    // 全程 0 次 LLM 调用 —— 禁止在这里或下游接入任何模型链路；
+    // 角色对歌曲的回应留给玩家下一次正常触发回复（歌词/insight 由 buildChatRequestPayload 注入）。
     const shareMusicMessage = useCallback(async (song: SharedMusicSong, shareUrl?: string) => {
         if (!char) return;
-        await DB.saveMessage(buildSharedMusicCardMessage({ charId: char.id, song, shareUrl }));
+        await shareSongToCharacter({ song, charId: char.id, shareUrl });
         await reloadMessages(visibleCountRef.current);
         trackEvent('分享音乐卡片');
         addToast(`已把《${song.name}》分享给${char.name}`, 'success');

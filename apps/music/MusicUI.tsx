@@ -165,7 +165,9 @@ export const SongRow: React.FC<{
   isVip: boolean;
   isActive: boolean;
   onClick: () => void;
-}> = ({ name, artists, album, albumPic, duration, isVip, isActive, onClick }) => {
+  /** 可选：行尾「···」更多操作（如分享给角色）。不传则不显示，原有行为不变。 */
+  onMore?: () => void;
+}> = ({ name, artists, album, albumPic, duration, isVip, isActive, onClick, onMore }) => {
   const resolvedAlbumPic = useBlobRefUrl(albumPic) || '';
   return (
   <button
@@ -197,6 +199,17 @@ export const SongRow: React.FC<{
       <div className="text-[11px] truncate mt-0.5" style={{ color: C.muted }}>{artists} · {album}</div>
     </div>
     <div className="text-[10px] shrink-0 tabular-nums" style={{ color: C.faint }}>{duration}</div>
+    {onMore && (
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label="更多操作"
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onMore(); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onMore(); } }}
+        className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-opacity active:scale-90"
+        style={{ color: C.muted }}
+      >···</span>
+    )}
   </button>
   );
 };
@@ -494,7 +507,8 @@ export const SubActions: React.FC<{
   playMode?: SubPlayMode;
   onCyclePlayMode?: () => void;    // 循环模式切换
   onAdd?: () => void;
-}> = ({ onLike, liked, onSync, showSync, onDownload, showDownload, playMode = 'loop', onCyclePlayMode, onAdd }) => {
+  onShare?: () => void;            // 分享当前歌给角色 (Phase 3.3)
+}> = ({ onLike, liked, onSync, showSync, onDownload, showDownload, playMode = 'loop', onCyclePlayMode, onAdd, onShare }) => {
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick?: () => void; active?: boolean }) => (
     <button onClick={onClick}
       className="flex flex-col items-center gap-1 transition-opacity active:scale-95"
@@ -552,12 +566,19 @@ export const SubActions: React.FC<{
       <path d="M5 20h14" />
     </svg>
   );
+  const shareSvg = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.primary} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 2 11 13" />
+      <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+    </svg>
+  );
 
   const playModeLabel: Record<SubPlayMode, string> = { loop: 'Loop', single: 'One', shuffle: 'Mix' };
 
   return (
     <div className="flex items-end justify-around gap-4 max-w-[280px] mx-auto">
       <Item onClick={onLike} active={liked} label="Like" icon={heartSvg} />
+      {onShare && <Item onClick={onShare} active label="Share" icon={shareSvg} />}
       {showSync && onSync && <Item onClick={onSync} active label="Sync" icon={syncSvg} />}
       {showDownload && onDownload && <Item onClick={onDownload} active label="Save" icon={downloadSvg} />}
       {onCyclePlayMode && <Item onClick={onCyclePlayMode} active={playMode !== 'loop'} label={playModeLabel[playMode]} icon={loopSvg} />}

@@ -11,6 +11,7 @@
  */
 import { musicApi, toHttps, type MusicCfg } from '../context/MusicContext';
 import { expandShortUrl } from './webpageExtractor';
+import { DB } from './db';
 import type { Message } from '../types';
 
 /**
@@ -117,6 +118,31 @@ export function buildNeteaseShareUrl(songId: number): string {
     return `https://music.163.com/song?id=${songId}`;
 }
 
+/**
+ * 音乐 App 里已有的 Song → 分享快照。
+ * 只接受网易云歌曲（id > 0 且非 local 本地生成曲——SongwritingApp 的合成曲用负数 id）。
+ * 本地歌曲没有稳定网易云 songId / 歌词 provider，硬造 songId 会污染后续歌词理解与
+ * insight 缓存（key 是 netease:<songId>:v1），所以直接返回 null 由 UI 提示不支持。
+ */
+export function songToSharedSnapshot(song: {
+    id: number; name: string; artists: string; album: string;
+    albumPic: string; duration: number; fee: number; local?: boolean;
+} | null | undefined): SharedMusicSong | null {
+    if (!song) return null;
+    if (song.local) return null;
+    if (typeof song.id !== 'number' || !Number.isInteger(song.id) || song.id <= 0) return null;
+    if (!song.name) return null;
+    return {
+        songId: song.id,
+        name: song.name,
+        artists: song.artists || '',
+        album: song.album || '',
+        albumPic: toHttps(song.albumPic || ''),
+        duration: typeof song.duration === 'number' && song.duration > 0 ? song.duration : 0,
+        fee: typeof song.fee === 'number' ? song.fee : 0,
+    };
+}
+
 /** song/detail 的 ar/al/dt 原始字段 → 统一快照（与 MusicApp 搜索结果同一套归一化口径）。 */
 function normalizeDetailSong(s: any): SharedMusicSong | null {
     if (!s || typeof s.id !== 'number' || !s.name) return null;
@@ -144,7 +170,7 @@ export async function resolveSharedSong(cfg: MusicCfg, songId: number): Promise<
 
 /**
  * 组装 user 方向的 music_card 负载。纯函数、不落库 ——
- * 落库（DB.saveMessage + reloadMessages）由 Chat.tsx 的 shareMusicMessage 做，
+ * 落库统一走 shareSongToCharacter（聊天页 / 音乐 App 共用同一入口），
  * 那条链路上没有任何模型调用。
  */
 export function buildSharedMusicCardMessage(input: {
@@ -152,8 +178,10 @@ export function buildSharedMusicCardMessage(input: {
     song: SharedMusicSong;
     shareUrl?: string;
     timestamp?: number;
+    /** 可选：入口来源标记（如 'music_app'）。仅埋点用，不影响歌曲 provider——歌曲本体来自网易云，source 恒为 netease。 */
+    shareOrigin?: string;
 }): Omit<Message, 'id' | 'timestamp'> & { timestamp?: number } {
-    const { charId, song, shareUrl, timestamp } = input;
+    const { charId, song, shareUrl, timestamp, shareOrigin } = input;
     const songDesc = song.artists ? `《${song.name}》 — ${song.artists}` : `《${song.name}》`;
     return {
         charId,
@@ -165,7 +193,26 @@ export function buildSharedMusicCardMessage(input: {
             intent: 'share',
             source: 'netease',
             shareUrl: shareUrl || buildNeteaseShareUrl(song.songId),
+            ...(shareOrigin ? { shareOrigin } : {}),
             song,
         },
     };
+}
+
+/**
+ * 统一分享落库入口（聊天页粘贴链接 / 音乐 App 直接分享都走这里）：
+ * 快照 → music_card → DB.saveMessage → 返回新消息 id。
+ *
+ * 铁律与 Phase 2 相同：0 次 LLM、0 次歌曲信息网络请求（歌曲数据调用方已经持有）。
+ * 不刷新任何 React 状态 —— UI 层各自负责 reload / toast / 留在当前页面。
+ */
+export async function shareSongToCharacter(input: {
+    song: SharedMusicSong;
+    charId: string;
+    shareUrl?: string;
+    shareOrigin?: string;
+}): Promise<number | null> {
+    const { song, charId, shareUrl, shareOrigin } = input;
+    if (!song || typeof song.songId !== 'number' || !song.name || !charId) return null;
+    return DB.saveMessage(buildSharedMusicCardMessage({ charId, song, shareUrl, shareOrigin }));
 }
