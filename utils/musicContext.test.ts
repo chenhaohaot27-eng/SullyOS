@@ -6,6 +6,7 @@ import {
     normalizeNeteaseLyrics,
     sampleLyricsForContext,
     LYRICS_CONTEXT_CHAR_CAP,
+    FULL_LYRICS_THRESHOLD,
     getMusicInsight,
     setMusicInsight,
     sanitizeMusicInsight,
@@ -91,25 +92,74 @@ describe('normalizeNeteaseLyrics', () => {
     });
 });
 
-describe('sampleLyricsForContext（token 压缩）', () => {
-    it('总量没超上限 → 原样返回', () => {
+describe('sampleLyricsForContext · 短歌词全文保留', () => {
+    it('清洗后 <= FULL_LYRICS_THRESHOLD → 原样返回，不做任何切片', () => {
+        const text = Array.from({ length: 110 }, (_, i) => `第${i}行这是完整歌词内容`).join('\n'); // ~1650 字 < 1800
+        expect(FULL_LYRICS_THRESHOLD).toBeGreaterThanOrEqual(1600);
+        expect(FULL_LYRICS_THRESHOLD).toBeLessThanOrEqual(2000);
+        const out = sampleLyricsForContext(text);
+        expect(out).toBe(text);
+        expect(out).not.toContain('[开头]'); // 没进入采样路径，无段落标记
+        expect(out).not.toContain('[结尾]');
+    });
+    it('显式更小的 maxChars 下，短文本仍原样返回', () => {
         const text = '一行\n两行\n三行';
         expect(sampleLyricsForContext(text, 100)).toBe(text);
     });
-    it('超上限 → 前/中/后确定性采样 + 省略号，长度受控', () => {
-        const lines = Array.from({ length: 300 }, (_, i) => `歌词第${i}行`);
+});
+
+describe('sampleLyricsForContext · 长歌词语义化确定性采样', () => {
+    // 300 行 × ~8 字 ≈ 2700 字 > 1800 → 走采样路径
+    const mkLong = () => {
+        const lines = Array.from({ length: 300 }, (_, i) => `平淡叙事第${i}行`);
+        lines[110] = '我想你了';                     // 核心重复句（3 处，均在头段之外）
+        lines[190] = '我想你了';
+        lines[260] = '我想你了';
+        lines[100] = '这就是晴天的样子';             // 歌名相关句
+        lines[150] = '但是后来我们都学会了沉默';       // 中部转折（但是/后来）
+        lines[299] = '最后一行是我们的告别';           // 结尾必保留
+        return lines;
+    };
+    const TITLE = '晴天';
+
+    it('保留开头 / 结尾 / 重复核心句 / 歌名句 / 转折句，长度受硬上限', () => {
+        const lines = mkLong();
         const text = lines.join('\n');
-        const sampled = sampleLyricsForContext(text, 300);
-        expect(sampled.length).toBeLessThanOrEqual(300 + 16);
-        expect(sampled).toContain('歌词第0行');            // 头
-        expect(sampled).toContain(`歌词第${lines.length - 1}行`); // 尾
-        expect(sampled).toContain('……');
-        // 确定性：同一输入两次采样完全一致
-        expect(sampleLyricsForContext(text, 300)).toBe(sampled);
-        // 原始文字不被改写（出现的行都是原文行）
+        const sampled = sampleLyricsForContext(text, LYRICS_CONTEXT_CHAR_CAP, TITLE);
+        expect(sampled.length).toBeLessThanOrEqual(LYRICS_CONTEXT_CHAR_CAP);
+        expect(sampled).toContain('平淡叙事第0行');                 // 开头
+        expect(sampled).toContain('最后一行是我们的告别');            // 结尾（最终行永远保留）
+        expect(sampled).toContain('这就是晴天的样子');               // 歌名相关句
+        expect(sampled).toContain('但是后来我们都学会了沉默');         // 转折线索句
+        expect(sampled).toContain('[核心重复句]');                   // 分段结构清晰
+        expect(sampled).toContain('[结尾]');
+        // 原始文字不被改写（出现的行都是原文行、段落标记或段间空行）
         for (const l of sampled.split('\n')) {
-            if (l !== '……') expect(lines).toContain(l);
+            if (l === '' || /^\[.+\]$/.test(l)) continue;
+            expect(lines).toContain(l);
         }
+    });
+
+    it('重复核心句只出现一次（不刷屏）', () => {
+        const sampled = sampleLyricsForContext(mkLong().join('\n'), LYRICS_CONTEXT_CHAR_CAP, TITLE);
+        const hits = sampled.split('\n').filter(l => l === '我想你了').length;
+        expect(hits).toBe(1);
+    });
+
+    it('确定性：同一输入多次采样完全一致', () => {
+        const text = mkLong().join('\n');
+        const a = sampleLyricsForContext(text, LYRICS_CONTEXT_CHAR_CAP, TITLE);
+        const b = sampleLyricsForContext(text, LYRICS_CONTEXT_CHAR_CAP, TITLE);
+        expect(a).toBe(b);
+    });
+
+    it('无重复/无歌名命中/无转折词时只保留开头+结尾，不崩溃', () => {
+        const lines = Array.from({ length: 300 }, (_, i) => `无特征叙事第${i}行`);
+        const sampled = sampleLyricsForContext(lines.join('\n'), LYRICS_CONTEXT_CHAR_CAP, '晴空');
+        expect(sampled).toContain('无特征叙事第0行');
+        expect(sampled).toContain('无特征叙事第299行');
+        expect(sampled).not.toContain('[核心重复句]');
+        expect(sampled).not.toContain('[歌名相关句]');
     });
 });
 
@@ -236,6 +286,43 @@ describe('buildSharedSongContextBlock（cache miss / hit / 歌词失败）', () 
         expect(block).toContain('不包含任何人物姓名');
         // 私人反应只允许留在正文
         expect(block).toContain('只写在正常回复正文里');
+    });
+
+    it('回应 guidance：作为收到歌曲的人，关注潜台词/矛盾/转折，不做乐评', async () => {
+        const block = mustBlock(await buildSharedSongContextBlock({ song: SONG, cfg: CFG, userName: '阿明' }));
+        expect(block).toContain('不是一篇需要分析的歌词');
+        expect(block).toContain('主动分享给你的歌');
+        expect(block).toContain('像真正收到这首歌的人那样说话');
+        // 潜台词 / 矛盾 / 转折 / 未完成的关系
+        expect(block).toContain('没有直接说出口的意图');
+        expect(block).toContain('矛盾');
+        expect(block).toContain('未完成的关系');
+        // 不是乐评 / 不是歌词总结 / 禁用分析报告句型
+        expect(block).toContain('不是写乐评');
+        expect(block).toContain('不是总结歌词');
+        expect(block).toContain('这首歌表达了');
+        // 不武断推测用户动机
+        expect(block).toContain('不要武断断言');
+        // 角色人格优先，不强制感性
+        expect(block).toContain('人格与说话习惯永远优先');
+        expect(block).toContain('甚至不接受这首歌表达的观点');
+        // 反音频幻觉（Phase 3.1 回归）
+        expect(block).toContain('不要虚构编曲');
+    });
+
+    it('正文优先：MUSIC_INSIGHT 只是附加缓存，不得压缩角色正文', async () => {
+        const block = mustBlock(await buildSharedSongContextBlock({ song: SONG, cfg: CFG, userName: '阿明' }));
+        expect(block).toContain('正常角色回复是最高优先级');
+        expect(block).toContain('先完整写出自然的角色回复，最后才输出 MUSIC_INSIGHT');
+        expect(block).toContain('绝不能为了生成它而缩短、模板化或简化你的正文');
+    });
+
+    it('cache hit：摘要只助理解，不复述不改写', async () => {
+        setMusicInsight({ songId: SONG.songId, title: '晴天', artist: '周杰伦', themes: ['青春'], mood: ['克制'], narrative: '雨天告别', keyIdeas: ['握住你的手'], updatedAt: 1, version: 1 });
+        const block = mustBlock(await buildSharedSongContextBlock({ song: SONG, cfg: CFG, userName: '阿明' }));
+        expect(block).toContain('只用于帮你理解歌曲');
+        expect(block).toContain('不要在回复里复述或改写摘要内容');
+        expect(block).not.toContain('[[MUSIC_INSIGHT:');
     });
 
     it('insight-hit 块不下发标记指令、摘要只描述歌曲本身', async () => {
