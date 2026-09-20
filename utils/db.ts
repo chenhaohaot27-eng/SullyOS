@@ -6,6 +6,7 @@ import {
     Task, Anniversary, DiaryEntry, RoomTodo, RoomNote, DailySchedule,
     GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
     BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, XhsOwnedPost, SongSheet, QuizSession, GuidebookSession,
+    MoneyLedgerEntry, PlayerWalletConfig,
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
@@ -54,7 +55,8 @@ const DB_NAME = 'AetherOS_Data';
 // v73：礼物 GiftRecord 数据底座（gift_records store；eventKey 唯一索引做持久幂等）。
 // v74：外卖商品目录（food_catalog；fingerprint 唯一索引防重复导入）。
 // v75：外卖订单唯一真相源（food_orders；eventKey 唯一索引持久幂等）。
-const DB_VERSION = 75;
+// v76：玩家统一钱包（money_ledger 流水 eventKey 唯一索引持久幂等 + player_wallet singleton 配置）。
+const DB_VERSION = 76;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -110,6 +112,8 @@ const STORE_LIVING_WORLD = 'living_world';         // Living World 被动基础�
 const STORE_GIFT_RECORDS = 'gift_records';         // 礼物 GiftRecord（utils/giftStore.ts 独占数据访问；eventKey 唯一索引做持久幂等）
 const STORE_FOOD_CATALOG = 'food_catalog';         // 外卖商品目录（Phase 1；订单留待后续独立 store）
 const STORE_FOOD_ORDERS = 'food_orders';           // 外卖订单（Phase 2；Chat 卡片只做投影）
+const STORE_MONEY_LEDGER = 'money_ledger';         // 玩家钱包流水（utils/playerWallet.ts 独占数据访问；eventKey 唯一索引做持久幂等）
+const STORE_PLAYER_WALLET = 'player_wallet';       // 玩家钱包 singleton 配置（id='default'：openingBalance 切点等）
 const STORE_LIFE_RECORDS = 'life_records';        // 生活记录：生理期/药盒打卡/锻炼（记账走 bank_transactions）
 const STORE_MED_PLANS = 'med_plans';              // 药盒计划（每天几点吃什么药）
 const STORE_LIFE_SETTINGS = 'life_record_settings'; // 生活记录设置单例（id='main'：周期长度等）
@@ -393,6 +397,27 @@ export const openDB = (): Promise<IDBDatabase> => {
           if (orderStore && !orderStore.indexNames.contains('eventKey')) orderStore.createIndex('eventKey', 'eventKey', { unique: true });
           if (orderStore && !orderStore.indexNames.contains('charId')) orderStore.createIndex('charId', 'charId', { unique: false });
           if (orderStore && !orderStore.indexNames.contains('createdAt')) orderStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+
+      // ─── v76: 玩家统一钱包 ──────────────────────────────────────────────
+      // money_ledger：唯一资金流水真相源。eventKey 唯一索引 = 双击/重放/restore 的持久幂等防线；
+      // direction/source/createdAt 普通索引供余额派生与按来源/日期筛选。
+      // player_wallet：singleton 配置（id='default'），不放 money_ledger 里混数据形态。
+      if (!db.objectStoreNames.contains(STORE_MONEY_LEDGER)) {
+          const ledgerStore = db.createObjectStore(STORE_MONEY_LEDGER, { keyPath: 'id' });
+          ledgerStore.createIndex('eventKey', 'eventKey', { unique: true });
+          ledgerStore.createIndex('direction', 'direction', { unique: false });
+          ledgerStore.createIndex('source', 'source', { unique: false });
+          ledgerStore.createIndex('createdAt', 'createdAt', { unique: false });
+      } else {
+          const ledgerStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_MONEY_LEDGER);
+          if (ledgerStore && !ledgerStore.indexNames.contains('eventKey')) ledgerStore.createIndex('eventKey', 'eventKey', { unique: true });
+          if (ledgerStore && !ledgerStore.indexNames.contains('direction')) ledgerStore.createIndex('direction', 'direction', { unique: false });
+          if (ledgerStore && !ledgerStore.indexNames.contains('source')) ledgerStore.createIndex('source', 'source', { unique: false });
+          if (ledgerStore && !ledgerStore.indexNames.contains('createdAt')) ledgerStore.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_PLAYER_WALLET)) {
+          db.createObjectStore(STORE_PLAYER_WALLET, { keyPath: 'id' });
       }
 
       createStore(STORE_BANK_TX, { keyPath: 'id' });
@@ -3005,7 +3030,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts, foodCatalogRecords, foodOrderRecords] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts, foodCatalogRecords, foodOrderRecords, moneyLedgerRecords, walletConfigRecords] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3063,6 +3088,8 @@ export const DB = {
           getAllFromStore(STORE_GIFT_RECORDS),
           getAllFromStore(STORE_FOOD_CATALOG),
           getAllFromStore(STORE_FOOD_ORDERS),
+          getAllFromStore(STORE_MONEY_LEDGER),
+          getAllFromStore(STORE_PLAYER_WALLET),
       ]);
 
       const userProfile = userProfiles.length > 0 ? {
@@ -3113,6 +3140,8 @@ export const DB = {
           gifts: await resolveGiftBlobRefsForExport(gifts),
           foodCatalog: foodBackup.foodCatalog,
           foodOrders: foodBackup.foodOrders,
+          walletConfig: (walletConfigRecords[0] as PlayerWalletConfig) || undefined,
+          moneyLedger: moneyLedgerRecords as MoneyLedgerEntry[],
           worldHomeLocal: exportWorldHomeLocal(), // 家园本机配置：全局 API + 文风收藏（存 localStorage）
           luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
@@ -3158,7 +3187,7 @@ export const DB = {
           STORE_LIFE_SETTINGS,
           STORE_HOTNEWS,
           STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS,
-          STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIVING_WORLD, STORE_GIFT_RECORDS, STORE_FOOD_CATALOG, STORE_FOOD_ORDERS,
+          STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIVING_WORLD, STORE_GIFT_RECORDS, STORE_FOOD_CATALOG, STORE_FOOD_ORDERS, STORE_MONEY_LEDGER, STORE_PLAYER_WALLET,
           'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
           'room_plates', 'digest_reports',
           'memory_batches', 'pixel_home_assets', 'pixel_home_layouts'
@@ -3259,6 +3288,7 @@ export const DB = {
           data.worldEpisodes !== undefined,
           data.livingWorld !== undefined,
           data.foodCatalog !== undefined || data.foodOrders !== undefined,
+          data.moneyLedger !== undefined || data.walletConfig !== undefined,
           (data as any).worldHomeLocal !== undefined,
           (data as any).luckinLocal !== undefined,
           (data as any).mcdLocal !== undefined,
@@ -3588,6 +3618,14 @@ export const DB = {
           data.foodCatalog = undefined;
           data.foodOrders = undefined;
       }, (data.foodCatalog?.length || 0) + (data.foodOrders?.length || 0));
+      // 玩家钱包（Phase 1）：纯数据回放——restore 绝不产生新的扣款/退款/入账副作用，
+      // 也不解析任何 eventKey；幂等由备份数据自身 + eventKey 唯一索引保证。旧备份缺失字段 → 跳过。
+      await runSection('玩家钱包', data.moneyLedger !== undefined || data.walletConfig !== undefined, async () => {
+          if (data.walletConfig !== undefined) await clearAndAdd(STORE_PLAYER_WALLET, [data.walletConfig], '钱包配置', false);
+          if (data.moneyLedger !== undefined) await clearAndAdd(STORE_MONEY_LEDGER, data.moneyLedger, '钱包流水', false);
+          data.moneyLedger = undefined;
+          data.walletConfig = undefined;
+      }, (data.moneyLedger?.length || 0) + (data.walletConfig ? 1 : 0));
       await runSection('家园本机配置', (data as any).worldHomeLocal !== undefined, async () => {
           importWorldHomeLocal((data as any).worldHomeLocal); // 全局 API + 文风收藏
           (data as any).worldHomeLocal = undefined;

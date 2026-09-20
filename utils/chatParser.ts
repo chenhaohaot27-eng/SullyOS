@@ -4,6 +4,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { CharacterProfile, CharPlaylistSong } from '../types';
 import { sanitizeForBubble } from './sanitize';
 import { extractTransferCommands } from './transferFormat';
+import { refundRejectedTransfer } from './transferWallet';
 import { executeLifeDirectives } from './lifeRecords';
 import { wallClockToTimestamp } from './timezone';
 import { harvestMusicInsight } from './musicContext';
@@ -222,6 +223,17 @@ export const ChatParser = {
                 content: action === 'accepted' ? '[已收款]' : '[已退回]',
                 metadata: { receipt: action, amount, ref: refId },
             });
+            // Player Economy Phase 2：角色退回 → 退款进玩家钱包（幂等 transfer-refund:<refId>）。
+            // 只有钱包时代发出的转账（存在 transfer-out expense）才会真正退款；
+            // 历史转账/钱包未启用 → no_expense 零动作，聊天流程不受影响。
+            if (action === 'returned') {
+                try {
+                    const refund = await refundRejectedTransfer(refId);
+                    if (refund.refunded) console.info('[Transfer] 玩家转账被退回，已退款进钱包');
+                } catch (e) {
+                    console.warn('[Transfer] 退回退款失败（不影响聊天）:', e);
+                }
+            }
         };
 
         // TRANSFER — 规范标签 + 模仿历史日志的口语形态一起解析，见 utils/transferFormat.ts。

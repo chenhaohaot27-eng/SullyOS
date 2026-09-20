@@ -22,7 +22,11 @@ export type CreateFoodOrderInput = Omit<FoodOrderRecord,
 
 export interface CreateFoodOrderResult { record: FoodOrderRecord; created: boolean; }
 
-export async function createFoodOrder(input: CreateFoodOrderInput): Promise<CreateFoodOrderResult> {
+export const FOOD_ORDERS_STORE = STORE_NAME;
+export const genFoodOrderId = genId;
+
+/** 校验 + 构造 FoodOrderRecord（不落库）。foodWallet 的原子下单在同一事务里复用它。 */
+export function buildFoodOrderRecord(input: CreateFoodOrderInput): FoodOrderRecord {
     const eventKey = required('eventKey', input.eventKey);
     required('charId', input.charId);
     required('orderer.id', input.orderer?.id);
@@ -32,10 +36,8 @@ export async function createFoodOrder(input: CreateFoodOrderInput): Promise<Crea
         required(`items[${index}].name`, item.name);
         if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new Error('FoodOrderRecord quantity must be a positive integer');
     });
-    const existing = await getFoodOrderByEventKey(eventKey);
-    if (existing) return { record: existing, created: false };
     const now = Date.now();
-    const record: FoodOrderRecord = {
+    return {
         ...input,
         id: genId(),
         eventKey,
@@ -45,6 +47,13 @@ export async function createFoodOrder(input: CreateFoodOrderInput): Promise<Crea
         createdAt: now,
         updatedAt: now,
     };
+}
+
+export async function createFoodOrder(input: CreateFoodOrderInput): Promise<CreateFoodOrderResult> {
+    const eventKey = required('eventKey', input.eventKey);
+    const existing = await getFoodOrderByEventKey(eventKey);
+    if (existing) return { record: existing, created: false };
+    const record = buildFoodOrderRecord(input);
     try {
         const db = await openDB();
         await new Promise<void>((resolve, reject) => {

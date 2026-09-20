@@ -27,7 +27,7 @@ const makeInput = (overrides: Partial<CreateFoodCatalogItemInput> = {}): CreateF
 describe('foodCatalogStore — food_catalog 数据底座', () => {
     it('fresh DB 在 Phase 2 仍保留目录 store 及必要索引', async () => {
         const db = await openDB();
-        expect(db.version).toBe(75);
+        expect(db.version).toBe(76);
         expect(db.objectStoreNames.contains('food_catalog')).toBe(true);
         expect(db.objectStoreNames.contains('food_orders')).toBe(true);
         const store = db.transaction('food_catalog', 'readonly').objectStore('food_catalog');

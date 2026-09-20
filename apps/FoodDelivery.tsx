@@ -38,7 +38,8 @@ import {
     projectFoodOrderToChat,
     triggerFoodOrderReaction,
 } from '../utils/foodChatBridge';
-import { createFoodOrder, listFoodOrders, updateFoodOrder } from '../utils/foodOrderStore';
+import { listFoodOrders, updateFoodOrder } from '../utils/foodOrderStore';
+import { createPaidFoodOrder, isRefundableCancelStatus, orderPayer, refundFoodOrder } from '../utils/foodWallet';
 import { createFoodOrderTimeline, deriveFoodOrderStatus, foodOrderEtaMinutes } from '../utils/foodOrderTimeline';
 import { FOOD_ORDER_STATUS_LABEL, type FoodOrderRecord } from '../utils/foodOrderTypes';
 import {
@@ -319,9 +320,12 @@ const FoodDelivery: React.FC = () => {
         const now = Date.now();
         setOrdering(true);
         try {
-            const result = await createFoodOrder({
+            // 玩家付款订单：钱包余额校验 + 扣款 + 建单在同一个 IndexedDB 事务内原子完成；
+            // 价格未知（部分商品缺价）直接拦截，不猜价、不按 0 元下单。
+            const result = await createPaidFoodOrder({
                 eventKey: `food:user:${recipient.id}:${submissionIdRef.current}`,
                 source: cart.some(line => line.item.source === 'simulated') ? 'simulated' : 'catalog_imported',
+                payer: 'user',
                 orderer: { type: 'user', id: 'user', nameSnapshot: userProfile?.name || '用户' },
                 recipient: { type: 'character', id: recipient.id, nameSnapshot: recipient.name },
                 charId: recipient.id,
@@ -352,7 +356,19 @@ const FoodDelivery: React.FC = () => {
         const status = deriveFoodOrderStatus(order);
         if (status === 'delivered' || status === 'cancelled' || status === 'failed') return;
         const updated = await updateFoodOrder(order.id, { status: 'cancelled' });
-        if (updated) { setDetailOrder(updated); addToast('订单已取消', 'info'); await reload(); }
+        if (updated) {
+            setDetailOrder(updated); addToast('订单已取消', 'info'); await reload();
+            // 玩家付款且尚未取餐（confirmed/preparing）→ 全额退款；退款是幂等 income entry，
+            // 重复点击/重放不会多退。角色付款订单 orderPayer==='character'，不触碰钱包。
+            if (orderPayer(updated) === 'user' && isRefundableCancelStatus(status)) {
+                try {
+                    const refundResult = await refundFoodOrder(updated);
+                    if (refundResult.refunded) addToast(`已退款 ¥${updated.total}`, 'success');
+                } catch (error) {
+                    console.warn('[Food] 退款失败（订单取消不受影响）:', error);
+                }
+            }
+        }
     };
 
     const renderOrderRow = (order: FoodOrderRecord) => {

@@ -22,6 +22,7 @@ import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsSha
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
+import { acceptIncomingTransfer, sendTransferFromWallet, TransferWalletError } from '../utils/transferWallet';
 import { isMcdConfigured } from '../utils/mcdMcpClient';
 import { isMcdActivatedInMessages, MCD_ACTIVATE_TRIGGER, MCD_DEACTIVATE_TRIGGER } from '../utils/mcdToolBridge';
 import { isLuckinConfigured } from '../utils/luckinMcpClient';
@@ -1392,20 +1393,15 @@ const Chat: React.FC = () => {
     }, [char, addToast, reloadMessages]);
 
     // 用户点开「收到的转账」卡（角色发来、待处理）选择接收 / 退回：
-    // 标记原转账状态 + 补一张回执小卡（role=user，角色侧 prompt 会看到 [[记录:TRANSFER|to=user|...|status=已收下/已退回]]）。
+    // Player Economy Phase 2：收下 = 钱包 income（transfer-in:<messageId>，事务内 pending 守卫防重）；
+    // 退回 = 只更新消息不产生 income。钱包未启用时保持纯消息行为。
     const handleResolveTransfer = useCallback(async (msg: Message, action: 'accepted' | 'returned') => {
         if (!char) return;
-        // 只处理仍待处理的转账，避免重复点击造成多张回执。
-        if (msg.metadata?.receipt) return;
-        if (msg.metadata?.status && msg.metadata.status !== 'pending') return;
-        await DB.updateMessageMetadata(msg.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() }));
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'transfer',
-            content: action === 'accepted' ? '[已收款]' : '[已退回]',
-            metadata: { receipt: action, amount: msg.metadata?.amount, ref: msg.id },
-        });
+        try {
+            await acceptIncomingTransfer(msg, action);
+        } catch (e) {
+            console.warn('[Transfer] 处理转账失败:', e);
+        }
         await reloadMessages(visibleCountRef.current);
     }, [char, reloadMessages]);
 
@@ -3276,7 +3272,28 @@ const Chat: React.FC = () => {
                 newEmojiName={newEmojiName} setNewEmojiName={setNewEmojiName} onRenameEmoji={handleRenameEmoji}
                 selectedCategory={selectedCategory}
 
-                onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
+                onTransfer={() => {
+                    if (!char) return;
+                    // Player Economy Phase 2：玩家→角色转账走钱包原子路径（扣款+消息同事务；
+                    // 余额不足/钱包未启用 → 消息不发送、明确中文提示）。
+                    const amt = parseFloat(transferAmt);
+                    if (!transferAmt || !Number.isFinite(amt) || amt <= 0) { addToast('请输入有效转账金额', 'error'); return; }
+                    void (async () => {
+                        try {
+                            await sendTransferFromWallet({ charId: char.id, charName: char.name, amount: amt, note: transferNote.trim() || undefined });
+                            setTransferNote(''); setModalType('none');
+                            trackEvent('钱包转账给角色');
+                            addToast(`已转账给${char.name}`, 'success');
+                            await reloadMessages(visibleCountRef.current);
+                        } catch (error) {
+                            if (error instanceof TransferWalletError) {
+                                addToast(error.code === 'insufficient_balance' ? `余额不足：${error.message}` : error.message, 'error');
+                            } else {
+                                addToast('转账失败，请稍后再试', 'error');
+                            }
+                        }
+                    })();
+                }}
                 onImportEmoji={handleImportEmoji}
                 onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
                 onClearHistory={handleClearHistory} onArchive={handleFullArchive}

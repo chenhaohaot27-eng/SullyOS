@@ -15,6 +15,15 @@ export interface FoodOrderParty {
     nameSnapshot: string;
 }
 
+/**
+ * 谁为这笔订单付钱（玩家钱包视角）。
+ * - 'user'：玩家付款（下单时原子扣玩家余额，取消时按状态退款）
+ * - 'character'：角色付款（完全不触碰玩家钱包）
+ * 旧数据没有该字段：按 orderer.type 推断（player 下单 = user 付款，角色下单 = character 付款）。
+ */
+export type FoodOrderPayer = 'user' | 'character';
+
+
 export interface FoodOrderItemSnapshot {
     catalogItemId?: string;
     name: string;
@@ -54,8 +63,11 @@ export interface FoodOrderRecord {
     id: string;
     eventKey: string;
     source: FoodOrderSource;
+    /** 付款方；旧记录缺省时按 orderer.type 推断。 */
+    payer?: FoodOrderPayer;
     orderer: FoodOrderParty;
     recipient: FoodOrderParty;
+
     charId: string;
     merchantName?: string;
     items: FoodOrderItemSnapshot[];

@@ -17,6 +17,12 @@ import { Coffee, ClipboardText, ChartBar, Coin, Target, UserCircle, BookOpen, Li
 import { addLocalDays, getLocalDateKey } from '../utils/localDate';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { trackEvent } from '../utils/analytics';
+import {
+    addManualExpense, addManualIncome, deleteManualEntryWithMirror, getWalletSummary,
+    initializeWallet, isWalletMirrorTx, ledgerIdFromMirrorTx, listLedgerEntries, WalletError, type WalletSummary,
+} from '../utils/playerWallet';
+import { CAFE_DAILY_OPEN_AP_COST, computeCafeDailyRevenue, hasOperatedCafeToday, runDailyCafeOperation } from '../utils/cafeEarnings';
+import type { MoneyLedgerEntry } from '../types';
 
 const INITIAL_STATE: BankFullState = {
     config: {
@@ -81,6 +87,36 @@ const BankApp: React.FC = () => {
     // Forms
     const [txAmount, setTxAmount] = useState('');
     const [txNote, setTxNote] = useState('');
+
+    // Player Wallet（玩家统一钱包）
+    const [walletSummary, setWalletSummary] = useState<WalletSummary | null>(null);
+    const [walletBusy, setWalletBusy] = useState(false);
+    const [showWalletInit, setShowWalletInit] = useState(false);
+    const [walletInitAmount, setWalletInitAmount] = useState('');
+    const [showWalletIncome, setShowWalletIncome] = useState(false);
+    const [showWalletExpense, setShowWalletExpense] = useState(false);
+    const [walletAmount, setWalletAmount] = useState('');
+    const [walletNote, setWalletNote] = useState('');
+    // 咖啡店「今日营业」（Player Economy Phase 2）
+    const [cafeOpenedToday, setCafeOpenedToday] = useState(false);
+    const [cafePreviewRevenue, setCafePreviewRevenue] = useState(0);
+    const [cafeBusy, setCafeBusy] = useState(false);
+    const [cafeLastRevenue, setCafeLastRevenue] = useState<number | null>(null);
+    // 统一资金流水（最近几条，展示用）
+    const [walletEntries, setWalletEntries] = useState<MoneyLedgerEntry[]>([]);
+
+    const refreshWallet = async () => {
+        try {
+            const [summary, entries, opened] = await Promise.all([
+                getWalletSummary(), listLedgerEntries(), hasOperatedCafeToday(),
+            ]);
+            setWalletSummary(summary);
+            setWalletEntries(entries.slice(0, 10));
+            setCafeOpenedToday(opened);
+            setCafePreviewRevenue(computeCafeDailyRevenue(stateRef.current.shop));
+        } catch (e) { console.warn('[Wallet] 读取钱包失败:', e); }
+    };
+
     const [goalName, setGoalName] = useState('');
     const [goalTarget, setGoalTarget] = useState('');
 
@@ -298,6 +334,111 @@ const BankApp: React.FC = () => {
         // Show tutorial if first time (default budget is 100 and ap is 100 initial)
         if (!savedState) setShowTutorial(true);
         setIsBankDataLoaded(true);
+        await refreshWallet();
+    };
+
+    // --- Player Wallet（玩家统一钱包） ---
+
+    const handleWalletInit = async () => {
+        const value = parseFloat(walletInitAmount);
+        if (!Number.isFinite(value) || value < 0) { addToast('当前余额需为不小于 0 的数字', 'error'); return; }
+        setWalletBusy(true);
+        try {
+            await initializeWallet(value, state.config.currencySymbol);
+            await refreshWallet();
+            setShowWalletInit(false);
+            setWalletInitAmount('');
+            trackEvent('开启玩家钱包');
+            addToast('钱包已开启，从现在开始统一记录收入与支出', 'success');
+        } catch (e) {
+            addToast(e instanceof Error ? e.message : '开启失败', 'error');
+        } finally { setWalletBusy(false); }
+    };
+
+    const handleWalletIncome = async () => {
+        const value = parseFloat(walletAmount);
+        if (!Number.isFinite(value) || value <= 0) { addToast('请输入有效金额', 'error'); return; }
+        if (!walletNote.trim()) { addToast('请填写内容', 'error'); return; }
+        setWalletBusy(true);
+        try {
+            await addManualIncome(value, walletNote.trim());
+            await refreshWallet();
+            setShowWalletIncome(false);
+            setWalletAmount(''); setWalletNote('');
+            trackEvent('钱包记收入');
+            addToast('收入已入账', 'success');
+        } catch (e) {
+            addToast(e instanceof Error ? e.message : '入账失败', 'error');
+        } finally { setWalletBusy(false); }
+    };
+
+    const handleWalletExpense = async () => {
+        const value = parseFloat(walletAmount);
+        if (!Number.isFinite(value) || value <= 0) { addToast('请输入有效金额', 'error'); return; }
+        if (!walletNote.trim()) { addToast('请填写内容', 'error'); return; }
+        setWalletBusy(true);
+        try {
+            const result = await addManualExpense(value, walletNote.trim());
+            await refreshWallet();
+            if (result.created) {
+                // 镜像流水已写入 bank_transactions，同步旧统计（todaySpent / 列表）
+                const txs = await DB.getAllTransactions();
+                setTransactions(txs.sort((a, b) => b.timestamp - a.timestamp));
+                const cur = stateRef.current;
+                const newSpent = Math.round((cur.todaySpent + result.entry.amount) * 100) / 100;
+                const newState = { ...cur, todaySpent: newSpent };
+                stateRef.current = newState;
+                setState(newState);
+                await DB.saveBankState(newState);
+                if (newSpent > cur.config.dailyBudget) addToast('⚠️ 今日预算已超支', 'info');
+                else addToast('支出已记录', 'success');
+            } else {
+                addToast('这笔支出已经记过了', 'info');
+            }
+            setShowWalletExpense(false);
+            setWalletAmount(''); setWalletNote('');
+            trackEvent('钱包记支出');
+        } catch (e) {
+            if (e instanceof WalletError && e.code === 'insufficient_balance') {
+                addToast(`余额不足：${e.message}`, 'error');
+            } else {
+                addToast(e instanceof Error ? e.message : '记账失败', 'error');
+            }
+        } finally { setWalletBusy(false); }
+    };
+
+
+    // --- 咖啡店「今日营业」（Player Economy Phase 2） ---
+
+    const handleCafeOpen = async () => {
+        if (cafeBusy) return;
+        setCafeBusy(true);
+        try {
+            const result = await runDailyCafeOperation();
+            if (result.status === 'ok') {
+                // 事务里已扣 AP，同步 React 状态与本地统计视图
+                const cur = stateRef.current;
+                const newState = { ...cur, shop: { ...cur.shop, actionPoints: result.actionPointsLeft ?? cur.shop.actionPoints } };
+                stateRef.current = newState;
+                setState(newState);
+                setCafeOpenedToday(true);
+                setCafeLastRevenue(result.revenue ?? null);
+                trackEvent('咖啡店今日营业');
+                addToast(`今日营业完成，营业收入 +¥${result.revenue}`, 'success');
+            } else if (result.status === 'already_done') {
+                setCafeOpenedToday(true);
+                addToast('今天已经营业过了，明天再来吧', 'info');
+            } else if (result.status === 'insufficient_ap') {
+                addToast(`AP 不足（需 ${CAFE_DAILY_OPEN_AP_COST} AP），先省钱攒 AP 吧`, 'error');
+            } else if (result.status === 'not_initialized') {
+                addToast('请先开启玩家钱包，营业收入才能入账', 'error');
+            } else {
+                addToast('暂时无法营业，请稍后再试', 'error');
+            }
+            await refreshWallet();
+        } catch (e) {
+            addToast('营业失败，请稍后再试', 'error');
+        } finally { setCafeBusy(false); }
     };
 
     // --- Transactions ---
@@ -344,6 +485,27 @@ const BankApp: React.FC = () => {
     };
 
     const handleDeleteTransaction = async (id: string) => {
+        // 钱包镜像流水 → 改道钱包层删除（ledger entry + 镜像一起删，余额自动恢复）
+        if (isWalletMirrorTx(id)) {
+            const ledgerId = ledgerIdFromMirrorTx(id);
+            if (!ledgerId) return;
+            try {
+                await deleteManualEntryWithMirror(ledgerId);
+                const txs = await DB.getAllTransactions();
+                setTransactions(txs.sort((a, b) => b.timestamp - a.timestamp));
+                const today = getLocalDateKey();
+                const spent = txs.filter(t => t.dateStr === today).reduce((sum, t) => sum + t.amount, 0);
+                const newState = { ...stateRef.current, todaySpent: Math.round(spent * 100) / 100 };
+                stateRef.current = newState;
+                setState(newState);
+                await DB.saveBankState(newState);
+                await refreshWallet();
+                addToast('钱包支出已删除，余额已恢复', 'success');
+            } catch (e) {
+                addToast(e instanceof Error ? e.message : '删除失败', 'error');
+            }
+            return;
+        }
         const tx = transactions.find(t => t.id === id);
         if (!tx) return;
         await DB.deleteTransaction(id);
@@ -778,7 +940,12 @@ ${previousGuestbook}
                             ?
                         </button>
                         <button
-                            onClick={() => { setShowAddTxModal(true); trackEvent('打开记一笔弹窗'); }}
+                            onClick={() => {
+                                trackEvent('打开记一笔弹窗');
+                                // 钱包启用后走钱包支出（余额守卫 + 镜像旧统计）；未启用保持旧记账
+                                if (walletSummary) setShowWalletExpense(true);
+                                else setShowAddTxModal(true);
+                            }}
                             className="flex items-center gap-1.5 bg-gradient-to-r from-[#FF8A65] to-[#FF7043] text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-lg hover:shadow-xl active:scale-95 transition-all"
                             style={{ boxShadow: '0 4px 14px rgba(255, 112, 67, 0.4)' }}
                         >
@@ -839,6 +1006,108 @@ ${previousGuestbook}
                                 />
                             </div>
                         </div>
+
+                        {/* Player Wallet · 玩家统一钱包 */}
+                        <div className="bg-white p-4 rounded-2xl border-2 border-[#E8DCC8] mb-4 shadow-sm">
+                            {walletSummary ? (
+                                <>
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div>
+                                            <h3 className="text-xs font-bold text-[#8D6E63] uppercase tracking-wider">我的钱包</h3>
+                                            <div className="flex items-baseline gap-1 mt-1">
+                                                <span className="text-[26px] font-black text-[#5D4037] leading-none">{state.config.currencySymbol}{walletSummary.balance}</span>
+                                                <span className="text-[10px] text-[#A1887F]">可用余额</span>
+                                            </div>
+                                        </div>
+                                        <div className="text-right text-[11px] leading-5">
+                                            <div className="text-emerald-600 font-semibold">今日收入 +{state.config.currencySymbol}{walletSummary.todayIncome}</div>
+                                            <div className="text-rose-500 font-semibold">今日支出 -{state.config.currencySymbol}{walletSummary.todayExpense}</div>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            onClick={() => { setShowWalletIncome(true); trackEvent('打开钱包记收入'); }}
+                                            className="py-3 rounded-xl bg-gradient-to-r from-[#66BB6A] to-[#43A047] text-white text-sm font-bold shadow hover:shadow-lg active:scale-95 transition-all"
+                                        >
+                                            + 记收入
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowWalletExpense(true); trackEvent('打开钱包记支出'); }}
+                                            className="py-3 rounded-xl bg-gradient-to-r from-[#FF8A65] to-[#FF7043] text-white text-sm font-bold shadow hover:shadow-lg active:scale-95 transition-all"
+                                        >
+                                            − 记支出
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-[#5D4037]">开启玩家钱包</h3>
+                                            <p className="text-[10px] text-[#A1887F] mt-0.5">从现在开始，Lemuria 将统一记录你的收入与支出。</p>
+                                        </div>
+                                        <button
+                                            onClick={() => { setShowWalletInit(true); trackEvent('打开钱包初始化'); }}
+                                            className="shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#42A5F5] to-[#1E88E5] text-white text-xs font-bold shadow hover:shadow-lg active:scale-95 transition-all"
+                                        >
+                                            设置当前余额
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-[#BCAAA4] mt-2">历史记账会原样保留为启用前的记录，不会追溯扣减。</p>
+                                </>
+                            )}
+                        </div>
+
+                        {/* 今日营业 · 咖啡店每日经营任务（Player Economy Phase 2） */}
+                        {walletSummary && (
+                            <div className="bg-white p-4 rounded-2xl border-2 border-[#E8DCC8] mb-4 shadow-sm">
+                                <div className="flex justify-between items-center mb-3">
+                                    <div>
+                                        <h3 className="text-sm font-bold text-[#5D4037]">今日营业</h3>
+                                        <p className="text-[10px] text-[#A1887F] mt-0.5">
+                                            预计收入 {state.config.currencySymbol}{cafePreviewRevenue} · 消耗 {CAFE_DAILY_OPEN_AP_COST} AP
+                                        </p>
+                                    </div>
+                                    {cafeOpenedToday ? (
+                                        <div className="text-right">
+                                            <span className="inline-block px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold">今日营业完成</span>
+                                            {cafeLastRevenue !== null && (
+                                                <p className="text-[10px] text-emerald-600 font-semibold mt-1">营业收入 +{state.config.currencySymbol}{cafeLastRevenue}</p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={handleCafeOpen}
+                                            disabled={cafeBusy}
+                                            className="shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#8D6E63] to-[#6D4C41] text-white text-xs font-bold shadow hover:shadow-lg active:scale-95 transition-all disabled:opacity-50"
+                                        >
+                                            {cafeBusy ? '营业中...' : '开始营业'}
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-[#BCAAA4]">每天可营业一次；不营业当天没有收入，也不会补发。</p>
+                            </div>
+                        )}
+
+                        {/* 统一资金流水（最近 10 条） */}
+                        {walletSummary && walletEntries.length > 0 && (
+                            <div className="bg-white p-4 rounded-2xl border-2 border-[#E8DCC8] mb-4 shadow-sm">
+                                <h3 className="text-xs font-bold text-[#8D6E63] uppercase tracking-wider mb-2">资金流水</h3>
+                                <div className="space-y-1.5">
+                                    {walletEntries.map(entry => (
+                                        <div key={entry.id} className="flex justify-between items-center text-xs">
+                                            <span className="min-w-0 truncate text-[#5D4037]">
+                                                <span className="inline-block w-4 text-center mr-1 font-bold">{entry.direction === 'income' ? '+' : '−'}</span>
+                                                {entry.note || (entry.direction === 'income' ? '收入' : '支出')}
+                                            </span>
+                                            <span className={`shrink-0 font-bold ${entry.direction === 'income' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                                {entry.direction === 'income' ? '+' : '-'}{state.config.currencySymbol}{entry.amount}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         <BankGameMenu
                             state={state}
@@ -1051,6 +1320,98 @@ ${previousGuestbook}
                         <input
                             value={txNote}
                             onChange={e => setTxNote(e.target.value)}
+                            className="w-full bg-[#FDF6E3] border-2 border-[#E8DCC8] rounded-2xl px-4 py-4 text-base font-medium text-[#5D4037] focus:border-[#FF7043] outline-none transition-colors"
+                            placeholder="买什么了？"
+                        />
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Player Wallet · 钱包初始化 */}
+            <Modal isOpen={showWalletInit} title="开启玩家钱包" onClose={() => setShowWalletInit(false)} footer={
+                <button onClick={handleWalletInit} disabled={walletBusy} className="w-full py-4 bg-gradient-to-r from-[#42A5F5] to-[#1E88E5] text-white font-bold rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all text-base disabled:opacity-50">
+                    {walletBusy ? '开启中...' : '开启钱包'}
+                </button>
+            }>
+                <div className="space-y-4">
+                    <p className="text-xs text-[#A1887F] leading-5">从现在开始，Lemuria 将统一记录你的收入与支出。</p>
+                    <div>
+                        <label className="text-xs font-bold text-[#A1887F] uppercase tracking-wider mb-2 block">当前余额</label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A1887F] text-lg font-bold">{state.config.currencySymbol}</span>
+                            <input
+                                type="number"
+                                value={walletInitAmount}
+                                onChange={e => setWalletInitAmount(e.target.value)}
+                                className="w-full bg-[#FDF6E3] border-2 border-[#E8DCC8] rounded-2xl pl-10 pr-4 py-4 text-2xl font-black text-[#5D4037] focus:border-[#1E88E5] outline-none transition-colors"
+                                placeholder="0.00"
+                            />
+                        </div>
+                        <p className="text-[10px] text-[#BCAAA4] mt-2">余额需不小于 0；历史记账只作展示，不会追溯扣减。</p>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Player Wallet · 记收入 */}
+            <Modal isOpen={showWalletIncome} title="记一笔收入" onClose={() => setShowWalletIncome(false)} footer={
+                <button onClick={handleWalletIncome} disabled={walletBusy} className="w-full py-4 bg-gradient-to-r from-[#66BB6A] to-[#43A047] text-white font-bold rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all text-base disabled:opacity-50">
+                    {walletBusy ? '入账中...' : '确认入账'}
+                </button>
+            }>
+                <div className="space-y-5">
+                    <div>
+                        <label className="text-xs font-bold text-[#A1887F] uppercase tracking-wider mb-2 block">金额</label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A1887F] text-lg font-bold">{state.config.currencySymbol}</span>
+                            <input
+                                type="number"
+                                value={walletAmount}
+                                onChange={e => setWalletAmount(e.target.value)}
+                                className="w-full bg-[#FDF6E3] border-2 border-[#E8DCC8] rounded-2xl pl-10 pr-4 py-4 text-2xl font-black text-[#5D4037] focus:border-[#66BB6A] outline-none transition-colors"
+                                placeholder="0.00"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-[#A1887F] uppercase tracking-wider mb-2 block">备注</label>
+                        <input
+                            value={walletNote}
+                            onChange={e => setWalletNote(e.target.value)}
+                            className="w-full bg-[#FDF6E3] border-2 border-[#E8DCC8] rounded-2xl px-4 py-4 text-base font-medium text-[#5D4037] focus:border-[#66BB6A] outline-none transition-colors"
+                            placeholder="钱从哪儿来？"
+                        />
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Player Wallet · 记支出 */}
+            <Modal isOpen={showWalletExpense} title="记一笔支出" onClose={() => setShowWalletExpense(false)} footer={
+                <button onClick={handleWalletExpense} disabled={walletBusy} className="w-full py-4 bg-gradient-to-r from-[#FF8A65] to-[#FF7043] text-white font-bold rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all text-base disabled:opacity-50">
+                    {walletBusy ? '记账中...' : '确认记账'}
+                </button>
+            }>
+                <div className="space-y-5">
+                    <div className="text-[11px] text-[#A1887F] bg-[#FDF6E3] rounded-xl px-3 py-2">
+                        可用余额 <span className="font-black text-[#5D4037]">{state.config.currencySymbol}{walletSummary?.balance ?? '--'}</span>，余额不足会拒绝记账
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-[#A1887F] uppercase tracking-wider mb-2 block">金额</label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#A1887F] text-lg font-bold">{state.config.currencySymbol}</span>
+                            <input
+                                type="number"
+                                value={walletAmount}
+                                onChange={e => setWalletAmount(e.target.value)}
+                                className="w-full bg-[#FDF6E3] border-2 border-[#E8DCC8] rounded-2xl pl-10 pr-4 py-4 text-2xl font-black text-[#5D4037] focus:border-[#FF7043] outline-none transition-colors"
+                                placeholder="0.00"
+                            />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-[#A1887F] uppercase tracking-wider mb-2 block">备注</label>
+                        <input
+                            value={walletNote}
+                            onChange={e => setWalletNote(e.target.value)}
                             className="w-full bg-[#FDF6E3] border-2 border-[#E8DCC8] rounded-2xl px-4 py-4 text-base font-medium text-[#5D4037] focus:border-[#FF7043] outline-none transition-colors"
                             placeholder="买什么了？"
                         />

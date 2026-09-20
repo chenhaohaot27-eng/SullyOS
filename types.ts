@@ -2414,6 +2414,47 @@ export interface BankFullState {
     lastLoginDate: string;
     dataVersion?: number; // Migration version tracker (undefined = v0/v1 legacy)
 }
+
+// --- PLAYER ECONOMY · 玩家统一钱包（Phase 1） ---
+// 唯一真相源：money_ledger（流水）+ player_wallet（singleton 配置）。
+// 余额永远是派生值：openingBalance + Σincome - Σexpense，禁止落库第二份 mutable balance。
+// 所有写入必须经过 utils/playerWallet.ts（内部使用 IndexedDB 事务保证 no-overdraft 与幂等）。
+
+export type MoneyLedgerDirection = 'income' | 'expense';
+
+export type MoneyLedgerSource =
+    | 'manual'      // 钱包 UI 手动记录
+    | 'transfer'    // 聊天转账（Phase 2 接入）
+    | 'food'        // 外卖扣款/退款
+    | 'shopping'    // 未来购物
+    | 'cafe'        // 咖啡店营业收入（Phase 2 接入）
+    | 'adjustment'; // 余额调整
+
+export interface MoneyLedgerEntry {
+    id: string;
+    /** 幂等键：unique index。同一 eventKey 只允许一条流水（双击/重放/restore 防重）。 */
+    eventKey: string;
+    direction: MoneyLedgerDirection;
+    /** 恒为正数（符号由 direction 表达）；两位小数归一化。 */
+    amount: number;
+    category: string;
+    source: MoneyLedgerSource;
+    /** 关联对象 id：orderId / messageId 等。 */
+    referenceId?: string;
+    note: string;
+    createdAt: number;
+    metadata?: Record<string, unknown>;
+}
+
+/** player_wallet singleton（id='default'）。不要塞进 money_ledger。 */
+export interface PlayerWalletConfig {
+    id: 'default';
+    /** 启用钱包时用户填写的"当前余额"切点；历史 BankTransaction 不追溯扣减。 */
+    openingBalance: number;
+    initializedAt: number;
+    currencySymbol: string;
+}
+
 // ---------------------------------
 
 // --- CHAR MUSIC PROFILE (网易云风格 · 角色的音乐人格) ---
@@ -3852,6 +3893,8 @@ export interface FullBackupData {
     gifts?: GiftRecord[];                      // 礼物记录（gift_records store；旧备份缺失 → 导入端按空处理）
     foodCatalog?: FoodCatalogItem[];            // 外卖商品目录（直接引用 canonical type）
     foodOrders?: FoodOrderRecord[];             // 外卖订单（完整 timeline/chat links；直接引用 canonical type）
+    walletConfig?: PlayerWalletConfig;          // 玩家钱包配置（player_wallet singleton；旧备份缺失 → 视为未启用钱包）
+    moneyLedger?: MoneyLedgerEntry[];           // 玩家钱包流水（restore 纯数据回放，绝不产生新的扣款/退款副作用）
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）

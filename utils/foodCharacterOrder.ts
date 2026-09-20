@@ -240,6 +240,7 @@ export async function executeCharacterFoodOrder(opts: {
         const created = await createFoodOrder({
             eventKey,
             source,
+            payer: 'character', // 角色付款：不检查也不扣玩家钱包余额
             orderer: { type: 'character', id: opts.char.id, nameSnapshot: opts.char.name },
             recipient,
             charId: opts.char.id,
