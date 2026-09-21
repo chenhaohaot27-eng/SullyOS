@@ -142,4 +142,20 @@ describe('iOS 全屏 PWA 键盘态', () => {
         expect(inKeyboardMode()).toBe(false);
         expect(appHeight()).toBe(`${SCREEN_H + SAFE_BOTTOM}px`);
     });
+
+    // MOBILE_KEYBOARD_ANCHORING_HOTFIX：键盘态 fixed layer（VisualViewportFixedLayer）的锚点变量。
+    it('键盘态写入 --visual-viewport-* 锚点（fixed layer 用，而非 layout viewport bottom）', async () => {
+        await install();
+        focusTextarea();
+        emitViewportResize(SCREEN_H - KEYBOARD_H);
+
+        const rootStyle = document.documentElement.style;
+        expect(rootStyle.getPropertyValue('--visual-viewport-height')).toBe(`${SCREEN_H - KEYBOARD_H}px`);
+        expect(rootStyle.getPropertyValue('--visual-viewport-offset-top')).toBe('0px');
+        expect(rootStyle.getPropertyValue('--visual-viewport-bottom')).toBe(`${SCREEN_H - KEYBOARD_H}px`);
+        // 键盘收起后变量回到全屏口径。
+        emitViewportResize(SCREEN_H);
+        expect(rootStyle.getPropertyValue('--visual-viewport-height')).toBe(`${SCREEN_H}px`);
+        expect(rootStyle.getPropertyValue('--visual-viewport-bottom')).toBe(`${SCREEN_H}px`);
+    });
 });

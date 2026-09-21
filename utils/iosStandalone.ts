@@ -1,3 +1,10 @@
+import {
+    KEYBOARD_SCROLL_SELECTOR,
+    clampScrollDelta,
+    computeFocusScrollDelta,
+    decideTouchMove,
+} from './keyboardAnchoring';
+
 let hasInstalledIOSStandaloneWorkaround = false;
 let stableStandaloneHeight = 0;
 // 这台设备要不要做键盘避让（iOS 全屏 PWA / 安卓浏览器）。装载时定下，
@@ -158,6 +165,11 @@ const setViewportVars = () => {
 
     document.documentElement.style.setProperty('--app-height', `${fullAppHeight}px`);
     document.documentElement.style.setProperty('--visual-viewport-height', `${viewportHeight}px`);
+    // 键盘态 fixed layer（VisualViewportFixedLayer）的真实可视区锚点：
+    // top=offsetTop、height=visual height、bottom=offsetTop+height。布局 viewport bottom
+    // 可能仍在键盘后面，Bottom Sheet 承载层必须用这两个变量而不是 fixed inset-0。
+    document.documentElement.style.setProperty('--visual-viewport-offset-top', `${viewportOffsetTop}px`);
+    document.documentElement.style.setProperty('--visual-viewport-bottom', `${viewportOffsetTop + viewportHeight}px`);
     document.documentElement.style.setProperty('--keyboard-inset', `${keyboardInset}px`);
     document.documentElement.style.setProperty('--standalone-safe-area-bottom', `${bottomSafeInset}px`);
     document.documentElement.style.setProperty('--standalone-safe-area-top', `${topSafeInset}px`);
@@ -178,8 +190,65 @@ export const installIOSStandaloneWorkaround = () => {
         document.body.classList.add('ios-standalone');
     }
 
+    // ── 键盘态聚焦元素可视性复核（MOBILE_KEYBOARD_ANCHORING_HOTFIX）──
+    // focusin 的双 RAF scrollIntoView 发生得太早：iPhone 键盘展开是连续动画，visualViewport 会
+    // 继续 resize 数次。这里在每次 vv resize 后复核 active text-entry 是否仍被遮，
+    // 只做一次最小必要滚动：优先滚最近的 scroll container（防整页被顶飞），
+    // 找不到局部容器才 fallback scrollIntoView({block:'nearest'})。绝不在 keypress 时滚。
+    const findNearestScrollableAncestor = (start: Element): HTMLElement | null => {
+        let node: Element | null = start;
+        for (let depth = 0; node && depth < 10; depth += 1) {
+            if (node instanceof HTMLElement && node.scrollHeight > node.clientHeight + 1) {
+                try {
+                    const overflowY = window.getComputedStyle(node).overflowY;
+                    if (overflowY === 'auto' || overflowY === 'scroll' || node.tagName === 'TEXTAREA') return node;
+                } catch {
+                    // getComputedStyle 不可用时保守跳过该层。
+                }
+            }
+            node = node.parentElement;
+        }
+        return null;
+    };
+
+    let pendingVisibilityCheck = 0;
+    const ensureFocusedElementVisible = () => {
+        if (pendingVisibilityCheck) return; // rAF 合并：一次 resize 动画帧只复核一次。
+        pendingVisibilityCheck = window.requestAnimationFrame(() => {
+            pendingVisibilityCheck = 0;
+            const el = document.activeElement;
+            if (!el || !isTextEntryElement(el)) return;
+            const vv = window.visualViewport;
+            if (!vv) return;
+            const visibleTop = vv.offsetTop;
+            const visibleBottom = vv.offsetTop + vv.height;
+            const rect = el.getBoundingClientRect();
+            const { needsScroll, delta } = computeFocusScrollDelta(
+                { top: rect.top, bottom: rect.bottom },
+                visibleTop,
+                visibleBottom,
+            );
+            if (!needsScroll || delta === 0) return;
+            const container = findNearestScrollableAncestor(el);
+            if (container) {
+                // 只滚 delta 的实际可滚部分；delta 吃满 scrollMax 仍被遮也不再补救（避免无限循环）。
+                const applied = clampScrollDelta(delta, container.scrollTop, container.scrollHeight, container.clientHeight);
+                if (applied !== 0) container.scrollTop += applied;
+            } else {
+                try {
+                    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                } catch {
+                    // 老 iOS 不支持 options 形态。
+                    el.scrollIntoView(false);
+                }
+            }
+        });
+    };
+
     const handleViewportChange = () => {
         setViewportVars();
+        // 键盘展开/收起动画中的每次 vv resize 都复核一次聚焦元素（内部 rAF 去抖）。
+        ensureFocusedElementVisible();
     };
 
     // 只有旋转 / 窗口尺寸变化才真的改变安全区：让缓存失效后重新探测（滚动、聚焦走缓存，不再重排）。
@@ -214,12 +283,45 @@ export const installIOSStandaloneWorkaround = () => {
         window.setTimeout(setViewportVars, 180);
     };
 
-    // 键盘弹出时锁死外层滚动：只放行可滚区（消息列表等 .overflow-y-auto）内部滚动，其余 touchmove 一律拦掉。
-    // 不锁的话 iOS 会在输入框聚焦时随手势把整页顶飞（visualViewport.offsetTop 漂移、露出底层色块、闪烁）。
+    // ── 键盘态 touchmove 放行判定（MOBILE_KEYBOARD_ANCHORING_HOTFIX）──
+    // 旧逻辑只放行 .overflow-y-auto：MobileAutoGrowTextarea 用 inline overflowY:auto（无该 class），
+    // textarea 内部滚动会被 preventDefault，连带破坏 caret / selection handles / copy-paste 手势。
+    // 新判定（纯逻辑在 utils/keyboardAnchoring.ts decideTouchMove）：
+    //   E. TEXTAREA / INPUT / SELECT / contenteditable 永远放行；
+    //   F. [data-keyboard-scroll] / .sully-autogrow-textarea / .overflow-y-auto / .overflow-auto 放行；
+    //      且向上查有限层级，scrollHeight>clientHeight 且 computed overflowY 为 auto/scroll 的祖先也放行
+    //      （未来新页面无需记得加 class）；
+    //   G. 其余背景 touchmove 仍拦，防 iOS 把整页顶飞。
+    const isWithinScrollableAncestor = (start: Element): boolean => {
+        let node: Element | null = start;
+        for (let depth = 0; node && depth < 8; depth += 1) {
+            if (node instanceof HTMLElement && node.scrollHeight > node.clientHeight + 1) {
+                try {
+                    const overflowY = window.getComputedStyle(node).overflowY;
+                    if (overflowY === 'auto' || overflowY === 'scroll') return true;
+                } catch {
+                    // 保守跳过该层。
+                }
+            }
+            node = node.parentElement;
+        }
+        return false;
+    };
+
     const handleTouchMove = (event: TouchEvent) => {
         if (!document.body.classList.contains('ios-keyboard-open')) return;
         const target = event.target as Element | null;
-        if (target?.closest('.overflow-y-auto')) return;
+        if (!target) {
+            event.preventDefault();
+            return;
+        }
+        const decision = decideTouchMove({
+            tagName: target instanceof HTMLElement ? target.tagName : 'unknown',
+            isContentEditable: target instanceof HTMLElement ? target.isContentEditable : false,
+            matchesKeyboardScrollSelector: Boolean(target.closest?.(KEYBOARD_SCROLL_SELECTOR)),
+            withinScrollableAncestor: isWithinScrollableAncestor(target),
+        });
+        if (decision === 'allow') return;
         event.preventDefault();
     };
 

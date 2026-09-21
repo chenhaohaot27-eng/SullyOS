@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import MobileAutoGrowTextarea from '../components/os/MobileAutoGrowTextarea';
+import VisualViewportFixedLayer from '../components/os/VisualViewportFixedLayer';
 import {
     ArrowLeft,
     CaretRight,
@@ -581,8 +582,13 @@ const FoodDelivery: React.FC = () => {
             <input ref={screenshotInputRef} type="file" accept="image/*" className="hidden" onChange={event => void pickScreenshot(event.target.files?.[0])} />
 
             {sheetStep && createPortal(
-                <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/40" onMouseDown={event => { if (event.target === event.currentTarget && !saving && !recognizing) closeSheet(); }}>
-                    <section className="w-full max-w-lg max-h-[min(88vh,calc(var(--app-height,88vh)-1rem))] overflow-y-auto overscroll-contain rounded-t-[28px] bg-white dark:bg-slate-900 px-5 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
+                // MOBILE_KEYBOARD_ANCHORING_HOTFIX：承载层从 fixed inset-0（锚 layout viewport bottom，
+                // 键盘后）改为 VisualViewportFixedLayer（锚 visual viewport bottom = 键盘上沿）。
+                <VisualViewportFixedLayer zIndex={10000} className="flex items-end justify-center bg-black/40" onMouseDown={event => { if (event.target === event.currentTarget && !saving && !recognizing) closeSheet(); }}>
+                    <section
+                        data-keyboard-scroll
+                        style={{ scrollPaddingBottom: '24px' }}
+                        className="w-full max-w-lg max-h-[calc(100%-0.75rem)] overflow-y-auto overscroll-contain rounded-t-[28px] bg-white dark:bg-slate-900 px-5 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
                         <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto mb-3" />
                         <div className="flex items-center justify-between mb-4">
                             <div>
@@ -643,7 +649,7 @@ const FoodDelivery: React.FC = () => {
                             </div>
                         )}
                     </section>
-                </div>,
+                </VisualViewportFixedLayer>,
                 document.body,
             )}
 

@@ -132,6 +132,12 @@
         --chrome-top: calc(var(--safe-top) + 1.5rem);
         --app-height: 100lvh;
         --keyboard-inset: 0px;
+        /* MOBILE_KEYBOARD_ANCHORING_HOTFIX：键盘态 fixed layer 的可视区锚点。
+           运行时由 utils/iosStandalone.ts setViewportVars 持续覆盖（visualViewport resize/scroll）；
+           这里只给 JS 装载前的初始值（= 全屏）。 */
+        --visual-viewport-height: 100lvh;
+        --visual-viewport-offset-top: 0px;
+        --visual-viewport-bottom: 100lvh;
         --app-font: 'Quicksand', sans-serif;
       }
       /* 动森风格皮肤：拉丁/数字用 Nunito（圆润），中文用 ZCOOL KuaiLe（可爱），保留 Noto Sans SC 兜底。
