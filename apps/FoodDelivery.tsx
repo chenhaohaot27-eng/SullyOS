@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import MobileAutoGrowTextarea from '../components/os/MobileAutoGrowTextarea';
 import {
     ArrowLeft,
     CaretRight,
@@ -581,7 +582,7 @@ const FoodDelivery: React.FC = () => {
 
             {sheetStep && createPortal(
                 <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/40" onMouseDown={event => { if (event.target === event.currentTarget && !saving && !recognizing) closeSheet(); }}>
-                    <section className="w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-t-[28px] bg-white dark:bg-slate-900 px-5 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
+                    <section className="w-full max-w-lg max-h-[min(88vh,calc(var(--app-height,88vh)-1rem))] overflow-y-auto overscroll-contain rounded-t-[28px] bg-white dark:bg-slate-900 px-5 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
                         <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto mb-3" />
                         <div className="flex items-center justify-between mb-4">
                             <div>
@@ -607,7 +608,7 @@ const FoodDelivery: React.FC = () => {
 
                         {sheetStep === 'paste' && (
                             <div>
-                                <textarea value={shareText} onChange={event => setShareText(event.target.value)} rows={7} className={`${fieldClass} resize-none`} placeholder="把美团/饿了么的分享文字或链接粘贴到这里" />
+                                <MobileAutoGrowTextarea minHeight={120} maxHeight={216} value={shareText} onChange={event => setShareText(event.target.value)} className={fieldClass} placeholder="把美团/饿了么的分享文字或链接粘贴到这里" />
                                 <p className="text-[11px] text-slate-400 mt-2">只做本地候选解析，不访问原平台，也不会调用 AI。</p>
                                 <button type="button" onClick={parseShare} className="w-full mt-4 py-3 rounded-2xl bg-orange-500 text-white font-semibold active:scale-[0.99]">解析</button>
                             </div>
@@ -631,7 +632,7 @@ const FoodDelivery: React.FC = () => {
                                     <input type="number" inputMode="decimal" min="0" step="0.01" value={draft.price} onChange={event => updateDraft({ price: event.target.value })} className={`${fieldClass} mt-1`} placeholder="可以留空" />
                                 </label>
                                 <label className="block text-xs text-slate-500">描述
-                                    <textarea value={draft.description} onChange={event => updateDraft({ description: event.target.value })} rows={3} className={`${fieldClass} mt-1 resize-none`} placeholder="口味、规格等，可留空" />
+                                    <MobileAutoGrowTextarea minHeight={72} maxHeight={144} value={draft.description} onChange={event => updateDraft({ description: event.target.value })} className={`${fieldClass} mt-1`} placeholder="口味、规格等，可留空" />
                                 </label>
                                 <label className="block text-xs text-slate-500">原始链接
                                     <input value={draft.originalUrl} onChange={event => updateDraft({ originalUrl: event.target.value })} className={`${fieldClass} mt-1`} placeholder="仅支持 http / https" />

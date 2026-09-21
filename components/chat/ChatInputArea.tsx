@@ -5,6 +5,8 @@ import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
 import { trackEvent } from '../../utils/analytics';
+import { isCoarsePointerEnvironment, resolveEnterAction } from '../../utils/mobileComposer';
+import MobileAutoGrowTextarea from '../os/MobileAutoGrowTextarea';
 import EmojiImage from './EmojiImage';
 
 const EMOJI_PAGE_SIZE = 40;
@@ -111,12 +113,25 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const actionsSwipeStart = useRef<{ x: number; y: number } | null>(null);
     const actionsSwipeMoved = useRef(false);
     const useIOSStandaloneInputFix = isIOSStandaloneWebApp();
+    // Enter 键语义按指针环境定一次（coarse = 触屏移动端）：移动端 Enter=换行、按钮发送；
+    // 桌面保持 Enter=发送、Shift+Enter=换行。IME composition 中的 Enter 永不发送。
+    const isCoarsePointer = React.useMemo(() => isCoarsePointerEnvironment(), []);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        const action = resolveEnterAction({
+            isCoarse: isCoarsePointer,
+            key: e.key,
+            shiftKey: e.shiftKey,
+            ctrlKey: e.ctrlKey,
+            metaKey: e.metaKey,
+            isComposing: e.nativeEvent.isComposing,
+            keyCode: e.keyCode,
+        });
+        if (action === 'send') {
             e.preventDefault();
             onSend();
         }
+        // 'newline' / 'default'：不拦截，让浏览器原生插入换行（移动端 Enter、桌面 Shift+Enter、IME 选词）。
     };
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'chat' | 'bg') => {
@@ -435,20 +450,20 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                         <Plus className="w-6 h-6" weight="bold" />
                     </button>
                     <div className={`flex-1 min-w-0 flex items-center px-1 transition-all ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
-                        <textarea 
+                        <MobileAutoGrowTextarea
                             ref={textareaRef}
-                            rows={1} 
-                            value={input} 
-                            onChange={(e) => setInput(e.target.value)} 
-                            onKeyDown={handleKeyDown} 
+                            minHeight={44}
+                            maxHeight={152}
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
                             onFocus={handleInputFocus}
                             inputMode="text"
-                            enterKeyHint="send"
+                            enterKeyHint={isCoarsePointer ? 'enter' : 'send'}
                             autoCorrect="on"
                             autoCapitalize="sentences"
-                            className={`flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`} 
-                            placeholder="Message..." 
-                            style={{ height: 'auto' }} 
+                            className={`flex-1 min-w-0 px-4 py-3 ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`}
+                            placeholder="Message..."
                         />
                         <button onClick={() => setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis')} className={`p-2 shrink-0 ${isDiscordStyle ? 'text-slate-400 hover:text-sky-300' : isPixelStyle ? 'text-[#8f674a] hover:text-[#a16207]' : 'text-slate-400 hover:text-primary'}`}>
                             <Smiley className="w-6 h-6" weight="regular" />
