@@ -38,6 +38,7 @@ import {
   HouseLine,
   Gift as GiftIcon,
   BowlFood,
+  Waveform,
 } from '@phosphor-icons/react';
 
 // SVG 图标库 - Phosphor Icons
@@ -80,6 +81,7 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   WorldHome: ({ className }) => <HouseLine className={className} weight="regular" />,
   Gift: ({ className }) => <GiftIcon className={className} weight="regular" />,
   FoodDelivery: ({ className }) => <BowlFood className={className} weight="regular" />,
+  MessageFavorites: ({ className }) => <Waveform className={className} weight="regular" />,
 };
 
 export const INSTALLED_APPS: AppConfig[] = [
@@ -111,6 +113,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.HotNews, name: '热点', icon: 'HotNews', color: 'red' },
   { id: AppID.FAQ, name: '使用帮助', icon: 'FAQ', color: 'indigo' },
   { id: AppID.Gallery, name: '相册', icon: 'Gallery', color: 'orange' },
+  { id: AppID.MessageFavorites, name: '留音海螺', icon: 'MessageFavorites', color: 'cyan' },
   { id: AppID.XhsFreeRoam, name: '自由活动', icon: 'XhsFreeRoam', color: 'rose' },
   { id: AppID.XhsStock, name: '小红书图库', icon: 'XhsStock', color: 'red' },
   { id: AppID.ThemeMaker, name: '气泡工坊', icon: 'ThemeMaker', color: 'purple' },

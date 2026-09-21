@@ -11,7 +11,7 @@ afterEach(() => vi.restoreAllMocks());
 describe('playerWallet · 初始化', () => {
     it('DB v76 创建 money_ledger（eventKey 唯一索引）与 player_wallet', async () => {
         const db = await openDB();
-        expect(db.version).toBe(76);
+        expect(db.version).toBe(77);
         const ledger = db.transaction('money_ledger', 'readonly').objectStore('money_ledger');
         expect(ledger.index('eventKey').unique).toBe(true);
         expect(ledger.indexNames.contains('direction')).toBe(true);

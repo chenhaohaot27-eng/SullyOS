@@ -71,6 +71,7 @@ import { formatBytes } from '../utils/format';
 import { isEmotionEvalSkipped } from '../utils/devDebug';
 import { isBenignApplicationConsoleMessage } from '../utils/applicationConsole';
 import { toMountedWorldbook } from '../utils/worldbook';
+import { setGroupWorldbookSnapshotProvider } from '../utils/groupWorldbooks';
 import { initLocalStorageMirror } from '../utils/lsMirror';
 // 备份用：把存在 localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐）
 import { exportPostOfficeLocal } from '../utils/vrWorld/postOffice';
@@ -305,6 +306,8 @@ interface OSContextType {
   characterGroups: CharacterGroup[];
   createCharacterGroup: (name: string) => Promise<CharacterGroup | null>;
   renameCharacterGroup: (id: string, name: string) => Promise<void>;
+  /** 更新分组定义（如共享世界书 worldbookIds）；不存在的 id 安全忽略。 */
+  updateCharacterGroup: (id: string, updates: Partial<CharacterGroup>) => Promise<void>;
   deleteCharacterGroup: (id: string) => Promise<void>;
   
   // Worldbooks
@@ -881,6 +884,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [worldbooks, setWorldbooks] = useState<Worldbook[]>([]); 
   const [novels, setNovels] = useState<NovelBook[]>([]); // New
   const [songs, setSongs] = useState<SongSheet[]>([]);
+
+  // 分组共享世界书：把最新 characterGroups / worldbooks 快照注入 canonical 合并点
+  // （utils/groupWorldbooks.ts）。provider 是 getter，每次取数都拿到这里的最新 state。
+  useEffect(() => {
+    setGroupWorldbookSnapshotProvider(() => ({ characterGroups, worldbooks }));
+    return () => setGroupWorldbookSnapshotProvider(null);
+  }, [characterGroups, worldbooks]);
 
   const [userProfile, setUserProfile] = useState<UserProfile>(defaultUserProfile);
   
@@ -3206,6 +3216,17 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       if (target) await DB.saveCharacterGroup(target);
   };
 
+  // 更新分组定义（共享世界书 worldbookIds 等）；只 merge 传入字段，安全幂等。
+  const updateCharacterGroup = async (id: string, updates: Partial<CharacterGroup>) => {
+      let target: CharacterGroup | undefined;
+      setCharacterGroups(prev => {
+          const updated = prev.map(g => g.id === id ? { ...g, ...updates } : g);
+          target = updated.find(g => g.id === id);
+          return updated;
+      });
+      if (target) await DB.saveCharacterGroup(target);
+  };
+
   // 删分组 = 组内角色回落「未分组」+ 删分组定义本身，角色不受影响
   const deleteCharacterGroup = async (id: string) => {
       setCharacters(prev => prev.map(c => {
@@ -3337,6 +3358,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           return char;
       });
       setCharacters(updatedChars);
+
+      // 同步清理分组的共享世界书引用（CharacterGroup.worldbookIds 只存 id；
+      // 残留死 id 由解析端安全忽略，这里顺手清掉保持数据干净）。
+      const groupsUsingBook = characterGroups.filter(g => g.worldbookIds?.includes(id));
+      if (groupsUsingBook.length > 0) {
+          for (const g of groupsUsingBook) {
+              const next = { ...g, worldbookIds: (g.worldbookIds || []).filter(wbId => wbId !== id) };
+              await DB.saveCharacterGroup(next);
+          }
+          setCharacterGroups(prev => prev.map(g => g.worldbookIds?.includes(id)
+              ? { ...g, worldbookIds: (g.worldbookIds || []).filter(wbId => wbId !== id) }
+              : g));
+      }
       addToast('世界书已删除 (同步移除角色挂载)', 'success');
   };
 
@@ -4966,6 +5000,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     characterGroups,
     createCharacterGroup,
     renameCharacterGroup,
+    updateCharacterGroup,
     deleteCharacterGroup,
     worldbooks,
     addWorldbook,

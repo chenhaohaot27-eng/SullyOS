@@ -46,6 +46,7 @@ export enum AppID {
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Gift = 'gift', // 礼物 — 玩家与角色互赠礼物的记录（GiftRecord 唯一真相源，utils/giftStore.ts）
   FoodDelivery = 'food_delivery', // 外卖 — 导入并收藏真实商品（Phase 1 仅 Catalog）
+  MessageFavorites = 'message_favorites', // 留音海螺 — 长按收藏的聊天消息快照（MessageFavorite 唯一真相源，message_favorites store）
 }
 
 export interface SystemLog {
@@ -2198,6 +2199,13 @@ export interface StoryTheaterEntry {
     presetOverride?: StoryTheaterPresetDocument;
     /** 仅供拒绝 assistant prefill、要求最后一条消息必须为 user 的接口使用；默认关闭以保留原生预设效果。 */
     forceUserLastMessage?: boolean;
+    /**
+     * 剧情归属的角色分组快照（CharacterGroup.id）：
+     * 新建/保存时若参与角色全部属于同一分组则写入；混合/未分组不写。
+     * 一旦写入就是快照——之后角色换组、分组被删都不改写它；缺省的旧剧情由列表
+     * 筛选端按当前 participants 推断（全部同组才归入该组）。
+     */
+    characterGroupId?: string;
     createdAt: number;
     updatedAt: number;
 }
@@ -3138,6 +3146,13 @@ export interface CharacterGroup {
     /** 排序权重（暂未在 UI 暴露，缺省按 createdAt 先后） */
     order?: number;
     createdAt?: number;
+    /**
+     * 分组共享世界书：引用全局 Worldbook.id（不复制正文）。
+     * 角色进行 Chat / Meet / Story 生成时，effective worldbooks =
+     * 个人 mountedWorldbooks + 所属分组这里引用的全局世界书（按 id 去重）。
+     * 分组被删 / 世界书不存在时由解析端安全忽略。
+     */
+    worldbookIds?: string[];
 }
 
 export interface GroupProfile {
@@ -3825,6 +3840,36 @@ export interface EmojiCategory {
     allowedCharacterIds?: string[]; // If set, only these characters can see this category
 }
 
+/**
+ * 留音海螺的收藏：聊天消息长按收藏后的**快照**记录。
+ * 原消息以后被删除，收藏仍保留可读；只保存渲染所需最小字段。
+ * id 由 sourceMessageId 决定（`mfav-<sourceMessageId>`），同一消息重复收藏天然幂等。
+ */
+export interface MessageFavorite {
+    /** `mfav-${sourceMessageId}` —— sourceMessageId 决定，重复收藏不产生两条 */
+    id: string;
+    sourceMessageId: number;
+    charId: string;
+    charNameSnapshot: string;
+    messageRole: 'user' | 'assistant' | 'system';
+    /** 原消息 Message.type（'text' | 'image' | ...） */
+    messageType: string;
+    /** 留音海螺里的展示分类：文字 / 语音 / 图片 */
+    favoriteType: 'text' | 'voice' | 'image';
+    /** 文字快照（图片消息为空；语音消息为可读文本） */
+    contentSnapshot: string;
+    /**
+     * 媒体引用（保持可恢复）：
+     * 图片 → 消息 content 本身（blobref: 令牌 / data URL / http URL）；
+     * 语音 → assets store 里的音频资产 key（`voice_msg_<id>`，Blob/remoteUrl 均可回放）。
+     */
+    mediaRef?: string;
+    /** 渲染所需最小元数据（如语音的 spokenText/lang），不保存大型上下文 */
+    metadataSnapshot?: Record<string, any>;
+    favoritedAt: number;
+    originalTimestamp: number;
+}
+
 export interface Emoji {
     name: string;
     url: string;
@@ -3864,6 +3909,8 @@ export interface FullBackupData {
     savedJournalStickers?: {name: string, url: string}[]; 
     assets?: { id: string, data: string }[];
     galleryImages?: GalleryImage[];
+    /** 留音海螺收藏快照（message_favorites store；旧备份缺失 → 恢复端按空处理） */
+    messageFavorites?: MessageFavorite[];
     userProfile?: UserProfile;
     diaries?: DiaryEntry[];
     tasks?: Task[];

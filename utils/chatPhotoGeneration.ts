@@ -25,6 +25,7 @@ import {
 } from './imageGenerationService';
 import { loadImageGenerationConfig } from './imageGenerationConfig';
 import { chatPhotoIntentKey, claimChatPhotoTurn, type ChatPhotoIntent } from './chatPhotoIntent';
+import { syncAssistantPhotoToGallery } from './gallerySync';
 
 export type ChatPhotoStatus = 'pending' | 'ready' | 'failed';
 
@@ -145,6 +146,12 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
             ...(prev || {}),
             chatPhoto: { ...(prev?.chatPhoto || {}), status: 'ready' },
         }));
+        // canonical 成功落图点：所有真正成为 assistant image message 的拍照图片统一经
+        // gallerySync 入相册（id=chatphoto-<messageId> 幂等；失败路径在上方 fail 提前返回，
+        // 永远到不了这里）。retry 复用同一 messageId → 同一相册记录，不重复。
+        try {
+            await syncAssistantPhotoToGallery({ charId: char.id, messageId, url: blobRef, caption: intent.caption });
+        } catch { /* 入相册失败不影响聊天消息本体 */ }
         return { status: 'ready' };
     } catch (e) {
         return fail(errMessage(e));

@@ -5,7 +5,15 @@ import { DB } from '../utils/db';
 import { GalleryImage, CharacterProfile } from '../types';
 import { safeResponseJson } from '../utils/safeApi';
 import ConfirmDialog from '../components/os/ConfirmDialog';
+import { deleteGalleryImageWithGC } from '../utils/gallerySync';
+import { useBlobRefUrl } from '../utils/blobRef';
 import { trackEvent } from '../utils/analytics';
+
+/** 相册图片渲染：blobref 令牌（角色拍照图）自动解析成 objectURL；data/http 原样直出。 */
+const GalleryImageImg: React.FC<{ img: GalleryImage; className?: string; alt?: string }> = ({ img, className, alt }) => {
+    const resolved = useBlobRefUrl(img.url);
+    return <img src={resolved || undefined} className={className} loading="lazy" alt={alt} />;
+};
 
 const Gallery: React.FC = () => {
     const { closeApp, characters, apiConfig, addToast } = useOS();
@@ -73,7 +81,8 @@ const Gallery: React.FC = () => {
                 onConfirm: async () => {
                     const imgs = await DB.getGalleryImages(charId);
                     for (const img of imgs) {
-                        await DB.deleteGalleryImage(img.id);
+                        // 清空相册时该角色名下的 blob 通常再无引用 → 顺手 GC 真正释放空间
+                        await deleteGalleryImageWithGC(img);
                     }
                     setAlbumCounts(prev => ({ ...prev, [charId]: 0 }));
                     addToast('相册已清空', 'success');
@@ -91,25 +100,53 @@ const Gallery: React.FC = () => {
         }
     }, []);
 
-    // Delete single image
+    // Delete single image（详情页 / 网格长按共用；删除后如 blob 无引用则真正释放本地空间）
     const handleDeleteImage = async () => {
         if (!selectedImage) return;
         setConfirmDialog({
             isOpen: true,
             title: '删除照片',
-            message: '确定要删除这张照片吗？',
+            message: '永久删除这张照片？此操作无法撤销。',
             variant: 'danger',
             onConfirm: async () => {
-                await DB.deleteGalleryImage(selectedImage.id);
+                const { blobDeleted } = await deleteGalleryImageWithGC(selectedImage);
                 setImages(prev => prev.filter(img => img.id !== selectedImage.id));
                 setView('grid');
                 setSelectedImage(null);
-                addToast('照片已删除', 'success');
+                addToast(blobDeleted ? '照片已删除（本地空间已释放）' : '照片已删除', 'success');
                 trackEvent('删除一张照片');
                 setConfirmDialog(null);
             }
         });
     };
+
+    // 长按网格缩略图 → 同一个删除确认（用户清晰可发现的第二个删除入口）
+    const handleThumbPressStart = useCallback((img: GalleryImage) => {
+        longPressTimer.current = setTimeout(() => {
+            setSelectedImage(img);
+            setConfirmDialog({
+                isOpen: true,
+                title: '删除照片',
+                message: '永久删除这张照片？此操作无法撤销。',
+                variant: 'danger',
+                onConfirm: async () => {
+                    const { blobDeleted } = await deleteGalleryImageWithGC(img);
+                    setImages(prev => prev.filter(item => item.id !== img.id));
+                    if (selectedImage?.id === img.id) setSelectedImage(null);
+                    addToast(blobDeleted ? '照片已删除（本地空间已释放）' : '照片已删除', 'success');
+                    trackEvent('删除一张照片');
+                    setConfirmDialog(null);
+                }
+            });
+        }, 600);
+    }, [selectedImage?.id, addToast]);
+
+    const handleThumbPressEnd = useCallback(() => {
+        if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        }
+    }, []);
 
     const handleReview = async () => {
         if (!selectedImage || !activeCharId || !apiConfig.apiKey) {
@@ -297,8 +334,18 @@ CRITICAL: Stay in character. If there's conversation context, your comment shoul
             ) : (
                 <div className="grid grid-cols-3 gap-1">
                     {images.map(img => (
-                        <div key={img.id} onClick={() => handleImageClick(img)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden rounded-sm">
-                            <img src={img.url} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" loading="lazy" />
+                        <div
+                            key={img.id}
+                            onClick={() => handleImageClick(img)}
+                            onTouchStart={() => handleThumbPressStart(img)}
+                            onTouchEnd={handleThumbPressEnd}
+                            onTouchCancel={handleThumbPressEnd}
+                            onMouseDown={() => handleThumbPressStart(img)}
+                            onMouseUp={handleThumbPressEnd}
+                            onMouseLeave={handleThumbPressEnd}
+                            className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden rounded-sm"
+                        >
+                            <GalleryImageImg img={img} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" />
                             {img.review && <div className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-white shadow-sm"></div>}
                             {img.savedDate && <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/50 to-transparent px-1.5 pb-1 pt-3"><span className="text-[8px] text-white/80 font-mono">{img.savedDate}</span></div>}
                         </div>
@@ -329,8 +376,8 @@ CRITICAL: Stay in character. If there's conversation context, your comment shoul
 
             {/* Main Image */}
             <div className="flex-1 min-h-0 w-full flex items-center justify-center bg-black relative overflow-hidden">
-                <img
-                    src={selectedImage.url}
+                <GalleryImageImg
+                    img={selectedImage}
                     className="max-w-full max-h-full object-contain"
                     alt="Detail"
                 />

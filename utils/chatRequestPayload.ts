@@ -29,6 +29,7 @@ import { findPendingSharedSong, buildSharedSongContextBlock } from './musicConte
 import { isPromptBuildSkipped, isSystemMessageMergeEnabled } from './devDebug';
 import { mergeSystemMessages } from './systemMessageMerge';
 import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldbook';
+import { getEffectiveMountedWorldbooks } from './groupWorldbooks';
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
@@ -400,7 +401,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
     const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
     const resolvedWorldbookEntries = resolveWorldbookEntries(
-        char.mountedWorldbooks || [],
+        getEffectiveMountedWorldbooks(char),
         cleanedApiMessages,
         char.name,
         userProfile.name,

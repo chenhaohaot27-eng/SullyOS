@@ -25,6 +25,7 @@ import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { getVoicePromptOverride } from './ttsProvider';
 import { injectWorldbookDepthEntries, resolveWorldbookEntries, splitWorldbookSections, type WorldbookScanMessage } from './worldbook';
+import { getEffectiveMountedWorldbooks } from './groupWorldbooks';
 
 export type ApiMessage = { role: string; content: any };
 
@@ -855,7 +856,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         // 现状一致；Memory Palace 高水位过滤在 buildDateHistory 内保持不变。
         const worldbookScan = toWorldbookScanMessages(historyMsgs, userText);
         const depthEntries = splitWorldbookSections(resolveWorldbookEntries(
-            char.mountedWorldbooks || [],
+            getEffectiveMountedWorldbooks(char),
             worldbookScan,
             char.name,
             userProfile?.name || '',

@@ -80,6 +80,9 @@ interface ChatModalsProps {
     onConfirmEditMessage: () => void;
     onDeleteMessage: () => void;
     onCopyMessage: () => void;
+    /** 留音海螺：收藏 / 取消收藏当前长按的消息（已收藏时按钮显示「已收藏」） */
+    selectedMessageFavorited?: boolean;
+    onToggleFavoriteMessage?: () => void;
     onDeleteEmoji: () => void;
     onExportEmojiDiagnostic: () => Promise<void>;
     onDeleteCategory: () => void;
@@ -246,7 +249,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     onTransfer, onImportEmoji, onSaveSettings,
     onBgUpload, onRemoveBg, onClearHistory,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
-    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
+    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, selectedMessageFavorited, onToggleFavoriteMessage, onDeleteEmoji, onDeleteCategory,
     onExportEmojiDiagnostic,
     allCharacters = [], onSaveCategoryVisibility,
     translationEnabled, onToggleTranslation, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
@@ -934,6 +937,12 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     <button onClick={onReplyMessage} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
                         引用 / 回复
                     </button>
+                    {onToggleFavoriteMessage && selectedMessage && (
+                        <button onClick={() => { onToggleFavoriteMessage(); }} className={`w-full py-3 font-medium rounded-2xl transition-colors flex items-center justify-center gap-2 ${selectedMessageFavorited ? 'bg-amber-50 text-amber-600 active:bg-amber-100' : 'bg-slate-50 text-slate-700 active:bg-slate-100'}`}>
+                            <svg xmlns="http://www.w3.org/2000/svg" fill={selectedMessageFavorited ? 'currentColor' : 'none'} viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>
+                            {selectedMessageFavorited ? '已收藏（点按取消）' : '收藏到留音海螺'}
+                        </button>
+                    )}
                     {selectedMessage?.type === 'text' && (
                         <button onClick={onEditMessageStart} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
                             编辑内容

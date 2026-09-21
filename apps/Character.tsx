@@ -88,7 +88,7 @@ const CharacterCard: React.FC<{
 );
 
 const Character: React.FC = () => {
-  const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, deleteCharacter, characterGroups, createCharacterGroup, renameCharacterGroup, deleteCharacterGroup, apiConfig, addToast, userProfile, worldbooks, addWorldbook } = useOS();
+  const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, deleteCharacter, characterGroups, createCharacterGroup, renameCharacterGroup, updateCharacterGroup, deleteCharacterGroup, apiConfig, addToast, userProfile, worldbooks, addWorldbook } = useOS();
   const launchIntent = characterLaunch.peek();
   const [view, setView] = useState<'list' | 'detail'>(() => launchIntent ? 'detail' : 'list');
   const [charPage, setCharPage] = useState(0); // 角色列表分页（每页 6 个，仅未建分组时）
@@ -150,6 +150,7 @@ const Character: React.FC = () => {
   const [wbModalSearch, setWbModalSearch] = useState('');
   const [wbModalExpandedCategory, setWbModalExpandedCategory] = useState<string | null>(null);
   const [showGroupModal, setShowGroupModal] = useState(false); // 角色分组管理
+    const [expandedGroupWorldbooks, setExpandedGroupWorldbooks] = useState<string | null>(null); // 正在编辑共享世界书的分组
   const [newGroupName, setNewGroupName] = useState('');
   // 编辑页「新建分组并指派」的内联输入
   const [detailGroupDraft, setDetailGroupDraft] = useState<string | null>(null);
@@ -1935,20 +1936,59 @@ ${isInitialGeneration ? `
                 ) : (
                     <div className="space-y-2 max-h-64 overflow-y-auto no-scrollbar">
                         {sortCharacterGroups(characterGroups).map(g => (
-                            <div key={g.id} className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                                <input
-                                    defaultValue={g.name}
-                                    onBlur={e => { const v = e.target.value.trim(); if (v && v !== g.name) renameCharacterGroup(g.id, v); else e.target.value = g.name; }}
-                                    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                                    className="flex-1 min-w-0 bg-transparent text-sm text-slate-700 outline-none border-b border-transparent focus:border-slate-300 py-0.5"
-                                />
-                                <span className="text-xs text-slate-400 tabular-nums shrink-0">{characters.filter(c => c.groupId === g.id).length} 个角色</span>
-                                <button
-                                    onClick={() => { deleteCharacterGroup(g.id); addToast(`分组「${g.name}」已删除，组内角色回到未分组`, 'info'); }}
-                                    className="p-1.5 rounded-full text-slate-300 hover:bg-red-50 hover:text-red-400 transition-all shrink-0"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-                                </button>
+                            <div key={g.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        defaultValue={g.name}
+                                        onBlur={e => { const v = e.target.value.trim(); if (v && v !== g.name) renameCharacterGroup(g.id, v); else e.target.value = g.name; }}
+                                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                                        className="flex-1 min-w-0 bg-transparent text-sm text-slate-700 outline-none border-b border-transparent focus:border-slate-300 py-0.5"
+                                    />
+                                    <span className="text-xs text-slate-400 tabular-nums shrink-0">{characters.filter(c => c.groupId === g.id).length} 个角色</span>
+                                    <button
+                                        onClick={() => setExpandedGroupWorldbooks(prev => prev === g.id ? null : g.id)}
+                                        className={`px-2 py-1 rounded-full text-[10px] font-bold shrink-0 transition-colors ${g.worldbookIds?.length ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'}`}
+                                        title="共享世界书：组内所有角色生成时一并生效（按 id 引用，不复制正文）"
+                                    >
+                                        书 {g.worldbookIds?.length || 0}
+                                    </button>
+                                    <button
+                                        onClick={() => { deleteCharacterGroup(g.id); addToast(`分组「${g.name}」已删除，组内角色回到未分组`, 'info'); }}
+                                        className="p-1.5 rounded-full text-slate-300 hover:bg-red-50 hover:text-red-400 transition-all shrink-0"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                                {expandedGroupWorldbooks === g.id && (
+                                    <div className="mt-2 pt-2 border-t border-slate-200/70">
+                                        <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider mb-1.5">共享世界书 · 组内角色的 Chat / 见面 / 剧情一并生效</div>
+                                        {worldbooks.length === 0 ? (
+                                            <div className="text-[10px] text-slate-400 py-2">还没有全局世界书。先去「世界书」App 建一本。</div>
+                                        ) : (
+                                            <div className="max-h-36 overflow-y-auto no-scrollbar flex flex-col gap-0.5">
+                                                {worldbooks.map(wb => {
+                                                    const checked = g.worldbookIds?.includes(wb.id) === true;
+                                                    return (
+                                                        <label key={wb.id} className="flex items-center gap-2 px-1.5 py-1.5 rounded-lg hover:bg-white cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={e => {
+                                                                    const next = e.target.checked
+                                                                        ? [...(g.worldbookIds || []), wb.id]
+                                                                        : (g.worldbookIds || []).filter(id => id !== wb.id);
+                                                                    updateCharacterGroup(g.id, { worldbookIds: next });
+                                                                }}
+                                                                className="accent-indigo-500 w-3.5 h-3.5 shrink-0"
+                                                            />
+                                                            <span className={`text-xs truncate ${checked ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>{wb.title}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>

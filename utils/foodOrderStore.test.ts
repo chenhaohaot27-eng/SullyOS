@@ -21,7 +21,7 @@ const make = (over: Partial<CreateFoodOrderInput> = {}): CreateFoodOrderInput =>
 describe('foodOrderStore', () => {
     it('DB v75 创建 store 和三个索引且不建 status index', async () => {
         const db = await openDB();
-        expect(db.version).toBe(76);
+        expect(db.version).toBe(77);
         const store = db.transaction('food_orders', 'readonly').objectStore('food_orders');
         expect(store.index('eventKey').unique).toBe(true);
         expect(store.indexNames.contains('charId')).toBe(true);

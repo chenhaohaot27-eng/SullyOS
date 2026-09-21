@@ -10,6 +10,7 @@ import {
     splitWorldbookSections,
     type WorldbookScanMessage,
 } from './worldbook';
+import { getEffectiveMountedWorldbooks } from './groupWorldbooks';
 
 /**
  * Memory Central
@@ -133,9 +134,10 @@ export const ContextBuilder = {
         },
     ): string => {
         const skipBookIds = groupOptions?.skipWorldbookIds;
-        const filteredBooks = (char.mountedWorldbooks || []).filter(wb => !skipBookIds || !skipBookIds.has(wb.id));
+        // 分组共享世界书在 canonical 合并点统一并入（个人挂载 + CharacterGroup.worldbookIds，按 id 去重）
+        const effectiveBooks = getEffectiveMountedWorldbooks(char).filter(wb => !skipBookIds || !skipBookIds.has(wb.id));
         const worldbookSections = splitWorldbookSections(resolveWorldbookEntries(
-            filteredBooks,
+            effectiveBooks,
             timeOptions?.worldbookMessages || [],
             char.name,
             user.name,

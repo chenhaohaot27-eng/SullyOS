@@ -5,6 +5,7 @@ import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
 import { processImage } from '../utils/file';
 import { retryChatPhotoMessage } from '../utils/chatPhotoGeneration';
+import { buildMessageFavorite, MESSAGE_FAVORITE_ID_PREFIX } from '../utils/messageFavoriteCapture';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
@@ -2734,6 +2735,40 @@ const Chat: React.FC = () => {
         setModalType('message-options');
     }, []);
 
+    // --- 留音海螺：长按消息收藏 / 取消收藏 ---
+    const [favoritedMsgIds, setFavoritedMsgIds] = useState<Set<number>>(new Set());
+    useEffect(() => {
+        let cancelled = false;
+        setFavoritedMsgIds(new Set());
+        if (!activeCharacterId) return;
+        DB.getMessageFavorites(activeCharacterId)
+            .then(rows => { if (!cancelled) setFavoritedMsgIds(new Set(rows.map(r => r.sourceMessageId))); })
+            .catch(() => { /* 读取失败按未收藏处理 */ });
+        return () => { cancelled = true; };
+    }, [activeCharacterId]);
+
+    const handleToggleFavoriteMessage = useCallback(() => {
+        const msg = selectedMessage;
+        if (!msg || !char) return;
+        const wasFavorited = favoritedMsgIds.has(msg.id);
+        (async () => {
+            if (wasFavorited) {
+                // 取消收藏只删记录，不动原消息
+                await DB.deleteMessageFavorite(`${MESSAGE_FAVORITE_ID_PREFIX}${msg.id}`);
+                setFavoritedMsgIds(prev => { const next = new Set(prev); next.delete(msg.id); return next; });
+                addToast('已取消收藏', 'success');
+            } else {
+                const favorite = buildMessageFavorite({ msg, char, voiceData: voiceDataMap[msg.id] });
+                await DB.saveMessageFavorite(favorite);
+                setFavoritedMsgIds(prev => new Set(prev).add(msg.id));
+                addToast('已收进留音海螺 🐚', 'success');
+                trackEvent('收藏一条消息到留音海螺');
+            }
+            setModalType('none');
+            setSelectedMessage(null);
+        })().catch(() => addToast('收藏操作失败，请重试', 'error'));
+    }, [selectedMessage, char, favoritedMsgIds, voiceDataMap, addToast]);
+
     const handleBatchDelete = async () => {
         const msgIdsToDelete = new Set<number>(selectedMsgIds);
         // 思维链单独勾选、但宿主消息没选 -> 只清 metadata.thinkingChain，保留消息
@@ -3300,7 +3335,10 @@ const Chat: React.FC = () => {
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
-                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
+                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage}
+                selectedMessageFavorited={!!(selectedMessage?.id && favoritedMsgIds.has(selectedMessage.id))}
+                onToggleFavoriteMessage={handleToggleFavoriteMessage}
+                onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
                 onExportEmojiDiagnostic={handleExportEmojiDiagnostic}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}

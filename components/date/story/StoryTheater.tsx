@@ -4,6 +4,15 @@ import { useOS } from '../../../context/OSContext';
 import type { StoryTheaterEntry, StoryTheaterMask, StoryTheaterMaskSelection, StoryTheaterPreset } from '../../../types';
 import { DB } from '../../../utils/db';
 import {
+    GROUP_FILTER_ALL,
+    GROUP_FILTER_UNGROUPED,
+    GroupFilterChips,
+    filterStoryTheatersByGroup,
+    resolveStoryTheaterGroupKey,
+    snapshotStoryCharacterGroupId,
+    sortCharacterGroups,
+} from '../../character/CharacterGroupFilter';
+import {
     BUILTIN_NIGHT_SCREENING_PRESET,
     createBlankStoryPreset,
     createStoryTheaterDraft,
@@ -39,9 +48,10 @@ interface Props {
 type View = 'list' | 'editor' | 'session' | 'preset' | 'masks' | 'vectors';
 
 const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose, launchDraft, onLaunchConsumed }) => {
-    const { characters, userProfile, addToast, remoteVectorConfig } = useOS();
+    const { characters, characterGroups, userProfile, addToast, remoteVectorConfig } = useOS();
     const [view, setView] = useState<View>('list');
     const [entries, setEntries] = useState<StoryTheaterEntry[]>([]);
+    const [storyGroupFilter, setStoryGroupFilter] = useState<string>(GROUP_FILTER_ALL);
     const [customPresets, setCustomPresets] = useState<StoryTheaterPreset[]>([]);
     const [masks, setMasks] = useState<StoryTheaterMask[]>([]);
     const [activeEntry, setActiveEntry] = useState<StoryTheaterEntry | null>(null);
@@ -96,19 +106,23 @@ const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose, laun
     }, [addToast]);
 
     const saveEntry = useCallback(async (next: StoryTheaterEntry) => {
-        const normalized = normalizeStoryTheater(next);
+        // 分组快照：新建/编辑保存时，若参与角色全部同组则固化 characterGroupId（之后换组不改写）
+        const snapshotted = snapshotStoryCharacterGroupId(next, characters, characterGroups);
+        const normalized = normalizeStoryTheater(snapshotted);
         await DB.saveStoryTheater(normalized);
         setEntries(current => [normalized, ...current.filter(item => item.id !== normalized.id)].sort((a, b) => b.updatedAt - a.updatedAt));
         setActiveEntry(normalized);
         setView('session');
-    }, []);
+    }, [characters, characterGroups]);
 
     const persistEntryInSession = useCallback(async (next: StoryTheaterEntry) => {
-        const normalized = normalizeStoryTheater(next);
+        // 旧剧情在会话里再次落库时补写分组快照（已写入的保持不变）
+        const snapshotted = snapshotStoryCharacterGroupId(next, characters, characterGroups);
+        const normalized = normalizeStoryTheater(snapshotted);
         await DB.saveStoryTheater(normalized);
         setActiveEntry(normalized);
         setEntries(current => [normalized, ...current.filter(item => item.id !== normalized.id)].sort((a, b) => b.updatedAt - a.updatedAt));
-    }, []);
+    }, [characters, characterGroups]);
 
     const savePreset = useCallback(async (next: StoryTheaterPreset) => {
         if (next.builtIn) return;
@@ -271,7 +285,21 @@ const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose, laun
                 </section>
 
                 <section className='py-6'>
-                    {entries.length === 0 ? <button onClick={() => { setMaskLocked(false); setActiveEntry({ ...createStoryTheaterDraft(), presetId: presets[0]?.id }); setView('editor'); }} className='w-full py-14 rounded-3xl border border-dashed border-slate-300 text-center'><span className='block text-sm font-semibold'>新增第一条剧情</span><span className='block mt-2 text-[10px] text-slate-400'>选择多位角色、记忆方式、世界书与原生预设</span></button> : <div className='divide-y divide-slate-200'>{entries.map(item => {
+                    {/* 剧情按角色/世界观分组筛选：复用选角入口同一套胶囊视觉；没建过分组整条不渲染 */}
+                    {characterGroups.length > 0 && (() => {
+                        const ungroupedCount = entries.filter(item => resolveStoryTheaterGroupKey(item, characters, characterGroups) === GROUP_FILTER_UNGROUPED).length;
+                        const chips: { id: string; label: string; count: number }[] = [
+                            { id: GROUP_FILTER_ALL, label: '全部', count: entries.length },
+                            ...sortCharacterGroups(characterGroups).map(g => ({
+                                id: g.id,
+                                label: g.name,
+                                count: entries.filter(item => resolveStoryTheaterGroupKey(item, characters, characterGroups) === g.id).length,
+                            })),
+                        ];
+                        if (ungroupedCount > 0) chips.push({ id: GROUP_FILTER_UNGROUPED, label: '未分组', count: ungroupedCount });
+                        return <GroupFilterChips className='mb-4' chips={chips} value={storyGroupFilter} onChange={setStoryGroupFilter} />;
+                    })()}
+                    {(() => { const visibleEntries = filterStoryTheatersByGroup(entries, characters, characterGroups, storyGroupFilter); return visibleEntries.length === 0 ? (entries.length === 0 ? <button onClick={() => { setMaskLocked(false); setActiveEntry({ ...createStoryTheaterDraft(), presetId: presets[0]?.id }); setView('editor'); }} className='w-full py-14 rounded-3xl border border-dashed border-slate-300 text-center'><span className='block text-sm font-semibold'>新增第一条剧情</span><span className='block mt-2 text-[10px] text-slate-400'>选择多位角色、记忆方式、世界书与原生预设</span></button> : <div className='py-10 rounded-3xl border border-dashed border-slate-200 text-center text-[11px] text-slate-400'>这个分组下还没有剧情</div>) : <div className='divide-y divide-slate-200'>{visibleEntries.map(item => {
                         const cast = characters.filter(char => item.characterIds.includes(char.id));
                         const mask = resolveStoryTheaterMask(item.mask, userProfile, characters, masks);
                         const youLabel = mask.selection.type === 'user' ? '你' : `你（${mask.name}）`;
@@ -286,7 +314,7 @@ const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose, laun
                             {hasVectorArchive && <button onClick={() => { setActiveEntry(item); setView('vectors'); }} className='w-10 h-10 shrink-0 rounded-full bg-white border border-slate-200 grid place-items-center text-violet-600' title='查看本剧情向量记忆' aria-label='查看本剧情向量记忆'><Database size={17} /></button>}
                             <button onClick={() => setDeletingEntry(item)} className='w-10 h-10 shrink-0 rounded-full grid place-items-center text-rose-400 active:bg-rose-50' title='删除整个剧情' aria-label={`删除剧情 ${item.title}`}><Trash size={17} /></button>
                         </div>;
-                    })}</div>}
+                    })}</div>})()}
                 </section>
 
                 <section className='pt-6 border-t border-slate-200'>

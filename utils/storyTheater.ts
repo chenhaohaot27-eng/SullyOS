@@ -17,6 +17,7 @@ import {
     splitWorldbookSections,
     type WorldbookScanMessage,
 } from './worldbook';
+import { getEffectiveMountedWorldbooks } from './groupWorldbooks';
 
 export type StoryApiRole = 'system' | 'user' | 'assistant';
 export interface StoryApiMessage { role: StoryApiRole; content: string; }
@@ -954,7 +955,8 @@ export const dedupeTheaterWorldbooks = (characters: CharacterProfile[]): Mounted
     const seen = new Set<string>();
     const output: MountedWorldbook[] = [];
     for (const char of characters) {
-        for (const book of (char.mountedWorldbooks || [])) {
+        // 分组共享世界书经 canonical 合并点并入（个人 + CharacterGroup.worldbookIds 引用）
+        for (const book of getEffectiveMountedWorldbooks(char)) {
             const keys = [
                 book.id ? `id:${book.id}` : '',
                 `body:${book.title.trim().toLocaleLowerCase()}\u0000${book.content.trim()}`,

@@ -9,6 +9,7 @@ import {
     MoneyLedgerEntry, PlayerWalletConfig,
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
+    MessageFavorite,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
     WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask
 } from '../types';
@@ -56,7 +57,8 @@ const DB_NAME = 'AetherOS_Data';
 // v74：外卖商品目录（food_catalog；fingerprint 唯一索引防重复导入）。
 // v75：外卖订单唯一真相源（food_orders；eventKey 唯一索引持久幂等）。
 // v76：玩家统一钱包（money_ledger 流水 eventKey 唯一索引持久幂等 + player_wallet singleton 配置）。
-const DB_VERSION = 76;
+// v77：留音海螺 message_favorites store（sourceMessageId 唯一索引 + id=`mfav-<sourceMessageId>` 双保险幂等）。
+const DB_VERSION = 77;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -114,6 +116,7 @@ const STORE_FOOD_CATALOG = 'food_catalog';         // 外卖商品目录（Phase
 const STORE_FOOD_ORDERS = 'food_orders';           // 外卖订单（Phase 2；Chat 卡片只做投影）
 const STORE_MONEY_LEDGER = 'money_ledger';         // 玩家钱包流水（utils/playerWallet.ts 独占数据访问；eventKey 唯一索引做持久幂等）
 const STORE_PLAYER_WALLET = 'player_wallet';       // 玩家钱包 singleton 配置（id='default'：openingBalance 切点等）
+const STORE_MESSAGE_FAVORITES = 'message_favorites'; // 留音海螺收藏快照（sourceMessageId 唯一索引；id=`mfav-<msgId>` 幂等）
 const STORE_LIFE_RECORDS = 'life_records';        // 生活记录：生理期/药盒打卡/锻炼（记账走 bank_transactions）
 const STORE_MED_PLANS = 'med_plans';              // 药盒计划（每天几点吃什么药）
 const STORE_LIFE_SETTINGS = 'life_record_settings'; // 生活记录设置单例（id='main'：周期长度等）
@@ -574,6 +577,23 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains('pixel_home_layouts')) {
           const phlStore = db.createObjectStore('pixel_home_layouts', { keyPath: ['charId', 'roomId'] });
           phlStore.createIndex('charId', 'charId', { unique: false });
+      }
+
+      // ─── v77: 留音海螺 message_favorites ───────────────
+      // sourceMessageId 唯一索引：即使外部直接 put 了一条 id 不同但同源消息的记录，
+      // 也会被唯一索引挡下（saveMessageFavorite 先查后写，正常路径根本不会走到这）。
+      if (!db.objectStoreNames.contains(STORE_MESSAGE_FAVORITES)) {
+          const mfavStore = db.createObjectStore(STORE_MESSAGE_FAVORITES, { keyPath: 'id' });
+          mfavStore.createIndex('sourceMessageId', 'sourceMessageId', { unique: true });
+          mfavStore.createIndex('charId', 'charId', { unique: false });
+      } else {
+          const mfavStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_MESSAGE_FAVORITES);
+          if (mfavStore && !mfavStore.indexNames.contains('sourceMessageId')) {
+              try { mfavStore.createIndex('sourceMessageId', 'sourceMessageId', { unique: true }); } catch { /* 已存在 */ }
+          }
+          if (mfavStore && !mfavStore.indexNames.contains('charId')) {
+              try { mfavStore.createIndex('charId', 'charId', { unique: false }); } catch { /* 已存在 */ }
+          }
       }
     };
   });
@@ -1488,6 +1508,70 @@ export const DB = {
       const db = await openDB();
       const transaction = db.transaction(STORE_GALLERY, 'readwrite');
       transaction.objectStore(STORE_GALLERY).delete(id);
+  },
+
+  // --- Message Favorites (留音海螺) ---
+
+  /** 幂等收藏：同一 sourceMessageId 只保留一条（已存在时保持原收藏，不覆盖 favoritedAt）。 */
+  saveMessageFavorite: async (fav: MessageFavorite): Promise<MessageFavorite> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readwrite');
+          const store = transaction.objectStore(STORE_MESSAGE_FAVORITES);
+          const idxReq = store.index('sourceMessageId').get(IDBKeyRange.only(fav.sourceMessageId));
+          idxReq.onsuccess = () => {
+              const existing = idxReq.result as MessageFavorite | undefined;
+              if (existing) { resolve(existing); return; }
+              store.put(fav);
+              resolve(fav);
+          };
+          idxReq.onerror = () => reject(idxReq.error);
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error || new Error('saveMessageFavorite aborted'));
+      });
+  },
+
+  getMessageFavorites: async (charId?: string): Promise<MessageFavorite[]> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readonly');
+          const store = transaction.objectStore(STORE_MESSAGE_FAVORITES);
+          let request: IDBRequest;
+          if (charId) {
+              request = store.index('charId').getAll(IDBKeyRange.only(charId));
+          } else {
+              request = store.getAll();
+          }
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  getMessageFavoriteBySource: async (sourceMessageId: number): Promise<MessageFavorite | null> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readonly');
+          const request = transaction.objectStore(STORE_MESSAGE_FAVORITES).index('sourceMessageId').get(IDBKeyRange.only(sourceMessageId));
+          request.onsuccess = () => resolve((request.result as MessageFavorite) || null);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  deleteMessageFavorite: async (id: string): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readwrite');
+      transaction.objectStore(STORE_MESSAGE_FAVORITES).delete(id);
+  },
+
+  /** 全量消息读取（备份/引用检查用；普通 UI 走 getMessagesByCharId 等索引路径）。 */
+  getAllMessages: async (): Promise<Message[]> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+          const request = transaction.objectStore(STORE_MESSAGES).getAll();
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+      });
   },
 
   // --- XHS Stock Images ---
@@ -3030,7 +3114,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts, foodCatalogRecords, foodOrderRecords, moneyLedgerRecords, walletConfigRecords] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, messageFavorites, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts, foodCatalogRecords, foodOrderRecords, moneyLedgerRecords, walletConfigRecords] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3039,6 +3123,7 @@ export const DB = {
           getAllFromStore(STORE_EMOJI_CATEGORIES),
           getAllFromStore(STORE_ASSETS),
           getAllFromStore(STORE_GALLERY),
+          getAllFromStore(STORE_MESSAGE_FAVORITES),
           getAllFromStore(STORE_USER),
           getAllFromStore(STORE_DIARIES),
           getAllFromStore(STORE_TASKS),
@@ -3103,7 +3188,7 @@ export const DB = {
       const foodBackup = await prepareFoodBackupForExport(foodCatalogRecords, foodOrderRecords);
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
+          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, messageFavorites, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -3169,7 +3254,7 @@ export const DB = {
       
       const availableStores = [
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
-          STORE_ASSETS, STORE_GALLERY, STORE_USER, STORE_DIARIES,
+          STORE_ASSETS, STORE_GALLERY, STORE_MESSAGE_FAVORITES, STORE_USER, STORE_DIARIES,
           STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
           STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
@@ -3235,6 +3320,7 @@ export const DB = {
           data.assets !== undefined,
           data.savedJournalStickers !== undefined,
           data.galleryImages !== undefined,
+          data.messageFavorites !== undefined,
           data.diaries !== undefined,
           data.tasks !== undefined,
           data.anniversaries !== undefined,
@@ -3483,6 +3569,11 @@ export const DB = {
           await clearAndAdd(STORE_GALLERY, data.galleryImages, '相册图片', true);
           data.galleryImages = undefined as any;
       }, data.galleryImages?.length || 0);
+      // 留音海螺：纯数据回放（收藏是快照，恢复不触发任何 AI / 生图；旧备份缺此字段 → 跳过即视为空）。
+      await runSection('留音海螺收藏', data.messageFavorites !== undefined, async () => {
+          await clearAndAdd(STORE_MESSAGE_FAVORITES, data.messageFavorites, '留音海螺收藏', true);
+          data.messageFavorites = undefined as any;
+      }, data.messageFavorites?.length || 0);
       await runSection('日记', data.diaries !== undefined, async () => {
           await clearAndAdd(STORE_DIARIES, data.diaries, '日记', true);
           data.diaries = undefined as any;
