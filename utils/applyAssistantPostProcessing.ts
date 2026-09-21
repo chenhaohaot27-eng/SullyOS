@@ -61,6 +61,7 @@ import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
 import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
 import { applyGiftReaction } from './giftActions';
 import { executeGiftSend } from './giftCharacterSend';
+import { detectExplicitHighCostRequest, gateAssistantHighCostAction } from './autonomousActions';
 import { extractFoodOrderIntent } from './foodIntent';
 import { executeCharacterFoodOrder, isExplicitFoodRequest } from './foodCharacterOrder';
 
@@ -2195,14 +2196,24 @@ export async function applyAssistantPostProcessing(
     // ─── Step 7.6: 角色送礼 GIFT_SEND（Phase 4） ───
     // executeGiftSend：先落 pending GiftRecord + 聊天卡，再走唯一生图入口；eventKey 指纹
     // 保证重放只落一份礼物、只发一次生图请求；cooldown 命中时静默跳过（标签已剥）。
+    // Hotfix Phase1：高成本动作门控——显式请求优先；快照不存在（worker/旧路径）= legacy
+    // 放行维持原行为；机会关闭且非显式 → 跳过执行（每轮最多 1 个高成本动作）。
     if (giftSendExtraction.intent) {
-        await executeGiftSend({
-            intent: giftSendExtraction.intent,
-            char,
-            userName: userProfile?.name,
-            onToast: addToast,
-            refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
-        });
+        const giftTrigger = [...contextMsgs].reverse().find(message => message.role === 'user');
+        const explicitGift = detectExplicitHighCostRequest(typeof giftTrigger?.content === 'string' ? giftTrigger.content : '').gift;
+        const giftGate = gateAssistantHighCostAction({ charId: char.id, action: 'gift', explicit: explicitGift });
+        if (!giftGate.allowed) {
+            console.info('[Gift] 本轮未开放自主送礼（或已有其他高成本动作），跳过执行');
+        } else {
+            await executeGiftSend({
+                intent: giftSendExtraction.intent,
+                char,
+                userName: userProfile?.name,
+                explicitGiftRequest: explicitGift,
+                onToast: addToast,
+                refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
+            });
+        }
     }
 
     // ─── Step 7.65: 角色真实点外卖 FOOD_ORDER ───
@@ -2211,14 +2222,21 @@ export async function applyAssistantPostProcessing(
     if (foodOrderExtraction.intent && !skipSecondPassLLM) {
         try {
             const trigger = [...contextMsgs].reverse().find(message => message.role === 'user');
-            await executeCharacterFoodOrder({
-                intent: foodOrderExtraction.intent,
-                char,
-                userName: userProfile?.name,
-                triggerMessageId: trigger?.id,
-                explicitFoodRequest: isExplicitFoodRequest(trigger?.content),
-                now: messageTimestamp ?? Date.now(),
-            });
+            const explicitFood = isExplicitFoodRequest(trigger?.content);
+            // Hotfix Phase1：与 GIFT_SEND/TRANSFER 共用每轮 1 个高成本动作预算
+            const foodGate = gateAssistantHighCostAction({ charId: char.id, action: 'food', explicit: explicitFood });
+            if (!foodGate.allowed) {
+                console.info('[Food] 本轮未开放自主点外卖（或已有其他高成本动作），跳过执行');
+            } else {
+                await executeCharacterFoodOrder({
+                    intent: foodOrderExtraction.intent,
+                    char,
+                    userName: userProfile?.name,
+                    triggerMessageId: trigger?.id,
+                    explicitFoodRequest: explicitFood,
+                    now: messageTimestamp ?? Date.now(),
+                });
+            }
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         } catch (e) {
             console.warn('[Food] 角色外卖订单执行失败（正文不受影响）:', e instanceof Error ? e.message : e);

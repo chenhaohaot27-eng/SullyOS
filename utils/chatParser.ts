@@ -5,6 +5,7 @@ import { CharacterProfile, CharPlaylistSong } from '../types';
 import { sanitizeForBubble } from './sanitize';
 import { extractTransferCommands } from './transferFormat';
 import { refundRejectedTransfer } from './transferWallet';
+import { detectExplicitHighCostRequest, gateAssistantHighCostAction, getLastUserMessageText } from './autonomousActions';
 import { executeLifeDirectives } from './lifeRecords';
 import { wallClockToTimestamp } from './timezone';
 import { harvestMusicInsight } from './musicContext';
@@ -244,7 +245,17 @@ export const ChatParser = {
             if (ev.kind === 'send') {
                 // role 固定 'assistant' —— 方向不由文本决定，文本里的方向信息只在
                 // transferFormat 里做过校验（伪造的已被丢弃）。
-                await persist({ charId, role: 'assistant', type: 'transfer', content: '[转账]', metadata: { amount: ev.amount, status: 'pending' } });
+                // Hotfix Phase1：高成本动作门控——显式请求优先；快照不存在（worker/旧路径）
+                // = legacy 放行维持原行为；机会关闭且非显式 → 不落卡（本轮不该自主转账）。
+                // 同轮多条 send → 单轮 claim 只放行第一条（每轮最多 1 个高成本动作）。
+                const lastUserText = await getLastUserMessageText(charId);
+                const explicitTransfer = detectExplicitHighCostRequest(lastUserText).transfer;
+                const gate = gateAssistantHighCostAction({ charId, action: 'transfer', explicit: explicitTransfer });
+                if (!gate.allowed) {
+                    console.info('[Transfer] 本轮未开放自主转账（或已有其他高成本动作），跳过转账卡');
+                    continue;
+                }
+                await persist({ charId, role: 'assistant', type: 'transfer', content: '[转账]', metadata: { amount: ev.amount, status: 'pending', ...(gate.mode === 'explicit' || gate.mode === 'autonomous' ? { triggerSource: gate.mode } : {}) } });
             } else {
                 await resolveUserTransfer(ev.kind === 'accept' ? 'accepted' : 'returned');
             }

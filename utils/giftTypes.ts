@@ -122,6 +122,9 @@ export interface GiftRecord {
 
     source: GiftSource;
 
+    /** Hotfix Phase1：显式请求 or 自主机会触发（cooldown 推导；旧记录缺省=既有行为）。 */
+    triggerSource?: 'explicit' | 'autonomous';
+
     gift: {
         name: string;
         description?: string;

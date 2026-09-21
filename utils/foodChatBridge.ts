@@ -164,20 +164,50 @@ function reactionInstruction(order: FoodOrderRecord, phase: 'ordered' | 'deliver
     return `${fact}\n收餐人：${order.recipient.nameSnapshot}\n商家：${order.merchantName || '未记录'}\n商品：${itemSummary(order)}\n状态：${FOOD_ORDER_STATUS_LABEL[phase === 'ordered' ? order.status : 'delivered']}\n请结合你的人设、饮食偏好、关系和当前语境自然回应。可以喜欢、一般、吐槽、提醒或拒绝某种口味，不要被强制表现得感动。只输出自然聊天正文，不输出任何 [[ACTION]]、SEND_PHOTO、GIFT_SEND 或其他结构化动作。`;
 }
 
-/** 每个阶段先事务认领一次尝试，再复用主聊天 payload/client/post-processing。 */
+/** 批次摘要（多商家一次结算 → 单条聚合指令文案）。 */
+export function batchReactionSummary(orders: FoodOrderRecord[], userName: string): string {
+    const merchantCount = new Set(orders.map(order => (order.merchantName || '').trim().toLowerCase()).filter(Boolean)).size;
+    const lines = orders.map(order => `· ${order.merchantName || '未记录商家'}：${itemSummary(order)}${order.total !== undefined ? `（¥${order.total}）` : ''}`).join('\n');
+    return `[外卖订单·已下单]\n${userName || '用户'}一次为你下了 ${orders.length} 份外卖订单，来自 ${merchantCount} 家店，这些都已真实存在于系统内，不是假设：\n${lines}\n收餐人：${orders[0]?.recipient.nameSnapshot || '角色'}\n请结合你的人设、饮食偏好、关系和当前语境，把这批订单当作一件事自然回应（可以逐店点评、也可以整体表态）。只输出自然聊天正文，不输出任何 [[ACTION]]、SEND_PHOTO、GIFT_SEND 或其他结构化动作。`;
+}
+
+/** 单订单回应（兼容旧入口）。 */
 export async function triggerFoodOrderReaction(
     orderId: string,
     phase: 'ordered' | 'delivered',
     deps: FoodReactionDeps,
 ): Promise<FoodReactionResult> {
+    return triggerFoodOrderReactions([orderId], phase, deps);
+}
+
+/**
+ * 批量回应（Hotfix Phase1）：认领批内全部订单的本阶段槽位，但只发起一次
+ * 聚合 completion（多商家 = 「一次为你下了 N 份订单、来自 M 家店」）。
+ * delivered 阶段同样支持（当前只按单订单调用，行为不变）。
+ */
+export async function triggerFoodOrderReactions(
+    orderIds: string[],
+    phase: 'ordered' | 'delivered',
+    deps: FoodReactionDeps,
+): Promise<FoodReactionResult> {
     const fail = (reason: string): FoodReactionResult => ({ ok: false, reason });
     try {
-        const order = await getFoodOrder(orderId);
-        if (!order) return fail('order_not_found');
-        if (order.charId !== deps.char.id) return fail('char_mismatch');
-        if (phase === 'delivered' && deriveFoodOrderStatus(order) !== 'delivered') return fail('not_delivered');
-        if (order.status === 'cancelled' || order.status === 'failed') return fail('terminal_order');
-        if (!(await claimFoodOrderReaction(order.id, phase))) return fail('already_attempted');
+        if (orderIds.length === 0) return fail('no_orders');
+        const orders: FoodOrderRecord[] = [];
+        for (const orderId of orderIds) {
+            const order = await getFoodOrder(orderId);
+            if (!order) return fail('order_not_found');
+            if (order.charId !== deps.char.id) return fail('char_mismatch');
+            if (phase === 'delivered' && deriveFoodOrderStatus(order) !== 'delivered') return fail('not_delivered');
+            if (order.status === 'cancelled' || order.status === 'failed') return fail('terminal_order');
+            orders.push(order);
+        }
+        // 先认领批内全部订单的本阶段槽位——之后任何单订单触发都会 already_attempted，
+        // 保证每个 checkout batch 的 placed 回应最多 1 次 Chat 调用。
+        for (const order of orders) {
+            if (!(await claimFoodOrderReaction(order.id, phase))) return fail('already_attempted');
+        }
+        const order = orders[0];
 
         const effectiveApi = resolveCharacterChatApiConfig(deps.apiConfig, deps.char);
         const contextLimit = Math.max(1, deps.char.contextLimit || 500);
@@ -197,10 +227,14 @@ export async function triggerFoodOrderReaction(
             realtimeConfig: deps.realtimeConfig,
             // 外卖订单使用 Phase 1 已缓存字段，绝不重新识图。
             visionApiConfig: undefined,
+            // Hotfix Phase1：外卖回应是特殊 completion，不开高成本自主机会（避免回应里又自主转账/送礼）。
+            disableAutonomousOpportunity: true,
         });
         const fullMessages = [
             ...payload.fullMessages,
-            { role: 'system', content: reactionInstruction(order, phase, deps.userProfile?.name || '') },
+            { role: 'system', content: phase === 'ordered' && orders.length > 1
+                ? batchReactionSummary(orders, deps.userProfile?.name || '')
+                : reactionInstruction(order, phase, deps.userProfile?.name || '') },
         ];
         const data = await completeChat(effectiveApi, {
             model: effectiveApi.model,
@@ -244,11 +278,14 @@ export async function triggerFoodOrderReaction(
         const messageIds = after
             .filter(message => message.role === 'assistant' && !beforeIds.has(message.id))
             .map(message => String(message.id));
-        const latest = await getFoodOrder(order.id);
-        const chat = { ...(latest?.chat || {}) };
-        if (phase === 'ordered') chat.orderReactionMessageIds = messageIds;
-        else chat.deliveryReactionMessageIds = messageIds;
-        await updateFoodOrder(order.id, { chat });
+        // 批内每个订单都挂同一份回应（单订单时与原行为一致）
+        for (const item of orders) {
+            const latest = await getFoodOrder(item.id);
+            const chat = { ...(latest?.chat || {}) };
+            if (phase === 'ordered') chat.orderReactionMessageIds = messageIds;
+            else chat.deliveryReactionMessageIds = messageIds;
+            await updateFoodOrder(item.id, { chat });
+        }
         return { ok: true, messageIds };
     } catch (error) {
         console.warn('[Food] 角色外卖回应未完成，订单不受影响:', error instanceof Error ? error.message : error);

@@ -65,6 +65,10 @@ export interface FoodOrderRecord {
     source: FoodOrderSource;
     /** 付款方；旧记录缺省时按 orderer.type 推断。 */
     payer?: FoodOrderPayer;
+    /** 多商家一次结算的批次 id（同批各订单共享；单商家/旧记录缺省）。 */
+    checkoutBatchId?: string;
+    /** 本单由显式请求还是自主机会触发（cooldown 推导用；旧记录缺省视为既有行为）。 */
+    triggerSource?: 'explicit' | 'autonomous';
     orderer: FoodOrderParty;
     recipient: FoodOrderParty;
 

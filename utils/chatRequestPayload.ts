@@ -33,6 +33,9 @@ import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
 import { formatContinuityContext, type ContinuitySnapshot } from './continuityContext';
+import { evaluateAutonomousOpportunity, markTurnOpportunity } from './autonomousActions';
+import { hasRecentCharacterGift } from './giftCharacterSend';
+import { hasRecentAutonomousFoodOrder } from './foodCharacterOrder';
 
 export { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 
@@ -103,6 +106,11 @@ export interface BuildChatPayloadInput {
     timelyByWorker?: boolean;
     /** 普通私聊发送前按数据库实况构建；只承载时间与跨 App 已确认事件，不修改历史。 */
     continuitySnapshot?: ContinuitySnapshot;
+    /**
+     * Hotfix Phase1：显式关闭高成本自主行为机会（外卖回应等特殊 completion 用；
+     * 正常聊天主路径不传 → 评估机会并注入提示，0 额外 Chat 调用）。
+     */
+    disableAutonomousOpportunity?: boolean;
 }
 
 export interface BuildChatPayloadResult {
@@ -290,6 +298,29 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 但主 API 的 historyMsgsForPrompt 来自完整 DB，仍然会看到它们。模式切换必须以 API
     // 真正要发送的历史为准，否则模型会收到特殊模式正文，却收不到「切回聊天格式」的提示。
     const returningFromMode = detectChatModeTransition(historyMsgsForPrompt);
+    // ── Hotfix Phase1：高成本自主行为机会窗口（0 额外 Chat 调用）──
+    // 只在正常对话那次 completion 评估并注入；timelyByWorker（worker 生成）与
+    // 显式 disable 的特殊调用（外卖回应等）维持现状（legacy），不注入机会提示。
+    const lastUserForOpportunity = [...recentMsgsHint].reverse().find(message => message.role === 'user');
+    const lastUserTextForOpportunity = typeof lastUserForOpportunity?.content === 'string' ? lastUserForOpportunity.content : undefined;
+    let autonomousHighCost;
+    if (input.timelyByWorker || input.disableAutonomousOpportunity) {
+        markTurnOpportunity(char.id, {
+            open: false, reason: 'no_candidates',
+            candidates: { gift: false, food: false, transfer: false },
+            mealWindow: false, ts: Date.now(),
+        });
+    } else {
+        autonomousHighCost = await evaluateAutonomousOpportunity({
+            charId: char.id,
+            lastUserText: lastUserTextForOpportunity,
+            cooldownHit: {
+                gift: await hasRecentCharacterGift(char.id),
+                food: await hasRecentAutonomousFoodOrder(char.id),
+            },
+        });
+        markTurnOpportunity(char.id, autonomousHighCost);
+    }
     const parts = await ChatPrompts.buildSystemPromptParts(
         char, userProfile, groups, emojis, categories, recentMsgsHint,
         realtimeConfig, innerState || undefined,
@@ -297,10 +328,13 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         !!isListeningTogether,
         musicCfg,
         recentTrackSwitch,
-        (input.timelyByWorker || returningFromMode) ? {
-            timelyByWorker: input.timelyByWorker === true,
-            returningFromMode: returningFromMode || undefined,
-        } : undefined,
+        {
+            ...(input.timelyByWorker || returningFromMode ? {
+                timelyByWorker: input.timelyByWorker === true,
+                returningFromMode: returningFromMode || undefined,
+            } : {}),
+            ...(autonomousHighCost ? { autonomousHighCost } : {}),
+        },
     );
     let systemPrompt = parts.stable;
     let volatileTail = parts.volatileState;

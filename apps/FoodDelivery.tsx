@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import {
     ArrowLeft,
     CaretRight,
+    DotsThree,
     Heart,
     ImageSquare,
     LinkSimple,
@@ -17,6 +18,7 @@ import { useOS } from '../context/OSContext';
 import { deleteBlobRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
 import {
     createFoodCatalogItem,
+    deleteFoodCatalogItem,
     getFoodCatalogItemByFingerprint,
     listFoodCatalogItems,
     toggleFoodFavorite,
@@ -27,19 +29,21 @@ import {
     addFoodCartItem,
     calculateFoodCartTotals,
     clearFoodCartAfterOrder,
+    groupFoodCartByMerchant,
     removeFoodCartItem,
     setFoodCartNote,
     setFoodCartQuantity,
     snapshotFoodCart,
     type FoodCart,
+    type MerchantCartGroup,
 } from '../utils/foodCart';
 import {
     handleFoodOrderDelivery,
     projectFoodOrderToChat,
-    triggerFoodOrderReaction,
+    triggerFoodOrderReactions,
 } from '../utils/foodChatBridge';
 import { listFoodOrders, updateFoodOrder } from '../utils/foodOrderStore';
-import { createPaidFoodOrder, isRefundableCancelStatus, orderPayer, refundFoodOrder } from '../utils/foodWallet';
+import { createPaidFoodOrdersBatch, isRefundableCancelStatus, orderPayer, refundFoodOrder } from '../utils/foodWallet';
 import { createFoodOrderTimeline, deriveFoodOrderStatus, foodOrderEtaMinutes } from '../utils/foodOrderTimeline';
 import { FOOD_ORDER_STATUS_LABEL, type FoodOrderRecord } from '../utils/foodOrderTypes';
 import {
@@ -124,6 +128,13 @@ const FoodDelivery: React.FC = () => {
         [items, tab],
     );
     const cartTotals = useMemo(() => calculateFoodCartTotals(cart), [cart]);
+    /** 多商家购物车分组（Hotfix Phase1）。 */
+    const cartGroups = useMemo(() => groupFoodCartByMerchant(cart), [cart]);
+    const cartMerchantCount = cartGroups.length;
+    /** 多店合计 = 商品小计 + 每店一份配送费；价格未知时为 undefined（不生成虚假总价）。 */
+    const cartGrandTotal = cartTotals.hasUnknownPrices
+        ? undefined
+        : Math.round((cartTotals.knownSubtotal + cartTotals.deliveryFee * cartMerchantCount) * 100) / 100;
     const ongoingOrders = useMemo(() => orders.filter(order => {
         const status = deriveFoodOrderStatus(order);
         return status !== 'delivered' && status !== 'cancelled' && status !== 'failed';
@@ -293,17 +304,34 @@ const FoodDelivery: React.FC = () => {
     };
 
     const handleAddToCart = (item: FoodCatalogItem) => {
-        const result = addFoodCartItem(cart, item);
-        if (!result.merchantConflict) {
-            setCart(result.cart);
+        // 多商家购物车：不同商家共存，同款商品合并数量。
+        setCart(addFoodCartItem(cart, item).cart);
+        submissionIdRef.current = '';
+        addToast('已加入购物车', 'success');
+    };
+
+    // ─── 商品菜单 + 删除（Hotfix Phase1） ───
+
+    const [itemMenuId, setItemMenuId] = useState<string | null>(null);
+    const [confirmDeleteItem, setConfirmDeleteItem] = useState<FoodCatalogItem | null>(null);
+    const itemMenuTarget = itemMenuId ? items.find(entry => entry.id === itemMenuId) || null : null;
+
+    const handleDeleteCatalogItem = async () => {
+        if (!confirmDeleteItem) return;
+        try {
+            await deleteFoodCatalogItem(confirmDeleteItem.id);
+            // 该商品若在购物车 → 同步移除
+            setCart(current => (current.some(line => line.item.id === confirmDeleteItem.id)
+                ? current.filter(line => line.item.id !== confirmDeleteItem.id)
+                : current));
             submissionIdRef.current = '';
-            addToast('已加入购物车', 'success');
-            return;
-        }
-        if (window.confirm('当前购物车里是另一家店的商品，是否清空后更换？')) {
-            setCart(addFoodCartItem([], item).cart);
-            submissionIdRef.current = '';
-            addToast('已更换购物车商家', 'info');
+            addToast(`已删除「${confirmDeleteItem.name}」，历史订单不会受到影响`, 'success');
+        } catch (error) {
+            addToast(`删除失败：${error instanceof Error ? error.message : '未知错误'}`, 'error');
+        } finally {
+            setConfirmDeleteItem(null);
+            setItemMenuId(null);
+            await reload();
         }
     };
 
@@ -317,34 +345,38 @@ const FoodDelivery: React.FC = () => {
                 ? crypto.randomUUID()
                 : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         }
+        const submissionId = submissionIdRef.current;
         const now = Date.now();
         setOrdering(true);
         try {
-            // 玩家付款订单：钱包余额校验 + 扣款 + 建单在同一个 IndexedDB 事务内原子完成；
-            // 价格未知（部分商品缺价）直接拦截，不猜价、不按 0 元下单。
-            const result = await createPaidFoodOrder({
-                eventKey: `food:user:${recipient.id}:${submissionIdRef.current}`,
-                source: cart.some(line => line.item.source === 'simulated') ? 'simulated' : 'catalog_imported',
-                payer: 'user',
-                orderer: { type: 'user', id: 'user', nameSnapshot: userProfile?.name || '用户' },
-                recipient: { type: 'character', id: recipient.id, nameSnapshot: recipient.name },
+            // 多商家批量结算：按商家分组 → 每家一份独立订单（共享 checkoutBatchId）；
+            // 钱包余额校验 + 扣款 + 全部建单在同一个 IndexedDB 事务内原子完成——
+            // 任一单价格未知或余额不足，整批都不下单（绝不半结算）。
+            const batch = await createPaidFoodOrdersBatch(cartGroups.map((group, index) => ({
+                eventKey: `food:user:${recipient.id}:${submissionId}:${index}`,
+                source: group.lines.some(line => line.item.source === 'simulated') ? 'simulated' : 'catalog_imported',
+                payer: 'user' as const,
+                orderer: { type: 'user' as const, id: 'user', nameSnapshot: userProfile?.name || '用户' },
+                recipient: { type: 'character' as const, id: recipient.id, nameSnapshot: recipient.name },
                 charId: recipient.id,
-                merchantName: cart[0]?.item.merchantName,
-                items: snapshotFoodCart(cart),
-                subtotal: cartTotals.knownSubtotal,
-                deliveryFee: cartTotals.deliveryFee,
-                total: cartTotals.total,
-                status: 'confirmed',
+                merchantName: group.merchantName,
+                items: snapshotFoodCart(group.lines),
+                subtotal: group.totals.knownSubtotal,
+                deliveryFee: group.totals.deliveryFee,
+                total: group.totals.total,
+                status: 'confirmed' as const,
                 timeline: createFoodOrderTimeline(now),
-            });
-            await projectFoodOrderToChat(result.record);
+            })));
+            for (const result of batch.results) await projectFoodOrderToChat(result.record);
             setCart(current => clearFoodCartAfterOrder(current, true));
             setCartOpen(false);
             submissionIdRef.current = '';
-            addToast(result.created ? `已为${recipient.name}下单` : '这份订单已经提交过了', 'success');
+            const merchantLabel = batch.createdCount > 1 ? `，来自 ${batch.createdCount} 家店` : '';
+            addToast(batch.createdCount > 0 ? `已为${recipient.name}下单 ${batch.createdCount} 份订单${merchantLabel}` : '这批订单已经提交过了', 'success');
             await reload();
+            // 多商家一次结算 → placed 自动回应最多 1 次 Chat 调用（聚合批次摘要）
             const deps = reactionDepsFor(recipient.id);
-            if (deps) void triggerFoodOrderReaction(result.record.id, 'ordered', deps);
+            if (deps) void triggerFoodOrderReactions(batch.results.map(result => result.record.id), 'ordered', deps);
         } catch (error) {
             addToast(`下单失败：${error instanceof Error ? error.message : '未知错误'}`, 'error');
         } finally {
@@ -463,6 +495,9 @@ const FoodDelivery: React.FC = () => {
                                         <button type="button" aria-label={item.favorite ? '取消收藏' : '收藏'} onClick={() => void handleFavorite(item.id)} className="w-8 h-8 rounded-full flex items-center justify-center active:bg-rose-50">
                                             <Heart size={20} weight={item.favorite ? 'fill' : 'regular'} className={item.favorite ? 'text-rose-500' : 'text-slate-400'} />
                                         </button>
+                                        <button type="button" aria-label="更多操作" onClick={() => setItemMenuId(item.id)} className="w-8 h-8 rounded-full flex items-center justify-center active:bg-slate-100 dark:active:bg-slate-800">
+                                            <DotsThree size={22} weight="bold" className="text-slate-400" />
+                                        </button>
                                     </div>
                                     {item.merchantName && <p className="text-xs text-slate-500 truncate mt-0.5">{item.merchantName}</p>}
                                     <div className="mt-2 flex items-end justify-between gap-2">
@@ -489,11 +524,55 @@ const FoodDelivery: React.FC = () => {
                 </div>
             </main>
 
+            {itemMenuTarget && createPortal(
+                <div className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/40" onMouseDown={event => { if (event.target === event.currentTarget) setItemMenuId(null); }}>
+                    <section className="w-full max-w-lg rounded-t-[28px] bg-white dark:bg-slate-900 px-5 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
+                        <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto mb-3" />
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="min-w-0"><h2 className="font-bold truncate">{itemMenuTarget.name}</h2><p className="text-xs text-slate-400 truncate">{itemMenuTarget.merchantName || '未记录商家'}</p></div>
+                            <button type="button" aria-label="关闭菜单" onClick={() => setItemMenuId(null)} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><X size={18} /></button>
+                        </div>
+                        <div className="space-y-2">
+                            <button type="button" onClick={() => { void handleFavorite(itemMenuTarget.id); setItemMenuId(null); }} className="w-full py-3 rounded-2xl bg-slate-50 dark:bg-slate-800 text-sm font-medium flex items-center gap-2">
+                                <Heart size={16} weight={itemMenuTarget.favorite ? 'fill' : 'regular'} className={itemMenuTarget.favorite ? 'text-rose-500' : 'text-slate-400'} />
+                                {itemMenuTarget.favorite ? '取消收藏' : '收藏'}
+                            </button>
+                            {sanitizeFoodExternalUrl(itemMenuTarget.originalUrl) && (
+                                <a href={sanitizeFoodExternalUrl(itemMenuTarget.originalUrl)!} target="_blank" rel="noopener noreferrer" onClick={() => setItemMenuId(null)} className="w-full py-3 rounded-2xl bg-slate-50 dark:bg-slate-800 text-sm font-medium flex items-center gap-2">
+                                    <LinkSimple size={16} className="text-slate-400" />
+                                    去原平台查看
+                                </a>
+                            )}
+                            <button type="button" onClick={() => setConfirmDeleteItem(itemMenuTarget)} className="w-full py-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 text-sm font-medium text-rose-600 flex items-center gap-2">
+                                <Trash size={16} />
+                                删除此商品
+                            </button>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-3">删除只影响商品目录；历史订单与账本不会受到影响。</p>
+                    </section>
+                </div>,
+                document.body,
+            )}
+
+            {confirmDeleteItem && createPortal(
+                <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 p-6" onMouseDown={event => { if (event.target === event.currentTarget) setConfirmDeleteItem(null); }}>
+                    <section className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 p-5 shadow-2xl">
+                        <h2 className="font-bold text-base">删除「{confirmDeleteItem.name}」？</h2>
+                        <p className="text-xs text-slate-400 mt-2 leading-relaxed">历史订单不会受到影响。若它正在购物车中，也会一并移除。</p>
+                        <div className="flex gap-2 mt-4">
+                            <button type="button" onClick={() => setConfirmDeleteItem(null)} className="flex-1 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-sm font-semibold">取消</button>
+                            <button type="button" onClick={() => void handleDeleteCatalogItem()} className="flex-1 py-2.5 rounded-2xl bg-rose-500 text-white text-sm font-semibold">删除</button>
+                        </div>
+                    </section>
+                </div>,
+                document.body,
+            )}
+
             {cart.length > 0 && (
                 <div className="absolute left-4 right-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20">
                     <button type="button" onClick={() => setCartOpen(true)} className="w-full rounded-2xl bg-slate-900 dark:bg-orange-500 text-white px-4 py-3 shadow-xl flex items-center justify-between active:scale-[0.99]">
-                        <span className="flex items-center gap-2"><ShoppingCart size={20} weight="fill" /><span className="text-sm font-semibold">{cartTotals.itemCount} 件</span></span>
-                        <span className="text-sm font-bold">{cartTotals.hasUnknownPrices ? `已知 ¥${cartTotals.knownSubtotal}` : `合计 ¥${cartTotals.total}`}</span>
+                        <span className="flex items-center gap-2"><ShoppingCart size={20} weight="fill" /><span className="text-sm font-semibold">{cartTotals.itemCount} 件 · {cartMerchantCount} 家店</span></span>
+                        <span className="text-sm font-bold">{cartGrandTotal === undefined ? `已知 ¥${cartTotals.knownSubtotal}` : `合计 ¥${cartGrandTotal}`}</span>
                     </button>
                 </div>
             )}
@@ -572,31 +651,42 @@ const FoodDelivery: React.FC = () => {
                     <section className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-[28px] bg-white dark:bg-slate-900 px-5 pt-3 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl">
                         <div className="w-10 h-1 rounded-full bg-slate-200 dark:bg-slate-700 mx-auto mb-3" />
                         <div className="flex items-center justify-between mb-4">
-                            <div><h2 className="font-bold text-lg">购物车</h2><p className="text-xs text-slate-400">{cart[0]?.item.merchantName || '未记录商家'}</p></div>
+                            <div><h2 className="font-bold text-lg">购物车</h2><p className="text-xs text-slate-400">{cartTotals.itemCount} 件 · {cartMerchantCount} 家店{cartTotals.hasUnknownPrices ? ' · 部分价格未记录' : ''}</p></div>
                             <button type="button" aria-label="关闭购物车" onClick={() => setCartOpen(false)} disabled={ordering} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center"><X size={18} /></button>
                         </div>
-                        <div className="space-y-3">
-                            {cart.map(line => (
-                                <div key={line.item.id} className="rounded-2xl bg-slate-50 dark:bg-slate-800 p-3">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div className="min-w-0"><div className="font-semibold text-sm truncate">{line.item.name}</div><div className="text-xs text-orange-600 mt-0.5">{line.item.price === undefined ? '价格未记录' : `¥${line.item.price}`}</div></div>
-                                        <div className="flex items-center gap-1.5">
-                                            <button type="button" aria-label="减少数量" onClick={() => { setCart(current => setFoodCartQuantity(current, line.item.id, line.quantity - 1)); submissionIdRef.current = ''; }} className="w-7 h-7 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center"><Minus size={13} /></button>
-                                            <span className="w-6 text-center text-sm">{line.quantity}</span>
-                                            <button type="button" aria-label="增加数量" onClick={() => { setCart(current => setFoodCartQuantity(current, line.item.id, line.quantity + 1)); submissionIdRef.current = ''; }} className="w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center"><Plus size={13} /></button>
-                                            <button type="button" aria-label="移除商品" onClick={() => { setCart(current => removeFoodCartItem(current, line.item.id)); submissionIdRef.current = ''; }} className="w-7 h-7 rounded-full text-slate-400 flex items-center justify-center"><Trash size={15} /></button>
-                                        </div>
+                        <div className="space-y-4">
+                            {cartGroups.map((group: MerchantCartGroup) => (
+                                <div key={group.key}>
+                                    <div className="flex items-center justify-between px-1 mb-2">
+                                        <span className="text-xs font-bold text-orange-600 truncate">{group.merchantName}</span>
+                                        <span className="text-[10px] text-slate-400 shrink-0 ml-2">{group.totals.hasUnknownPrices ? `已知 ¥${group.totals.knownSubtotal}` : `¥${group.totals.total}`}</span>
                                     </div>
-                                    <input value={line.note || ''} onChange={event => { setCart(current => setFoodCartNote(current, line.item.id, event.target.value)); submissionIdRef.current = ''; }} className={`${fieldClass} mt-2 py-2 text-xs`} placeholder="商品备注，例如：不要香菜" />
+                                    <div className="space-y-3">
+                                        {group.lines.map(line => (
+                                            <div key={line.item.id} className="rounded-2xl bg-slate-50 dark:bg-slate-800 p-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="min-w-0"><div className="font-semibold text-sm truncate">{line.item.name}</div><div className="text-xs text-orange-600 mt-0.5">{line.item.price === undefined ? '价格未记录' : `¥${line.item.price}`}</div></div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <button type="button" aria-label="减少数量" onClick={() => { setCart(current => setFoodCartQuantity(current, line.item.id, line.quantity - 1)); submissionIdRef.current = ''; }} className="w-7 h-7 rounded-full bg-white dark:bg-slate-700 flex items-center justify-center"><Minus size={13} /></button>
+                                                        <span className="w-6 text-center text-sm">{line.quantity}</span>
+                                                        <button type="button" aria-label="增加数量" onClick={() => { setCart(current => setFoodCartQuantity(current, line.item.id, line.quantity + 1)); submissionIdRef.current = ''; }} className="w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center"><Plus size={13} /></button>
+                                                        <button type="button" aria-label="移除商品" onClick={() => { setCart(current => removeFoodCartItem(current, line.item.id)); submissionIdRef.current = ''; }} className="w-7 h-7 rounded-full text-slate-400 flex items-center justify-center"><Trash size={15} /></button>
+                                                    </div>
+                                                </div>
+                                                <input value={line.note || ''} onChange={event => { setCart(current => setFoodCartNote(current, line.item.id, event.target.value)); submissionIdRef.current = ''; }} className={`${fieldClass} mt-2 py-2 text-xs`} placeholder="商品备注，例如：不要香菜" />
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             ))}
                         </div>
                         <div className="mt-4 rounded-2xl border border-slate-100 dark:border-slate-800 p-3 space-y-1.5 text-xs">
+                            <div className="flex justify-between font-bold"><span>{cartTotals.itemCount} 件 · {cartMerchantCount} 家店</span><span>{cartGrandTotal === undefined ? `已知 ¥${cartTotals.knownSubtotal}` : `¥${cartGrandTotal}`}</span></div>
                             <div className="flex justify-between"><span className="text-slate-500">已知商品小计</span><span>¥{cartTotals.knownSubtotal}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-500">Lemuria 配送费</span><span>¥{cartTotals.deliveryFee}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-500">Lemuria 配送费（每店 ¥{cartTotals.deliveryFee}）</span><span>¥{cartTotals.deliveryFee * cartMerchantCount}</span></div>
                             {cartTotals.hasUnknownPrices
-                                ? <div className="text-amber-600">部分商品未记录价格，不生成虚假总价。</div>
-                                : <div className="flex justify-between pt-1 font-bold"><span>合计</span><span className="text-orange-600">¥{cartTotals.total}</span></div>}
+                                ? <div className="text-amber-600">部分商品未记录价格，无法结算；请补全价格或移除后下单。</div>
+                                : null}
                         </div>
                         <label className="block text-xs text-slate-500 mt-4">送给谁 <span className="text-rose-500">*</span>
                             <select value={recipientId} onChange={event => { setRecipientId(event.target.value); submissionIdRef.current = ''; }} className={`${fieldClass} mt-1`}>

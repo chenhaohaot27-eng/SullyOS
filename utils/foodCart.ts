@@ -11,18 +11,42 @@ export interface FoodCartLine {
 
 export type FoodCart = FoodCartLine[];
 
+/** 清理：merchantKey 不再用于加购限制，但保留导出供分组排序复用。 */
 const merchantKey = (value?: string): string => (value || '').normalize('NFKC').trim().toLocaleLowerCase();
+
+export interface MerchantCartGroup {
+    /** 归一化后的商家名（排序键）。 */
+    key: string;
+    merchantName: string;
+    lines: FoodCartLine[];
+    totals: FoodCartTotals;
+}
+
+/** 购物车按商家分组（保持首次加入顺序），每组带独立小计/配送费/总价。 */
+export function groupFoodCartByMerchant(cart: FoodCart): MerchantCartGroup[] {
+    const groups: MerchantCartGroup[] = [];
+    for (const line of cart) {
+        const key = merchantKey(line.item.merchantName);
+        let group = groups.find(item => item.key === key);
+        if (!group) {
+            group = { key, merchantName: line.item.merchantName || '未记录商家', lines: [], totals: calculateFoodCartTotals([]) };
+            groups.push(group);
+        }
+        group.lines.push(line);
+    }
+    for (const group of groups) group.totals = calculateFoodCartTotals(group.lines);
+    return groups;
+}
+
 
 export interface AddFoodCartResult {
     cart: FoodCart;
+    /** @deprecated 多商家购物车（Hotfix Phase1）后恒为 false；保留字段兼容旧调用方。 */
     merchantConflict: boolean;
 }
 
+/** 多商家购物车：不同商家可共存于同一购物车；同款商品合并数量。 */
 export function addFoodCartItem(cart: FoodCart, item: FoodCatalogItem): AddFoodCartResult {
-    const first = cart[0]?.item;
-    if (first && merchantKey(first.merchantName) !== merchantKey(item.merchantName)) {
-        return { cart, merchantConflict: true };
-    }
     const index = cart.findIndex(line => line.item.id === item.id);
     if (index >= 0) {
         return {

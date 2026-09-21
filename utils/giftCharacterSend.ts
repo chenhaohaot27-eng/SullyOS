@@ -273,6 +273,8 @@ async function executeGiftSendLocked(opts: ExecuteGiftSendOptions & { eventKey: 
         sender: { type: 'character', id: char.id, nameSnapshot: char.name },
         recipient: { type: 'user', id: 'user', nameSnapshot: userName || '你' },
         source: 'chat_action',
+        // Hotfix Phase1：显式请求 or 自主机会（24h 自主 cooldown 推导用）
+        triggerSource: opts.explicitGiftRequest ? 'explicit' : 'autonomous',
         gift: { name: intent.name, description: intent.description, note: intent.note },
         image: { origin: 'ai_generated', status: 'pending', prompt: intent.imagePrompt },
         status: 'pending',

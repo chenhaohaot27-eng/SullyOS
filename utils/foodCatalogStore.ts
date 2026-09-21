@@ -168,3 +168,30 @@ export async function toggleFoodFavorite(id: string): Promise<FoodCatalogItem | 
     if (!existing) return null;
     return updateFoodCatalogItem(id, { favorite: !existing.favorite });
 }
+
+/**
+ * 删除已导入商品（Hotfix Phase1）：
+ *  - 只删 catalog record 本身（含收藏状态）；幂等（不存在视为已删）
+ *  - 不碰历史 FoodOrderRecord / item snapshot / MoneyLedger / 退款 / 聊天卡
+ *  - 不做 blob GC（图片资产保留，避免历史订单引用失效）
+ *  - 调用方负责把该商品从当前购物车移除
+ */
+export async function deleteFoodCatalogItem(id: string): Promise<{ deleted: boolean }> {
+    const db = await openDB();
+    if (!db.objectStoreNames.contains(STORE_NAME)) return { deleted: false };
+    const existed = await new Promise<boolean>((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const request = tx.objectStore(STORE_NAME).get(id);
+        request.onsuccess = () => resolve(!!request.result);
+        request.onerror = () => reject(request.error || tx.error);
+    });
+    if (!existed) return { deleted: false };
+    await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error || new Error('food_catalog delete aborted'));
+    });
+    return { deleted: true };
+}

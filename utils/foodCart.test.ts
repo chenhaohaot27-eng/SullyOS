@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    addFoodCartItem, calculateFoodCartTotals, clearFoodCartAfterOrder,
+    addFoodCartItem, calculateFoodCartTotals, clearFoodCartAfterOrder, groupFoodCartByMerchant,
     removeFoodCartItem, setFoodCartNote, setFoodCartQuantity, snapshotFoodCart,
 } from './foodCart';
 import type { FoodCatalogItem } from './foodTypes';
@@ -31,11 +31,34 @@ describe('foodCart — 纯 UI 状态 helper', () => {
         const cart = [{ item: item('a', '店A', 10), quantity: 1 }, { item: item('b', '店A'), quantity: 2 }];
         expect(calculateFoodCartTotals(cart)).toEqual({ itemCount: 3, knownSubtotal: 10, deliveryFee: 5, hasUnknownPrices: true });
     });
-    it('跨商家拒绝加入；两个未知商家允许同车', () => {
+    it('多商家可共存同一购物车（Hotfix Phase1）', () => {
         const a = addFoodCartItem([], item('a', '店A')).cart;
-        expect(addFoodCartItem(a, item('b', '店B')).merchantConflict).toBe(true);
+        const both = addFoodCartItem(a, item('b', '店B'));
+        expect(both.merchantConflict).toBe(false);
+        expect(both.cart).toHaveLength(2);
         const unknown = addFoodCartItem([], item('x')).cart;
         expect(addInput(unknown, item('y')).merchantConflict).toBe(false);
+    });
+    it('按商家分组：组数、组内行、各组独立小计与配送费', () => {
+        const cart = [
+            ...addFoodCartItem([], item('a', '店A', 10)).cart,
+            ...addFoodCartItem([], item('b', '店A', 4)).cart,
+            ...addFoodCartItem([], item('c', '店B', 20)).cart,
+        ];
+        const groups = groupFoodCartByMerchant(cart);
+        expect(groups).toHaveLength(2);
+        expect(groups[0]).toMatchObject({ merchantName: '店A' });
+        expect(groups[0].lines).toHaveLength(2);
+        expect(groups[0].totals).toMatchObject({ itemCount: 2, knownSubtotal: 14, deliveryFee: 5, total: 19 });
+        expect(groups[1]).toMatchObject({ merchantName: '店B' });
+        expect(groups[1].totals).toMatchObject({ knownSubtotal: 20, total: 25 });
+    });
+    it('商家名归一化（大小写/空白折叠为同店）', () => {
+        const cart = [
+            ...addFoodCartItem([], item('a', '  店A  ')).cart,
+            ...addFoodCartItem([], item('b', '店a')).cart,
+        ];
+        expect(groupFoodCartByMerchant(cart)).toHaveLength(1);
     });
     it('订单 snapshot 与 Catalog 脱钩且复用 blobref', () => {
         const source = item('a', '店A', 12);

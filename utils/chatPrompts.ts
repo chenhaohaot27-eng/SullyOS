@@ -26,6 +26,7 @@ import { buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent
 import { buildGiftSendTagGuide, isGiftSendTagEnabled } from './giftIntent';
 import { buildMeetInviteGuide, buildPlayerInviteReplyGuide } from './meetingInvite';
 import { buildFoodOrderTagGuide } from './foodIntent';
+import { buildAutonomousOpportunityGuide, type AutonomousOpportunitySnapshot } from './autonomousActions';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -148,6 +149,12 @@ export interface PromptBuildOptions {
      * scheduleMessageTagEnabled 处的说明。
      */
     timelyByWorker?: boolean;
+    /**
+     * Hotfix Phase1：高成本自主行为机会窗口快照。
+     * 由 buildChatRequestPayload 预计算传入（只在正常对话那次 completion 注入）；
+     * 0 额外 Chat 调用——模型在本轮正常回复里自行决定是否使用，也完全可以不用。
+     */
+    autonomousHighCost?: AutonomousOpportunitySnapshot;
 }
 
 export const ChatPrompts = {
@@ -640,6 +647,8 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
         const giftSendTagEnabled = !forFirePack && isGiftSendTagEnabled();
         // FOOD_ORDER 只教给前台正常 Chat；worker / Instant Push 不执行 Food action。
         const foodOrderTagEnabled = !forFirePack;
+        // Hotfix Phase1：高成本自主行为机会（只在前台正常 Chat 注入；机会≠触发，模型可不选）。
+        const autonomousOpportunity = !forFirePack && !timelyByWorker ? promptOptions?.autonomousHighCost : undefined;
 
         baseSystemPrompt += `### 聊天 App 行为规范 (Chat App Rules)
 **TOP 1｜ChatApp 格式（本节最高优先级）**：你是发消息的真实存在，以自然短句、短气泡为主；一个气泡一行，气泡间直接另起一行（实际换行，不要输出“\\n”字样）。
@@ -680,7 +689,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
    - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
-${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${giftSendTagEnabled ? buildGiftSendTagGuide() : ''}${foodOrderTagEnabled ? buildFoodOrderTagGuide() : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}${buildMeetInviteGuide()}
+${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${giftSendTagEnabled ? buildGiftSendTagGuide() : ''}${foodOrderTagEnabled ? buildFoodOrderTagGuide() : ''}${autonomousOpportunity?.open ? buildAutonomousOpportunityGuide(autonomousOpportunity) : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}${buildMeetInviteGuide()}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `
    - **翻阅日记(飞书)**: 同上——回忆优先靠记忆和 \`[[RECALL]]\`，只有你自己想重温那天日记的内容时才用: \`[[FS_READ_DIARY: 日期]]\`。支持格式同上。` : ''}${notionNotesEnabled ? `
    - **翻阅用户笔记**: 当你想看${userProfile.name}写的某篇笔记的详细内容时，使用: \`[[READ_NOTE: 标题关键词]]\`。系统会搜索匹配的笔记并返回内容给你。` : ''}
