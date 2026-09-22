@@ -97,7 +97,7 @@ const FavoriteImage: React.FC<{ mediaRef?: string }> = ({ mediaRef }) => {
 };
 
 const MessageFavoritesApp: React.FC = () => {
-    const { characters, addToast } = useOS();
+    const { characters, addToast, closeApp } = useOS();
     const [favorites, setFavorites] = useState<MessageFavorite[]>([]);
     const [charFilter, setCharFilter] = useState<string>(GROUP_FILTER_ALL);
     const [typeFilter, setTypeFilter] = useState<'all' | 'text' | 'voice' | 'image'>('all');
@@ -153,6 +153,16 @@ const MessageFavoritesApp: React.FC = () => {
             {/* Header */}
             <div className="shrink-0 px-4 pb-3 border-b border-white/10 sticky top-0 z-10 backdrop-blur-xl bg-slate-950/60" style={{ paddingTop: 'var(--safe-top)' }}>
                 <div className="h-14 flex items-center gap-3">
+                    {/* 返回按钮 —— 大点击区(40x40) + 高对比底色/描边，深色背景下不糊 */}
+                    <button
+                        onClick={closeApp}
+                        aria-label="返回"
+                        className="shrink-0 w-10 h-10 rounded-full grid place-items-center bg-white/10 border border-white/20 shadow-md shadow-black/30 active:scale-90 active:bg-white/20 transition-transform"
+                    >
+                        <svg viewBox="0 0 24 24" className="w-[22px] h-[22px] text-white" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M15 5l-7 7 7 7" />
+                        </svg>
+                    </button>
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-cyan-400/80 to-indigo-500/80 grid place-items-center shadow-lg shadow-indigo-500/30">
                         <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
                             <path d="M4 12h2m12 0h2M8 12a4 4 0 0 1 8 0v5a3 3 0 0 1-6 0v-5" />
