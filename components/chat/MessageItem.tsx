@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Message, ChatTheme } from '../../types';
 import GiftChatCard from './GiftChatCard';
 import MeetingInviteCard from './MeetingInviteCard';
+import ListenInviteCard from './ListenInviteCard';
 import FoodOrderCard from './FoodOrderCard';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
@@ -3437,6 +3438,12 @@ const MessageItem = React.memo(({
         return <MeetingInviteCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} />;
     }
 
+    // 「一起听」邀请卡（Batch B）：状态来自 metadata.listen（真相源 music_listen_sessions）；
+    // char → user 的 pending 卡上按钮是 0 API 操作。
+    if (m.type === 'listen_invite_card') {
+        return <ListenInviteCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} />;
+    }
+
     // 外卖订单卡：Message 只带 orderId + 极简 fallback，动态回读 food_orders 真相源。
     if (m.type === 'food_order_card') {
         return <FoodOrderCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} />;
@@ -3623,6 +3630,7 @@ const MessageItem = React.memo(({
         .replace(/\[回复\s*[""\u201C][^""\u201D]*?[""\u201D](?:\.{0,3})\]\s*[：:]?\s*/g, '')  // [回复 "content"]: format
         // Residual action/system tags that may have leaked through
         .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|SEND_EMOJI|SEND_PHOTO|GIFT_REACT|GIFT_SEND|MEET_INVITE|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END)[:\s][\s\S]*?\]\]/g, '')
+        .replace(/\[\[MUSIC_LISTEN_(?:INVITE|RESPONSE)[^\]]*\]\]/g, '')  // Batch B 一起听标签（含无参数的 MUSIC_LISTEN_INVITE）
         .replace(/\[schedule_message[^\]]*\]/g, '')
         .replace(/<[语語]音[^>]*>[\s\S]*?<\/\s*[语語]音\s*>/g, '')  // strip <语音 ...>...</语音> voice tags (tolerate emotion attr / spaced close)
         .replace(/<[语語]音[^>]*>[\s\S]*$/g, '')             // 未闭合开标签 (历史坏数据): 标签到末尾都是语音内容, 不当正文显示

@@ -23,7 +23,7 @@ const buildStable = async (
 ) => {
     const parts = await ChatPrompts.buildSystemPromptParts(
         targetChar, userProfile, [], [], [], [],
-        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         promptOptions,
     );
     return parts.stable;

@@ -989,9 +989,14 @@ export const useChatAI = ({
                     }
                     return null;
                 })(),
-                isListeningTogether: !!(music.current && music.playing && music.listeningTogetherWith.includes(char.id)),
+                // Batch B：一起听由 session mirror 驱动（暂停不结束）；顺带传当前 session 已持续秒数。
+                isListeningTogether: music.listeningTogetherWith.includes(char.id),
                 musicCfg: music.cfg,
                 recentTrackChange: music.recentTrackChange,
+                listenTogetherElapsedSec: (() => {
+                    const session = (music.listenSessions || []).find(s => s.charId === char.id && typeof s.startedAt === 'number');
+                    return session ? Math.max(0, Math.round((Date.now() - session.startedAt) / 1000)) : undefined;
+                })(),
                 translationConfig,
                 htmlMode: { enabled: !!(char as any).htmlModeEnabled, customPrompt: (char as any).htmlModeCustomPrompt },
                 thinkingChain: { enabled: !!(char as any).showThinkingChain, customPrompt: (char as any).thinkingChainCustomPrompt },

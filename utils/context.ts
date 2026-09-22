@@ -509,18 +509,35 @@ export const ContextBuilder = {
         // 暂停 / 切歌 / 播放出错 / user 显式踢出 都会让 char 从名单里掉出来，
         // 走到这里时就会退回 "对方在听" 的旁观措辞。
         isListeningTogether?: boolean,
-        // 刚才一起听途中歌被切了（本 char 在名单里、还没重新加入）。
-        // 只在下一轮正常回复里让 char "察觉"到换歌，不触发主动消息。
+        // 刚才一起听途中歌被切了（本 char 在名单里）。只在下一轮正常回复里让 char "察觉"到换歌，不触发主动消息。
+        // 【Batch B】换歌 ≠ 结束一起听：仍在一起听时提示措辞是"还在一起陪听，只是歌换了"。
         recentTrackSwitch?: { songName: string; artists: string } | null,
+        // 当前一起听 session 已持续秒数（Batch B；来自 music_listen_sessions 的 startedAt 现算）。
+        listenTogetherElapsedSec?: number,
     ): string => {
         const lines: string[] = [];
+        const elapsedText = typeof listenTogetherElapsedSec === 'number' && listenTogetherElapsedSec > 0
+            ? `（这次一起听已经持续了约 ${Math.max(1, Math.round(listenTogetherElapsedSec / 60))} 分钟）`
+            : '';
+
+        // —— 块 0: 一起听中但此刻没在播（暂停） ——
+        // 暂停不结束 session：char 仍应知道自己处于"一起听"的关系里，只是音乐暂停了。
+        const canReadTop = char.musicProfile?.canReadUserMusic ?? true;
+        if (isListeningTogether && canReadTop && !(userListening && userListening.songName)) {
+            lines.push(`### 【你们正在一起听】`);
+            lines.push(`你和 ${userName || '对方'} 现在处于"一起听"的状态${elapsedText}。音乐此刻是暂停的——没关系，暂停不会结束这次一起听，等播放继续你们就还在一起听。可以自然地聊聊刚才的歌，不必刻意。`);
+            lines.push('');
+        }
 
         // —— 块 1: user 正在听什么 ——
-        const canRead = char.musicProfile?.canReadUserMusic ?? true;
+        const canRead = canReadTop;
         if (canRead && userListening && userListening.songName) {
             lines.push(`### 【此刻的对话氛围】`);
             if (isListeningTogether) {
-                lines.push(`你正在和 ${userName || '对方'} 一起听《${userListening.songName}》— ${userListening.artists}`);
+                lines.push(`你正在和 ${userName || '对方'} 一起听《${userListening.songName}》— ${userListening.artists}${elapsedText}`);
+                if (recentTrackSwitch && recentTrackSwitch.songName !== userListening.songName) {
+                    lines.push(`（刚才一起听时歌被切了：从《${recentTrackSwitch.songName}》— ${recentTrackSwitch.artists} 换成了现在这首。你们仍然在一起听，这次一起听没有结束、也不用重新开始，自然地跟上就好。）`);
+                }
             } else {
                 lines.push(`${userName || '对方'} 正在听《${userListening.songName}》— ${userListening.artists}`);
                 if (recentTrackSwitch && recentTrackSwitch.songName !== userListening.songName) {
@@ -630,19 +647,20 @@ export const ContextBuilder = {
   收进来的歌会被打上"从对方那里听到"的标签 —— 以后你单独听到这首时，会自然想起 ta。`;
         if (isListeningTogether) {
             return `### 【音乐互动工具】
-你此刻已经在和对方一起听这首，不用再"加入"。如果想把这首也收进自己的歌单，可以在这一轮**最多一次**用下面的指令:
+你此刻已经在和对方一起听（一次一起听会跨越很多首歌：切歌、暂停都不会结束，直到对方在播放器里结束）。不要再"加入"、也不要再发一起听邀请。如果想把当前这首也收进自己的歌单，可以在这一轮**最多一次**用下面的指令:
 - \`add\` 系列（见下）
 
 ${addUsage}
 
-不要频繁插卡；只有真的被这首歌打动、或和当前对话气氛契合时才用。
+不要频繁插卡；只有真的被这首歌打动、或和当前对话气氛契合时才用。自然聊天时可以偶尔提到音乐，但不必每条回复都谈歌。
 `;
         }
         return `### 【音乐互动工具】
 如果你真的想回应对方正在听的这首歌，可以在这一轮**最多一次**用下面的指令（只插一条，放在文本任意位置，会被自动替换为卡片）:
-- \`[[MUSIC_ACTION:join]]\` — 表示"我也一起听这首"（会亮出"一起听"状态，直到歌曲结束 / 暂停 / 对方主动结束才解除）
+- \`[[MUSIC_ACTION:join]]\` — 表示"我也一起听这首"（进入"一起听"状态，切歌 / 暂停不会解除，直到对方主动结束）
 - \`add\` 系列 — 把这首收进你自己的歌单
 - \`[[MUSIC_ACTION:join_and_add(|歌单标题)]]\` 或 \`[[MUSIC_ACTION:join_and_add_new|新歌单标题|描述]]\` — 同时做两件事
+- \`[[MUSIC_LISTEN_INVITE]]\` — **低频**：邀请对方"一起听"当前这首歌（单独一行，最多一次）。只在你们此刻没有在一起听、聊天情境和这首歌真的契合、而且你很久没发过这类邀请时才用；可以结合当前对话氛围、你的人设和这首歌本身自然地发出。不是每首歌都邀、不是每轮都邀，没有自然理由就正常聊天。发出后只当"你提出了邀请"，等对方在卡片上回应，绝不代对方接受。系统层面还有冷却兜底。
 
 ${addUsage}
 

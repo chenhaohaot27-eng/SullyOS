@@ -59,6 +59,8 @@ import { extractChatPhotoIntent } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
 import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
+import { extractListenInviteTag, extractListenResponseTag } from './listenSessionShared';
+import { applyCharacterListenResponse, createCharacterListenInvite } from './listenSession';
 import { applyGiftReaction } from './giftActions';
 import { executeGiftSend } from './giftCharacterSend';
 import { detectExplicitHighCostRequest, gateAssistantHighCostAction } from './autonomousActions';
@@ -632,6 +634,14 @@ export async function applyAssistantPostProcessing(
     // 标签永远剥掉，回应结果写回原玩家邀请卡；正文（角色自己的话）不受影响。
     const meetReplyExtraction = extractMeetReplyIntent(aiContent);
     aiContent = meetReplyExtraction.cleanedContent;
+
+    // ─── Step 1.8: 一起听 MUSIC_LISTEN_INVITE（角色主动邀）+ MUSIC_LISTEN_RESPONSE（角色回应用户邀） ───
+    // 标签永远剥掉（绝不进气泡 / 历史）；执行在 Step 7.8。0 额外 Chat 调用 ——
+    // 角色在正常的一轮 assistant response 里顺带输出。
+    const listenInviteExtraction = extractListenInviteTag(aiContent);
+    aiContent = listenInviteExtraction.cleanedContent;
+    const listenResponseExtraction = extractListenResponseTag(aiContent);
+    aiContent = listenResponseExtraction.cleanedContent;
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
@@ -2286,6 +2296,55 @@ export async function applyAssistantPostProcessing(
             }
         } catch (e) {
             console.warn('[Meet] 见面邀请卡落库失败（不影响正文）:', e instanceof Error ? e.message : e);
+        }
+    }
+
+    // ─── Step 7.8: 一起听会话（Batch B）──────────────────────────────────────
+    // 回应（MUSIC_LISTEN_RESPONSE）：只对 pending 的用户邀请生效；没有待回应邀请时
+    // 静默忽略（不凭空建 session），正文不受影响。
+    if (listenResponseExtraction.found) {
+        try {
+            const applied = await applyCharacterListenResponse({
+                charId: char.id,
+                response: listenResponseExtraction.found,
+            });
+            if (applied) {
+                console.info('[Listen] 角色回应一起听邀请:', listenResponseExtraction.found);
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            } else {
+                console.warn('[Listen] 收到 MUSIC_LISTEN_RESPONSE 但没有待回应的用户邀请，忽略（正文不受影响）');
+            }
+        } catch (e) {
+            console.warn('[Listen] 一起听回应写回失败（正文不受影响）:', e instanceof Error ? e.message : e);
+        }
+    }
+    // 主动邀请（MUSIC_LISTEN_INVITE）：必须当前确实有正在听的歌；程序层再挡一层
+    // （已有 active session / 已有 pending / 6h 冷却），全部通过才落 pending 邀请卡。
+    if (listenInviteExtraction.found) {
+        try {
+            const snap = musicHooks?.getListeningSnapshot?.() || null;
+            if (!snap) {
+                console.warn('[Listen] 角色想发起一起听，但当前没有正在听的歌，忽略邀请卡（正文不受影响）');
+            } else {
+                const created = await createCharacterListenInvite({
+                    charId: char.id,
+                    charName: char.name,
+                    song: {
+                        id: snap.songId,
+                        name: snap.name,
+                        artists: snap.artists,
+                        ...(snap.album ? { album: snap.album } : {}),
+                        ...(snap.albumPic ? { albumPic: snap.albumPic } : {}),
+                    },
+                });
+                if (created) {
+                    setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+                } else {
+                    console.info('[Listen] 一起听邀请被程序层拦截（冷却 / 已有会话 / 已有 pending），正文不受影响');
+                }
+            }
+        } catch (e) {
+            console.warn('[Listen] 一起听邀请落库失败（不影响正文）:', e instanceof Error ? e.message : e);
         }
     }
 }

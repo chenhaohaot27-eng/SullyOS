@@ -137,7 +137,7 @@ describe('Food full backup / restore', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const payload = await normalizeFoodBackupAfterRestore([{ id: 'bad' }], [{ id: 'bad' }]);
         expect(payload.foodCatalog).toEqual([]); expect(payload.foodOrders).toEqual([]);
-        expect((await openDB()).version).toBe(77); expect(warn).toHaveBeenCalled();
+        expect((await openDB()).version).toBe(78); expect(warn).toHaveBeenCalled();
         warn.mockRestore();
     });
 });

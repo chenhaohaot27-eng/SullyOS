@@ -9,6 +9,7 @@ import { detectExplicitHighCostRequest, gateAssistantHighCostAction, getLastUser
 import { executeLifeDirectives } from './lifeRecords';
 import { wallClockToTimestamp } from './timezone';
 import { harvestMusicInsight } from './musicContext';
+import { acceptPendingUserListenSession } from './listenSession';
 
 export interface MusicActionSnapshot {
     songId: number;
@@ -306,6 +307,9 @@ export const ChatParser = {
                 let playlistCreated = false;
                 if (wantsJoin) {
                     musicHooks.joinListeningTogether(charId);
+                    // Batch B 兼容映射：存在 pending 的用户"一起听"邀请时，legacy join 等价于
+                    // accept（pending → active + startedAt；无邀请 / 已处理时是幂等 no-op）。
+                    try { await acceptPendingUserListenSession(charId); } catch { /* ignore */ }
                 }
                 if (wantsAdd) {
                     try {

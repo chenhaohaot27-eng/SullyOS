@@ -25,6 +25,7 @@ import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
 import { buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { buildGiftSendTagGuide, isGiftSendTagEnabled } from './giftIntent';
 import { buildMeetInviteGuide, buildPlayerInviteReplyGuide } from './meetingInvite';
+import { buildListenResponseGuide } from './listenSessionShared';
 import { buildFoodOrderTagGuide } from './foodIntent';
 import { buildAutonomousOpportunityGuide, type AutonomousOpportunitySnapshot } from './autonomousActions';
 
@@ -250,7 +251,7 @@ export const ChatPrompts = {
         const parts = await ChatPrompts.buildSystemPromptParts(
             char, userProfile, groups, emojis, categories, currentMsgs,
             realtimeConfig, evolvedNarrative, userListeningContext, isListeningTogether, musicCfg,
-            undefined, promptOptions,
+            undefined, undefined, promptOptions,
         );
         return parts.stable + parts.volatileState + parts.recencyTail;
     },
@@ -290,6 +291,8 @@ export const ChatPrompts = {
         musicCfg?: MusicCfg,
         // 刚才一起听途中歌被切了（char 还没重新加入）—— 注入"察觉换歌"提示。
         recentTrackSwitch?: { songName: string; artists: string } | null,
+        // 当前一起听 session 已持续秒数（Batch B）。缺省 = 没有 active session / 调用方不知道。
+        listenTogetherElapsedSec?: number,
         promptOptions?: PromptBuildOptions,
     ): Promise<{ stable: string; volatileState: string; recencyTail: string }> => {
         // 主动消息的模板是最后一次聊天时打好、到点才渲染的，凡是「打包这一刻」的状态
@@ -562,6 +565,7 @@ ${groupLogStr}\n`;
                 charListening,
                 isListeningTogether,
                 recentTrackSwitch,
+                listenTogetherElapsedSec,
             );
             if (musicBlock) {
                 volatileState += `\n${musicBlock}\n`;
@@ -1276,6 +1280,37 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                         if (meet.timeText) meetLines.push(`时间：${meet.timeText}`);
                         meetLines.push(`玩家回应：${meet.status === 'accepted' ? '已接受' : meet.status === 'deferred' ? '暂缓（稍后见）' : meet.status === 'declined' ? '已婉拒' : '尚未回应'}`);
                         content = meetLines.join('\n');
+                    }
+                }
+                // 「一起听」邀请卡（Batch B）：双向协议。
+                // user → char：pending 时随该卡注入 [[MUSIC_LISTEN_RESPONSE:accept|decline]] 回应协议；
+                // char → user：压缩成邀请记录，模型凭历史状态知道玩家接受/婉拒（卡片按钮 0 API）。
+                else if ((m.type as string) === 'listen_invite_card') {
+                    const listen = (m.metadata?.listen || {}) as {
+                        inviter?: string; status?: string; inviterName?: string; durationSec?: number;
+                        song?: { name?: string; artists?: string };
+                    };
+                    const songDesc = listen.song?.name
+                        ? `《${listen.song.name}》${listen.song.artists ? ` — ${listen.song.artists}` : ''}`
+                        : '一首歌';
+                    if (listen.inviter === 'user') {
+                        const listenLines = [`${timeStr} [一起听邀请] 用户邀请你一起听 ${songDesc}（这是 Lemuria 中已发生的真实邀请，不是假设。）`];
+                        if (listen.status === 'pending') {
+                            listenLines.push(buildListenResponseGuide());
+                        } else {
+                            listenLines.push(`[一起听邀请结果] ${listen.status === 'active'
+                                ? '你接受了邀请，你们正在一起听（切歌 / 暂停都不会打断，直到用户在播放器里结束）'
+                                : listen.status === 'declined'
+                                    ? '你婉拒了这次一起听'
+                                    : listen.status === 'interrupted'
+                                        ? '这次一起听被中途打断'
+                                        : `这次一起听已结束${typeof listen.durationSec === 'number' ? `（共约 ${Math.max(1, Math.round(listen.durationSec / 60))} 分钟）` : ''}`}。`);
+                        }
+                        content = listenLines.join('\n');
+                    } else {
+                        const charLines = [`${timeStr} [邀请记录] 你向用户发出了「一起听」邀请（歌：${songDesc}）。`];
+                        charLines.push(`用户回应：${listen.status === 'active' ? '已接受，你们正在一起听' : listen.status === 'declined' ? '已婉拒' : listen.status === 'ended' ? '一起听已结束' : '尚未回应'}`);
+                        content = charLines.join('\n');
                     }
                 }
                 else if (m.type === 'interaction') content = `${timeStr} [系统: 用户戳了你一下]`;

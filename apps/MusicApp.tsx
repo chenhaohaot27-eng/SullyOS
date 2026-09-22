@@ -13,6 +13,9 @@ import {
 import NeteaseProfilePage from './music/NeteaseProfilePage';
 import CharVisitPage from './music/CharVisitPage';
 import ShareSongToCharModal from '../components/music/ShareSongToCharModal';
+import TogetherListenModal from '../components/music/TogetherListenModal';
+import { getAllMusicListenSessions, groupListenStatsByChar, type CharListenStats } from '../utils/listenSession';
+import { formatListenClock, formatListenDuration } from '../utils/listenSessionShared';
 
 // ------------------------- 工具 -------------------------
 const fmtTime = (s: number) => {
@@ -33,15 +36,25 @@ const MusicApp: React.FC = () => {
     lyric, tlyric, activeLyricIdx,
     profile, playSong, togglePlay, nextSong, prevSong, seek,
     liked, toggleLike, setToastHandler,
-    listeningTogetherWith, removeListeningPartner,
+    listeningTogetherWith,
     addLocalSong, removeLocalSong, localAlbumSongs,
     playMode, setPlayMode,
     regeneratingId, regeneratingStatus,
+    listenSessions, endListenTogether,
   } = useMusic();
   const isCurrentRegenerating = !!current && current.id === regeneratingId;
   // 「分享给角色」：待分享歌曲（来自播放页 Share / 列表 ···），非空即弹角色选择面板。
   // 落库走 utils/musicShare.shareSongToCharacter —— 0 LLM、0 song/detail 请求，分享后留在音乐 App。
   const [shareSong, setShareSong] = useState<Song | null>(null);
+  // 「和 ta 一起听」（Batch B）：角色选择面板 + 一起听记录面板 + 秒级 UI tick（不写 DB）
+  const [showTogetherPick, setShowTogetherPick] = useState(false);
+  const [listenRecords, setListenRecords] = useState<CharListenStats[] | null>(null);
+  const [, setUiTick] = useState(0);
+  useEffect(() => {
+    if (listenSessions.length === 0 && listenRecords === null) return;
+    const timer = window.setInterval(() => setUiTick(n => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [listenSessions.length, listenRecords]);
   // 把对轴入口和单曲循环按钮移到 SubActions 里，避免散乱
   // 下载本地生成的歌曲到本地文件系统
   const downloadCurrentLocal = useCallback(async () => {
@@ -251,7 +264,7 @@ const MusicApp: React.FC = () => {
           userAvatar={userProfile?.avatar}
           userName={userProfile?.name}
           companions={companions}
-          onKickCompanion={charId => { removeListeningPartner(charId); trackEvent('结束和角色的一起听'); }}
+          onKickCompanion={charId => { endListenTogether(charId); trackEvent('结束和角色的一起听'); }}
           charsWithSong={charsWithSong}
           regenStatus={isCurrentRegenerating ? regeneratingStatus : undefined}
         />
@@ -441,6 +454,11 @@ const MusicApp: React.FC = () => {
             <SubActions
               liked={liked}
               onLike={() => { toggleLike(); trackEvent('收藏或取消收藏当前歌', { action: liked ? 'unlike' : 'like' }); }}
+              onTogether={() => {
+                if (!current) { addToast('先播放或选中一首歌', 'info'); return; }
+                setShowTogetherPick(true);
+                trackEvent('打开一起听角色选择');
+              }}
               onShare={() => { if (current) setShareSong(current); }}
               showSync={!!(current.local && current.localLyrics && lyric.length > 0)}
               onSync={() => {
@@ -454,6 +472,43 @@ const MusicApp: React.FC = () => {
               onCyclePlayMode={cyclePlayMode}
             />
           </div>
+
+          {/* 「一起听」状态条（Batch B）：active session 的实时计时 + 结束按钮 + 记录入口（常驻） */}
+          <div className="shrink-0 mt-2 w-full max-w-sm rounded-2xl px-3 py-2 shizuku-glass">
+            {listenSessions.map(s => {
+                const who = characters.find(c => c.id === s.charId);
+                return (
+                  <div key={s.id} className="flex items-center gap-2">
+                    <span className="text-[10px]" style={{ color: C.accent }}>🎧</span>
+                    <div className="flex-1 min-w-0 text-[10px] truncate" style={{ color: C.muted }}>
+                      正在和 {who?.name || '对方'} 一起听 · {formatListenClock(Math.max(0, (Date.now() - s.startedAt) / 1000))}
+                    </div>
+                    <button
+                      onClick={() => { endListenTogether(s.charId); trackEvent('结束一起听'); }}
+                      className="text-[10px] px-2 py-0.5 rounded-full active:scale-95"
+                      style={{ background: `${C.primary}15`, border: `1px solid ${C.primary}30`, color: C.primary }}
+                    >
+                      结束一起听
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const all = await getAllMusicListenSessions();
+                      setListenRecords(groupListenStatsByChar(all));
+                      trackEvent('打开一起听记录');
+                    } catch { addToast('记录读取失败', 'error'); }
+                  })();
+                }}
+                className="mt-1.5 text-[10px] underline underline-offset-2"
+                style={{ color: C.faint }}
+              >
+                一起听记录
+              </button>
+            </div>
         </div>
       </div>
     );
@@ -579,6 +634,71 @@ const MusicApp: React.FC = () => {
         song={shareSong}
         onClose={() => setShareSong(null)}
       />
+      {/* 「和 ta 一起听」角色选择（Batch B）— 播放页 Together 入口弹出 */}
+      {showTogetherPick && current && (
+        <TogetherListenModal
+          song={{ id: current.id, name: current.name, artists: current.artists, album: current.album, albumPic: current.albumPic }}
+          userName={userProfile?.name}
+          onClose={() => setShowTogetherPick(false)}
+        />
+      )}
+      {/* 一起听记录（Batch B）：按角色累计 + 历史 session（日期 / 当次时长 / 邀请方 / 开始时的歌） */}
+      {listenRecords !== null && (() => (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(15,10,30,0.45)', backdropFilter: 'blur(6px)' }}
+          onClick={() => setListenRecords(null)}
+        >
+          <div className="w-full max-w-sm rounded-3xl p-4 shizuku-glass-strong max-h-[78vh] overflow-y-auto"
+            style={{ boxShadow: '0 8px 40px rgba(80,40,120,0.25)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-bold" style={{ color: '#5b4a6e' }}>🎧 一起听记录</div>
+              <button onClick={() => setListenRecords(null)} className="text-[11px] px-2 py-1 rounded-full" style={{ background: 'rgba(120,90,150,0.1)', color: '#7a6b8a' }}>关闭</button>
+            </div>
+            {listenRecords.length === 0 && (
+              <div className="text-center text-[11px] py-6" style={{ color: '#9a8fa8' }}>还没有一起听记录</div>
+            )}
+            {listenRecords.map(stat => {
+              const who = characters.find(c => c.id === stat.charId);
+              return (
+                <div key={stat.charId} className="mb-3 rounded-2xl px-3 py-2.5"
+                  style={{ background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(120,90,150,0.12)' }}>
+                  <div className="flex items-center gap-2">
+                    {who?.avatar
+                      ? <img src={who.avatar} className="w-8 h-8 rounded-full object-cover" alt="" />
+                      : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs bg-purple-100">{(who?.name || stat.charName || '?')[0]}</div>}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-semibold truncate" style={{ color: '#4a3d5c' }}>{who?.name || stat.charName || '已删除的角色'}</div>
+                      <div className="text-[10px]" style={{ color: '#9a8fa8' }}>
+                        累计一起听 {formatListenDuration(stat.cumulativeSec)}{stat.activeSession ? ' · 进行中' : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-1.5 space-y-1">
+                    {stat.sessions.slice(0, 12).map(s => (
+                      <div key={s.id} className="flex items-center gap-1.5 text-[10px]" style={{ color: '#8a7f98' }}>
+                        <span className="shrink-0">{new Date(s.invitedAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}</span>
+                        <span className="shrink-0">{s.inviter === 'user' ? '你邀请' : 'TA邀请'}</span>
+                        <span className="flex-1 min-w-0 truncate">{s.songSnapshot?.name ? `《${s.songSnapshot.name}》` : ''}</span>
+                        <span className="shrink-0">
+                          {s.status === 'active'
+                            ? `进行中 ${formatListenClock(Math.max(0, (Date.now() - (s.startedAt || Date.now())) / 1000))}`
+                            : s.status === 'pending'
+                                ? '待回应'
+                                : s.status === 'declined'
+                                    ? '已婉拒'
+                                    : (typeof s.durationSec === 'number' ? formatListenDuration(s.durationSec) : '—')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))()}
       {/* 手动对轴 modal — 全屏覆盖，不开新 view */}
       {showLyricSync && current && current.local && (() => {
         const fmt = (s: number) => {

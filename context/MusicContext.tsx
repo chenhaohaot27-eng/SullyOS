@@ -15,6 +15,13 @@ import { cachedCall as _cachedCall, invalidate as _invalidateCache, clearAll as 
 import { DB } from '../utils/db';
 import { getProxyWorkerUrl, DEFAULT_PROXY_WORKER, PROXY_WORKER_CHANGED_EVENT } from '../utils/proxyWorker';
 import type { PostProcessMusicHooks } from '../utils/applyAssistantPostProcessing';
+import {
+    getActiveMusicListenSessions,
+    registerListenRuntimeMirror,
+    endActiveListenSession,
+    endAllActiveListenSessions,
+    LISTEN_SESSIONS_CHANGED_EVENT,
+} from '../utils/listenSession';
 
 /* ───────────── 类型 ───────────── */
 export type MusicQuality = 'standard' | 'higher' | 'exhigh' | 'lossless' | 'hires';
@@ -165,6 +172,8 @@ export interface MusicPlaybackSnapshot {
   listeningTogetherWith: string[];
   cfg: MusicCfg;
   recentTrackChange?: RecentTrackChange | null;
+  /** 当前 active 的「一起听」正式会话（轻量视图；chat prompt 用它算已持续时长）。 */
+  listenSessions?: Array<{ id: string; charId: string; startedAt: number }>;
 }
 let __musicPlaybackSnapshot: MusicPlaybackSnapshot | null = null;
 export const loadMusicPlaybackSnapshot = (): MusicPlaybackSnapshot | null => __musicPlaybackSnapshot;
@@ -360,6 +369,10 @@ interface MusicContextType {
   addListeningPartner: (charId: string) => void;
   removeListeningPartner: (charId: string) => void;
   clearListeningPartners: () => void;
+  /** 当前 active 的正式一起听会话（轻量视图：id / charId / startedAt）。 */
+  listenSessions: Array<{ id: string; charId: string; startedAt: number }>;
+  /** 结束和某角色的「一起听」（active → ended，写一次 duration）。 */
+  endListenTogether: (charId: string) => void;
   /** 最近一次一起听途中换歌的记录（供 prompt 注入"察觉换歌"，不触发主动消息） */
   recentTrackChange: RecentTrackChange | null;
 
@@ -565,20 +578,68 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [playMode, setPlayMode] = useState<PlayMode>('loop');
 
   // 一起听 - char 加入后在 miniPlayer / 播放页显示徽标；切歌 / 结束自动清空
+  // 一起听 — char 加入后在 miniPlayer / 播放页显示徽标。
+  // 【Batch B 重要修正】换歌 ≠ 结束一起听：切歌 / 暂停都不再清空，partner 继续存在，
+  // recentTrackChange 继续记录（char 下一轮能察觉切歌，当前 song context 自动变成新歌）。
+  // canonical 真相源是 music_listen_sessions；这里只是 UI/runtime mirror。
   const [listeningTogetherWith, setListeningTogetherWith] = useState<string[]>([]);
+  const [listenSessions, setListenSessions] = useState<Array<{ id: string; charId: string; startedAt: number }>>([]);
   const addListeningPartner = useCallback((charId: string) => {
     setListeningTogetherWith(prev => prev.includes(charId) ? prev : [...prev, charId]);
   }, []);
   const removeListeningPartner = useCallback((charId: string) => {
     setListeningTogetherWith(prev => prev.filter(id => id !== charId));
+    // 同步结束正式 session（没有 active session 时是 no-op —— 纯 legacy 内存 join 不受影响）
+    void endActiveListenSession(charId, 'user_end');
   }, []);
   const clearListeningPartners = useCallback(() => {
     setListeningTogetherWith(prev => prev.length ? [] : prev);
+    // 播放器侧"全部清掉"视为用户主动结束（无 active session 时 no-op）
+    void endAllActiveListenSessions('user_end');
+  }, []);
+  const endListenTogether = useCallback((charId: string) => {
+    void endActiveListenSession(charId, 'user_end');
+  }, []);
+
+  // session 真相源 → runtime mirror：mount 时恢复（PWA 重开后 active 不凭空丢失），
+  // 之后每次 session 变化（邀请接受 / 结束 / 恢复）都重算 mirror。
+  const syncListenSessions = useCallback(async () => {
+    try {
+      const actives = await getActiveMusicListenSessions();
+      const light = actives.map(s => ({ id: s.id, charId: s.charId, startedAt: s.startedAt || Date.now() }));
+      setListenSessions(light);
+      const ids = light.map(s => s.charId);
+      setListeningTogetherWith(prev => {
+        const same = ids.length === prev.length && ids.every(id => prev.includes(id));
+        return same ? prev : ids;
+      });
+    } catch { /* DB 未就绪等 —— 保持现状 */ }
+  }, []);
+  useEffect(() => {
+    void syncListenSessions();
+    const handler = () => void syncListenSessions();
+    window.addEventListener(LISTEN_SESSIONS_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(LISTEN_SESSIONS_CHANGED_EVENT, handler);
+  }, [syncListenSessions]);
+  // 给 listenSession.ts 的落库动作注册 mirror（add/remove partner），Provider 卸载时注销。
+  useEffect(() => {
+    registerListenRuntimeMirror({
+      addPartner: (charId: string) => {
+        setListeningTogetherWith(prev => prev.includes(charId) ? prev : [...prev, charId]);
+      },
+      removePartner: (charId: string) => {
+        setListeningTogetherWith(prev => prev.filter(id => id !== charId));
+      },
+    });
+    return () => registerListenRuntimeMirror(null);
   }, []);
 
   // 切歌后清空上一首的"一起听"。只结束状态，不触发主动消息 ——
   // 换歌信息记进 recentTrackChange，char 下一轮正常回复时经 prompt 注入察觉，
   // 自行决定是否重新加入。
+  // 换歌察觉：只记录 recentTrackChange，不再清空"一起听"partner。
+  // 【Batch B】换歌 ≠ 结束一起听 —— active session 继续、partner 继续存在、不重新计时；
+  // char 下一轮凭 prompt 注入的"察觉换歌"知道歌换了，当前 song context 自动变成新歌。
   const previousSongRef = useRef<Song | null>(null);
   const listeningTogetherRef = useRef(listeningTogetherWith);
   listeningTogetherRef.current = listeningTogetherWith;
@@ -594,7 +655,6 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           at: Date.now(),
         });
       }
-      setListeningTogetherWith([]);
     }
     previousSongRef.current = current;
   }, [current]);
@@ -618,7 +678,15 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const onTime = () => setProgress(a.currentTime);
     const onMeta = () => setDuration(a.duration || 0);
     // 播放出错 → 清掉 playing 状态 + 清掉"一起听"伙伴（防止 UI 卡在残留状态）
-    const onErr = () => { setPlaying(false); setListeningTogetherWith([]); toast('播放失败', 'error'); };
+    // 播放出错 → 清掉 playing 状态 + 安全结束所有 active 一起听 session（不留幽灵 active）。
+    // 普通的暂停 / 切歌 / 离开 Music App 不走这里。
+    const onErr = () => {
+      setPlaying(false);
+      void endAllActiveListenSessions('playback_error').then(() => {
+        setListeningTogetherWith(prev => (prev.length ? [] : prev));
+      });
+      toast('播放失败', 'error');
+    };
     const onEnd = () => { endedHandlerRef.current(); };
 
     a.addEventListener('play', onPlay);
@@ -873,8 +941,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       listeningTogetherWith,
       cfg,
       recentTrackChange,
+      listenSessions,
     };
-  }, [current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg, recentTrackChange]);
+  }, [current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg, recentTrackChange, listenSessions]);
 
   // 把整组 musicHooks 写到模块级 slot — useChatAI 和 instant push activeMsgRuntime 都从这里取.
   // current / addListeningPartner 变化时刷新闭包, 保证读到的是最新 React state.
@@ -986,6 +1055,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     playMode, setPlayMode,
     liked, toggleLike,
     listeningTogetherWith, addListeningPartner, removeListeningPartner, clearListeningPartners,
+    listenSessions, endListenTogether,
     recentTrackChange,
     toast, setToastHandler,
     localAlbumSongs, addLocalSong, removeLocalSong,

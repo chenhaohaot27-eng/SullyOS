@@ -81,6 +81,8 @@ export interface BuildChatPayloadInput {
     musicSnapshot?: MusicPlaybackSnapshot | null;
     /** 最近一次一起听途中换歌的记录（React 主路径显式传；snapshot 路径从快照里取） */
     recentTrackChange?: RecentTrackChange | null;
+    /** 该 char 当前一起听 session 已持续秒数（可选；缺省时由 snapshot 推）。 */
+    listenTogetherElapsedSec?: number;
 
     // 模式开关
     translationConfig?: TranslationConfig | { enabled: boolean; sourceLang: string; targetLang: string };
@@ -140,9 +142,9 @@ export interface BuildChatPayloadResult {
 function deriveListeningFromSnapshot(
     snap: MusicPlaybackSnapshot | null | undefined,
     charId: string,
-): { userListeningContext: UserListeningContext | null; isListeningTogether: boolean; musicCfg?: MusicCfg } {
+): { userListeningContext: UserListeningContext | null; isListeningTogether: boolean; musicCfg?: MusicCfg; listenTogetherElapsedSec?: number } {
     if (!snap) return { userListeningContext: null, isListeningTogether: false };
-    const { current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg } = snap;
+    const { current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg, listenSessions } = snap;
     let userListeningContext: UserListeningContext | null = null;
     if (current && playing && lyric.length > 0) {
         const idx = activeLyricIdx;
@@ -166,8 +168,14 @@ function deriveListeningFromSnapshot(
             activeIdx: -1,
         };
     }
-    const isListeningTogether = !!(userListeningContext && listeningTogetherWith.includes(charId));
-    return { userListeningContext, isListeningTogether, musicCfg: cfg };
+    // Batch B：isListeningTogether 改由 mirror（= active session）驱动，不要求"正在播放"
+    // —— 暂停不结束一起听；顺带算出该 char 当前 session 已持续秒数（供 prompt 注入）。
+    const isListeningTogether = listeningTogetherWith.includes(charId);
+    const activeSession = (listenSessions || []).find(s => s.charId === charId && typeof s.startedAt === 'number');
+    const listenTogetherElapsedSec = activeSession
+        ? Math.max(0, Math.round((Date.now() - activeSession.startedAt) / 1000))
+        : undefined;
+    return { userListeningContext, isListeningTogether, musicCfg: cfg, listenTogetherElapsedSec };
 }
 
 /** 换歌记录多久内算"刚刚"——超过就不再向 char 提起（一首歌的量级） */
@@ -175,15 +183,16 @@ const TRACK_CHANGE_FRESH_MS = 10 * 60 * 1000;
 
 /**
  * 把原始换歌记录折算成"该 char 这一轮是否需要察觉换歌"。
- * 命中条件：char 换歌那刻在一起听名单里、还没重新加入、且换歌发生在刚才。
+ * 命中条件：char 在换歌那一刻的"一起听"名单里、且换歌发生在刚才。
+ * 【Batch B】换歌 ≠ 结束一起听：即便此刻仍在一起听（active session），也要让 char
+ * 察觉到歌换了（prompt 层按 isListeningTogether 区分"仍在陪听"与"旁观"两种措辞）。
  * 导出仅为单测。
  */
 export function deriveRecentTrackSwitchForChar(
     record: RecentTrackChange | null | undefined,
     charId: string,
-    isListeningTogether: boolean,
 ): { songName: string; artists: string } | null {
-    if (!record || isListeningTogether) return null;
+    if (!record) return null;
     if (!record.charIds.includes(charId)) return null;
     if (Date.now() - record.at > TRACK_CHANGE_FRESH_MS) return null;
     return { songName: record.previousSong.name, artists: record.previousSong.artists };
@@ -280,15 +289,17 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     let isListeningTogether = input.isListeningTogether;
     let musicCfg = input.musicCfg;
     let recentTrackChange = input.recentTrackChange;
+    let listenTogetherElapsedSec = input.listenTogetherElapsedSec;
     if (userListeningContext === undefined && input.musicSnapshot !== undefined) {
         const derived = deriveListeningFromSnapshot(input.musicSnapshot, char.id);
         userListeningContext = derived.userListeningContext;
         isListeningTogether = derived.isListeningTogether;
         musicCfg = derived.musicCfg ?? musicCfg;
+        listenTogetherElapsedSec = derived.listenTogetherElapsedSec;
         if (recentTrackChange === undefined) recentTrackChange = input.musicSnapshot?.recentTrackChange ?? null;
     }
     // 换歌察觉：char 换歌那刻在一起听、还没重新加入 → 下一轮回复里注入"歌切了"的提示
-    const recentTrackSwitch = deriveRecentTrackSwitchForChar(recentTrackChange, char.id, !!isListeningTogether);
+    const recentTrackSwitch = deriveRecentTrackSwitchForChar(recentTrackChange, char.id);
 
     // ── 3. buildSystemPromptParts 核心（三段式） ──────────
     // stable → 消息数组第一条 system（前缀稳定，吃 prompt cache）；
@@ -329,6 +340,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         !!isListeningTogether,
         musicCfg,
         recentTrackSwitch,
+        listenTogetherElapsedSec,
         {
             ...(input.timelyByWorker || returningFromMode ? {
                 timelyByWorker: input.timelyByWorker === true,

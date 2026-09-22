@@ -43,7 +43,7 @@ var schedule = {
 const build = async (char: any, forFirePack: boolean) => {
     const parts = await ChatPrompts.buildSystemPromptParts(
         char, userProfile, [], [], [], [],
-        realtimeConfig, undefined, undefined, undefined, undefined, undefined,
+        realtimeConfig, undefined, undefined, undefined, undefined, undefined, undefined,
         forFirePack ? { forFirePack: true } : undefined,
     );
     return `${parts.stable}\n${parts.volatileState}\n${parts.recencyTail}`;
@@ -98,7 +98,7 @@ describe('forFirePack —— 打包时刻的状态一律不烤进模板', () => 
         const withMsgs = async (forFirePack: boolean) => {
             const parts = await ChatPrompts.buildSystemPromptParts(
                 baseChar(), userProfile, [], [], [], msgs,
-                realtimeConfig, undefined, undefined, undefined, undefined, undefined,
+                realtimeConfig, undefined, undefined, undefined, undefined, undefined, undefined,
                 forFirePack ? { forFirePack: true } : undefined,
             );
             return parts.volatileState;
@@ -152,7 +152,7 @@ describe('彼方：用户此刻挂在哪个房间不进打包', () => {
     const buildVr = async (forFirePack: boolean) => {
         const parts = await ChatPrompts.buildSystemPromptParts(
             vrChar(), vrUser, [], [], [], [],
-            realtimeConfig, undefined, undefined, undefined, undefined, undefined,
+            realtimeConfig, undefined, undefined, undefined, undefined, undefined, undefined,
             forFirePack ? { forFirePack: true } : undefined,
         );
         return `${parts.stable}\n${parts.volatileState}`;
@@ -198,7 +198,7 @@ describe('群聊背景的时间标注', () => {
         const parts = await ChatPrompts.buildSystemPromptParts(
             baseChar({ id: 'char-fp-grp', customTimezoneEnabled: true, customTimezone: 'Asia/Shanghai' }),
             userProfile, groups, [], [], [],
-            realtimeConfig, undefined, undefined, undefined, undefined, undefined,
+            realtimeConfig, undefined, undefined, undefined, undefined, undefined, undefined,
             forFirePack ? { forFirePack: true } : undefined,
         );
         return parts.volatileState;
@@ -225,7 +225,7 @@ describe('小红书：worker 够不着的服务器不写进 fire_pack', () => {
         const parts = await ChatPrompts.buildSystemPromptParts(
             baseChar({ id: 'char-fp-xhs', xhsEnabled: true }), userProfile, [], [], [], [],
             { ...realtimeConfig, xhsMcpConfig: { enabled: true, serverUrl } } as any,
-            undefined, undefined, undefined, undefined, undefined,
+            undefined, undefined, undefined, undefined, undefined, undefined,
             forFirePack ? { forFirePack: true } : undefined,
         );
         return parts.stable;

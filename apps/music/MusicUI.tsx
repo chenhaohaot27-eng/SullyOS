@@ -508,7 +508,8 @@ export const SubActions: React.FC<{
   onCyclePlayMode?: () => void;    // 循环模式切换
   onAdd?: () => void;
   onShare?: () => void;            // 分享当前歌给角色 (Phase 3.3)
-}> = ({ onLike, liked, onSync, showSync, onDownload, showDownload, playMode = 'loop', onCyclePlayMode, onAdd, onShare }) => {
+  onTogether?: () => void;         // 「和 ta 一起听」—— 邀请角色进入正式一起听会话 (Batch B)
+}> = ({ onLike, liked, onSync, showSync, onDownload, showDownload, playMode = 'loop', onCyclePlayMode, onAdd, onShare, onTogether }) => {
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick?: () => void; active?: boolean }) => (
     <button onClick={onClick}
       className="flex flex-col items-center gap-1 transition-opacity active:scale-95"
@@ -572,12 +573,21 @@ export const SubActions: React.FC<{
       <path d="M22 2 15 22l-4-9-9-4 20-7z" />
     </svg>
   );
+  // 耳机 —— 「和 ta 一起听」(Batch B)
+  const togetherSvg = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.primary} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+      <rect x="3" y="14" width="4" height="6" rx="2" />
+      <rect x="17" y="14" width="4" height="6" rx="2" />
+    </svg>
+  );
 
   const playModeLabel: Record<SubPlayMode, string> = { loop: 'Loop', single: 'One', shuffle: 'Mix' };
 
   return (
     <div className="flex items-end justify-around gap-4 max-w-[280px] mx-auto">
       <Item onClick={onLike} active={liked} label="Like" icon={heartSvg} />
+      {onTogether && <Item onClick={onTogether} active label="Together" icon={togetherSvg} />}
       {onShare && <Item onClick={onShare} active label="Share" icon={shareSvg} />}
       {showSync && onSync && <Item onClick={onSync} active label="Sync" icon={syncSvg} />}
       {showDownload && onDownload && <Item onClick={onDownload} active label="Save" icon={downloadSvg} />}

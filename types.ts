@@ -3815,7 +3815,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'gift_card' | 'meet_card' | 'food_order_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'gift_card' | 'meet_card' | 'food_order_card' | 'listen_invite_card';
 
 export interface Message {
     id: number;
@@ -3831,6 +3831,43 @@ export interface Message {
         content: string;
         name: string;
     };
+}
+
+/**
+ * 「和 ta 一起听」正式会话 —— canonical store（music_listen_sessions，DB v78）的记录形状。
+ *
+ * 规则（Batch B）：
+ *  - 每一次邀请 = 一条新 session；declined 不计时；accepted（pending → active）才开始计时。
+ *  - durationSec 真相来自 startedAt / endedAt，只在结束时写一次；UI 的秒数刷新用 setInterval，不写 DB。
+ *  - 同一角色已有 active session 时禁止再创建 active session（重放/双击不得重复开始或结束）。
+ *  - 换歌 ≠ 结束：切歌后 active session 继续，partner 不掉；暂停也不结束。
+ */
+export interface MusicListenSession {
+    id: string;
+    charId: string;
+    /** 名字快照 —— 记录页展示用，角色删除后不崩。 */
+    charName?: string;
+    inviter: 'user' | 'character';
+    status: 'pending' | 'active' | 'declined' | 'ended' | 'interrupted';
+    /** 对应聊天里的 listen_invite_card 消息 id（状态回写用）。 */
+    inviteMessageId?: number;
+    /** 邀请发出那一刻正在放的那首歌。 */
+    songSnapshot?: MusicListenSessionSongSnapshot;
+    invitedAt: number;
+    startedAt?: number;
+    endedAt?: number;
+    /** endedAt - startedAt，只在结束/中断时写一次（秒）。 */
+    durationSec?: number;
+    /** user_end / playback_error / restore_interrupted 等。 */
+    endReason?: string;
+}
+
+export interface MusicListenSessionSongSnapshot {
+    id?: number;
+    name: string;
+    artists: string;
+    album?: string;
+    albumPic?: string;
 }
 
 export interface EmojiCategory {
@@ -3911,6 +3948,11 @@ export interface FullBackupData {
     galleryImages?: GalleryImage[];
     /** 留音海螺收藏快照（message_favorites store；旧备份缺失 → 恢复端按空处理） */
     messageFavorites?: MessageFavorite[];
+    /**
+     * 「和 ta 一起听」正式会话（music_listen_sessions store；旧备份缺失 → 恢复端按空处理）。
+     * 恢复时 active 会被归一化为 interrupted，时长冻结到备份时刻 —— 绝不带幽灵 active 回来。
+     */
+    musicListenSessions?: MusicListenSession[];
     userProfile?: UserProfile;
     diaries?: DiaryEntry[];
     tasks?: Task[];

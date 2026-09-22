@@ -10,6 +10,7 @@ import {
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
     MessageFavorite,
+    MusicListenSession,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
     WorldProfile, WorldEpisode, StoryTheaterEntry, StoryTheaterPreset, StoryTheaterMask
 } from '../types';
@@ -25,6 +26,7 @@ import { normalizeEmojiRecords } from './emojiImageCompat';
 import { normalizeGiftRecordsAfterRestore } from './giftBackup';
 import type { GiftRecord } from './giftTypes';
 import { normalizeFoodBackupAfterRestore, prepareFoodBackupForExport } from './foodBackup';
+import { normalizeMusicListenSessionsForRestore } from './listenSessionShared';
 
 /**
  * exportFullData 的礼物导出辅助：把 imageRef 的 blobref 令牌解析回 data URL，
@@ -58,7 +60,8 @@ const DB_NAME = 'AetherOS_Data';
 // v75：外卖订单唯一真相源（food_orders；eventKey 唯一索引持久幂等）。
 // v76：玩家统一钱包（money_ledger 流水 eventKey 唯一索引持久幂等 + player_wallet singleton 配置）。
 // v77：留音海螺 message_favorites store（sourceMessageId 唯一索引 + id=`mfav-<sourceMessageId>` 双保险幂等）。
-const DB_VERSION = 77;
+// v78：「和 ta 一起听」正式会话 music_listen_sessions store（charId 非唯一索引；id 由 listenSession.ts 生成）。
+const DB_VERSION = 78;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -117,6 +120,7 @@ const STORE_FOOD_ORDERS = 'food_orders';           // 外卖订单（Phase 2；C
 const STORE_MONEY_LEDGER = 'money_ledger';         // 玩家钱包流水（utils/playerWallet.ts 独占数据访问；eventKey 唯一索引做持久幂等）
 const STORE_PLAYER_WALLET = 'player_wallet';       // 玩家钱包 singleton 配置（id='default'：openingBalance 切点等）
 const STORE_MESSAGE_FAVORITES = 'message_favorites'; // 留音海螺收藏快照（sourceMessageId 唯一索引；id=`mfav-<msgId>` 幂等）
+const STORE_MUSIC_LISTEN_SESSIONS = 'music_listen_sessions'; // 「和 ta 一起听」正式会话（Batch B canonical 真相源；charId 非唯一索引）
 const STORE_LIFE_RECORDS = 'life_records';        // 生活记录：生理期/药盒打卡/锻炼（记账走 bank_transactions）
 const STORE_MED_PLANS = 'med_plans';              // 药盒计划（每天几点吃什么药）
 const STORE_LIFE_SETTINGS = 'life_record_settings'; // 生活记录设置单例（id='main'：周期长度等）
@@ -593,6 +597,19 @@ export const openDB = (): Promise<IDBDatabase> => {
           }
           if (mfavStore && !mfavStore.indexNames.contains('charId')) {
               try { mfavStore.createIndex('charId', 'charId', { unique: false }); } catch { /* 已存在 */ }
+          }
+      }
+
+      // ─── v78: 「和 ta 一起听」music_listen_sessions ───
+      // canonical 真相源：状态机 pending → active/declined → ended/interrupted 只在
+      // utils/listenSession.ts 里推进（带 pending/active 幂等守卫），本层只做纯读写。
+      if (!db.objectStoreNames.contains(STORE_MUSIC_LISTEN_SESSIONS)) {
+          const mlsStore = db.createObjectStore(STORE_MUSIC_LISTEN_SESSIONS, { keyPath: 'id' });
+          mlsStore.createIndex('charId', 'charId', { unique: false });
+      } else {
+          const mlsStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_MUSIC_LISTEN_SESSIONS);
+          if (mlsStore && !mlsStore.indexNames.contains('charId')) {
+              try { mlsStore.createIndex('charId', 'charId', { unique: false }); } catch { /* 已存在 */ }
           }
       }
     };
@@ -1561,6 +1578,62 @@ export const DB = {
       const db = await openDB();
       const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readwrite');
       transaction.objectStore(STORE_MESSAGE_FAVORITES).delete(id);
+  },
+
+  // --- Music Listen Sessions（「和 ta 一起听」正式会话，Batch B） ---
+
+  saveMusicListenSession: async (session: MusicListenSession): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_MUSIC_LISTEN_SESSIONS, 'readwrite');
+      transaction.objectStore(STORE_MUSIC_LISTEN_SESSIONS).put(session);
+  },
+
+  getMusicListenSessions: async (charId?: string): Promise<MusicListenSession[]> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MUSIC_LISTEN_SESSIONS, 'readonly');
+          const store = transaction.objectStore(STORE_MUSIC_LISTEN_SESSIONS);
+          let request: IDBRequest;
+          if (charId) {
+              request = store.index('charId').getAll(IDBKeyRange.only(charId));
+          } else {
+              request = store.getAll();
+          }
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  /**
+   * 条件更新：updater 返回原对象（引用不变或内容未推进）时原样落回并返回它，
+   * 调用方（utils/listenSession.ts）据此判定"这次转移没有生效"（幂等守卫）。
+   */
+  updateMusicListenSession: async (
+      id: string,
+      updater: (prev: MusicListenSession | undefined) => MusicListenSession | undefined,
+  ): Promise<MusicListenSession | null> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MUSIC_LISTEN_SESSIONS, 'readwrite');
+          const store = transaction.objectStore(STORE_MUSIC_LISTEN_SESSIONS);
+          const getReq = store.get(IDBKeyRange.only(id));
+          getReq.onsuccess = () => {
+              const prev = getReq.result as MusicListenSession | undefined;
+              const next = updater(prev);
+              if (!next) { resolve(null); return; }
+              try { store.put(next); } catch (e) { reject(e); return; }
+              resolve(next);
+          };
+          getReq.onerror = () => reject(getReq.error);
+          transaction.onerror = () => reject(transaction.error);
+      });
+  },
+
+  /** 测试辅助：清空一起听 session store（vitest 隔离用）。 */
+  clearMusicListenSessionsForTest: async (): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_MUSIC_LISTEN_SESSIONS, 'readwrite');
+      transaction.objectStore(STORE_MUSIC_LISTEN_SESSIONS).clear();
   },
 
   /** 全量消息读取（备份/引用检查用；普通 UI 走 getMessagesByCharId 等索引路径）。 */
@@ -3114,7 +3187,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, messageFavorites, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts, foodCatalogRecords, foodOrderRecords, moneyLedgerRecords, walletConfigRecords] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, messageFavorites, musicListenSessions, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, livingWorld, lifeRecords, medPlans, lifeRecordSettings, gifts, foodCatalogRecords, foodOrderRecords, moneyLedgerRecords, walletConfigRecords] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3124,6 +3197,7 @@ export const DB = {
           getAllFromStore(STORE_ASSETS),
           getAllFromStore(STORE_GALLERY),
           getAllFromStore(STORE_MESSAGE_FAVORITES),
+          getAllFromStore(STORE_MUSIC_LISTEN_SESSIONS),
           getAllFromStore(STORE_USER),
           getAllFromStore(STORE_DIARIES),
           getAllFromStore(STORE_TASKS),
@@ -3188,7 +3262,7 @@ export const DB = {
       const foodBackup = await prepareFoodBackupForExport(foodCatalogRecords, foodOrderRecords);
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, messageFavorites, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
+          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, messageFavorites, musicListenSessions, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -3254,7 +3328,7 @@ export const DB = {
       
       const availableStores = [
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
-          STORE_ASSETS, STORE_GALLERY, STORE_MESSAGE_FAVORITES, STORE_USER, STORE_DIARIES,
+          STORE_ASSETS, STORE_GALLERY, STORE_MESSAGE_FAVORITES, STORE_MUSIC_LISTEN_SESSIONS, STORE_USER, STORE_DIARIES,
           STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
           STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
@@ -3574,6 +3648,18 @@ export const DB = {
           await clearAndAdd(STORE_MESSAGE_FAVORITES, data.messageFavorites, '留音海螺收藏', true);
           data.messageFavorites = undefined as any;
       }, data.messageFavorites?.length || 0);
+      // 「和 ta 一起听」：纯数据回放（恢复不自动发邀请 / 自动调 AI / 自动接受 / 新建 session）。
+      // 备份里的 active 一律归一化为 interrupted，时长冻结到备份时刻 —— 不留幽灵 active，
+      // 也不会从几个月前的 startedAt 一路计到今天。旧备份缺失该字段 → 跳过即视为空。
+      await runSection('一起听记录', data.musicListenSessions !== undefined, async () => {
+          await clearAndAdd(
+              STORE_MUSIC_LISTEN_SESSIONS,
+              normalizeMusicListenSessionsForRestore(data.musicListenSessions || [], data.timestamp),
+              '一起听记录',
+              true,
+          );
+          data.musicListenSessions = undefined as any;
+      }, data.musicListenSessions?.length || 0);
       await runSection('日记', data.diaries !== undefined, async () => {
           await clearAndAdd(STORE_DIARIES, data.diaries, '日记', true);
           data.diaries = undefined as any;
