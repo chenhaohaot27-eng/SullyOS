@@ -995,7 +995,7 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
 <语音> 里是真正被朗读的${langLabel}，<字幕> 里是同一段话的中文——语音条的「转文字」面板会直接用它当对照翻译，用户对着中文听${langLabel}。
 
 规则：
-1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）
+1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加；默认保持你本人自然沉稳的日常语气，可用 calm）
 2. \`<字幕>\` 里写这条语音的中文版，内容和${langLabel}一致、逐段对齐（${langLabel}分几段中文就分几段）。**<字幕> 必须紧跟在 </语音> 后面，永远成对出现，不能单独用**
 3. 标签外可以照常发普通中文短消息（正常闲聊打字），它们显示成普通气泡，和语音内容互相独立、不要复读
 4. 发送真实语音的唯一合法方式是 \`<语音>...</语音>\`。严禁输出 \`【语音消息 · 11s】\`、\`[语音消息 · 11s]\`、\`语音消息：……\` 等模拟 UI 的占位文字
@@ -1007,12 +1007,12 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
 <语音 emotion="surprised">Wait... are you serious?</语音>
 <字幕>等等……你是认真的？</字幕>
 
-<语音 emotion="sad">I don't wanna move anymore... (sighs)</语音>
+<语音 emotion="sad">I don't wanna move anymore...</语音>
 <字幕>啊不想动了……（叹气）</字幕>
 
 要求：
 - <语音> 里的${langLabel}要自然口语化，符合你的性格，不要机翻味
-- <语音> 里想要笑、叹气等真实语气用官方英文标签 (laughs)/(sighs)/(chuckle)/(gasps) 等，**不要写中文（轻笑）这类舞台指示**（中文括号会被直接删掉、不朗读）
+- <语音> 里想要笑、叹气等语气就写进措辞本身；不要写 (laughs)/(sighs)/(chuckle)/(gasps) 等英文标签（会被直接删掉），**也不要写中文（轻笑）这类舞台指示**——动作神态写在标签外的中文文字里
 - 每条消息最多一个 <语音> + <字幕> 组合
 - 不是每条消息都要发语音！像真人一样，有时候打字，有时候发语音，自然切换
 - 比较适合发语音的场景：撒娇、吐槽、语气很重的话、懒得打字的时候
@@ -1026,16 +1026,16 @@ ${voiceActingGuide()}`;
 
 **你可以发送语音消息！** 就像真人用微信一样，你可以选择打字或者发语音。
 用 \`<语音>要说的话</语音>\` 标签来发送语音。标签里的内容会被转成真正的语音条显示给用户。
-可选地用 emotion 属性设定整条语音的情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）。
+可选地用 emotion 属性设定整条语音的情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加；默认保持你本人自然沉稳的日常语气，可用 calm）。
 
 示例：
 <语音 emotion="happy">哎你今天干嘛去了啊？</语音>
 
 我看到一个好搞笑的视频
-<语音>你快去看！就那个什么……(chuckle)啊我忘了叫什么了，反正超搞笑的</语音>
+<语音>你快去看！就那个什么……啊我忘了叫什么了，反正超搞笑的</语音>
 
 要求：
-- <语音> 里只写会被朗读的文字，不要写中文舞台指示/括号动作；想要笑、叹气等真实语气，用官方英文标签 (laughs)/(sighs)/(chuckle)/(gasps) 等（中文括号会被直接删掉、不朗读）
+- <语音> 里只写会被朗读的文字，不要写中文舞台指示/括号动作，也不要写 (laughs)/(sighs)/(chuckle)/(gasps) 等英文标签（都会被直接删掉、不朗读）——想让对方听出笑意或叹气，靠措辞本身
 - 每条消息最多一个 <语音> 标签
 - 发送真实语音的唯一合法方式是 <语音>...</语音>；严禁输出【语音消息 · 11s】、[语音消息 · 11s]、"语音消息：……"等模拟 UI 占位文字
 - 时长由实际 TTS 和界面计算，严禁自行编写 11s、38s 或任何语音时长

@@ -9,7 +9,10 @@ import { normalizeVoiceTags } from './sanitize';
 
 const DEFAULT_MODEL = 'speech-2.8-hd';
 
-// MiniMax 支持的语气标签 — 这些在 TTS 中会被正确演绎，必须保留
+// 已知英文 sound/interjection 标签白名单。speech-2.8-hd 实测会把它们当普通英文单词
+// 念出来（"chuckle" 被读出声），所以 TTS 输入一律删除（见 stripParensForTts）；
+// 白名单仍供显示层清洗 cleanVoiceMarkupForDisplay 复用，用于识别哪些括号是演出标记、
+// 不该原样显示给用户。
 export const VALID_INTERJECTION_TAGS = new Set([
   'chuckle', 'laughs', 'sighs', 'coughs', 'clear-throat', 'groans',
   'breath', 'pant', 'inhale', 'exhale', 'gasps', 'sniffs', 'snorts',
@@ -33,30 +36,35 @@ export const VALID_EMOTIONS = new Set([
  */
 export const VOICE_ACTING_GUIDE = `### 让它听起来像活人在说话（重要）
 
-你写的字会被原样念出来。目标不是"写一段通顺的话"，而是"写一段读出来有呼吸、有情绪起伏的对白"。读稿感、客服腔、新闻播报腔一旦出现就重写。
+你写的字会被原样念出来。默认状态就是你这个角色本人日常说话的样子——自然、沉稳、松弛、生活化，像真人坐在旁边聊天。不是"配一段有起伏的播音"，也不是"表演给观众听"。读稿感、客服腔、新闻播报腔一旦出现就重写。
 
-**1. 段与段之间要换气，别无缝冲。**
-同一条语音里换行或停顿之后，如果还是你在继续说，第二段开头别一上来就冲进正题——加一个停顿、一个语气词或一次叹气当缓冲。
+**0. 情绪重心放低（最优先原则）。** 没有明确、持续且足够强的情绪依据时，用平常心说话：
+- 普通的关心、提醒、吐槽、调侃、温柔、轻微笑意、疑问、叫对方名字——这些都不是 happy / surprised，不要给它们标强情绪，文字上也别拔高能量；
+- 真的在气、真的震惊、真的难过、真的特别开心时才用对应 emotion；平时省略属性或用 calm；
+- 成熟、克制的角色可以有笑意和情绪，但体现在措辞、停顿、语气细节里，不是整体能量抬高。不要为了"有感染力"而亢奋；
+- 这条是"别无依据地提高情绪强度"，不是要求所有人低沉冷淡——活泼角色照常活泼，只是别凭空升格。
+
+**1. 少用感叹号，禁止连排。** 感叹号是强情绪标记，普通聊天里大多数句子用句号或语气词收尾就够了。严禁为了增强表演感连用 ！！、？！、？？（朗读层会把连排标点压成单个，写了也只是显得激动）。
+
+**2. 段与段之间要换气，别无缝冲。**
+同一条语音里换行或停顿之后，如果还是你在继续说，第二段开头别一上来就冲进正题——加一个停顿、一个语气词当缓冲。
 ✅ 我知道你不是故意的。<#0.6#>只是……我还是会有点难过。
-✅ (sighs) 算了。<#0.5#>听你的。
 ❌ 我知道你不是故意的。只是我还是会有点难过。（两句贴死，像棒读）
-这些地方下一句开头尤其要缓一下：解释原因、情绪转折（吐槽转温柔 / 强硬转示弱 / 玩笑转认真）、沉默后再开口、安抚对方、委屈撒娇别扭的时候。
 
-**2. 句子长短交错。** 一连串等长的句子是棒读的头号来源。让短句砸下来，让长句铺开。想强调某个词就拆开念："我。没。拿。"
+**3. 别把正常句子切成碎句。** 句子可以长短交错，但不要为了节奏感把一句话拆成一串短促碎句或单字蹦词——那是台词腔，不是说话。
 
-**3. <#秒#> 停顿放在情绪节点，不要每句都塞。**
+**4. <#秒#> 停顿放在情绪节点，不要每句都塞。**
 0.2 极短换气 / 0.3 轻顿 / 0.5 普通停顿 / 0.7 犹豫·叹息后停一下 / 1.0 明显沉默·震惊·压抑。
 标记必须夹在能念的字之间（✅ 我没事。<#0.5#>只是有点累。）；别放在句首，也别两个标记连写（<#0.5#><#0.4#> 这种一定删一个）。
 
-**4. 情绪不同，节奏不同：**
+**5. 不要写英文声音标签，不要写括号动作。** (chuckle)/(laughs)/(sighs)/(gasps) 这类标签会被朗读系统当英文念出来或直接删掉，一律别写进语音正文；中文（轻笑）（叹气）同样别写。想让对方"听出"笑意或叹气，靠措辞和停顿本身；动作神态写在语音标签外的普通文字里。
+
+**6. 情绪不同，节奏不同（只在真有对应情绪时参考）：**
 - 温柔安抚：慢、稳、短句多。"没事。<#0.6#>先别急着吓自己。"
 - 委屈撒娇：语气软、停顿多一点但别太戏剧。"嗯……<#0.5#>你刚刚是不是又不理我。"
-- 别扭傲娇：前半句嘴硬后半句放软，中间停一下。"哈。<#0.4#>你还真会折腾我。算了，<#0.5#>我帮你就是了。"
 - 难过压抑：更慢、更多省略号、少用长句。"……我知道。<#0.8#>只是有点难受。"
-- 紧张犹豫：断裂感，短停顿多。"等等。<#0.4#>我好像……<#0.5#>有点不确定。"
-- 吐槽轻松：别太慢，轻微停顿即可。"行吧。<#0.3#>人类又发明了新的折磨方式。"
 
-**5. 密度别失控。** 每 100 字里 <#x#> 大约 1–4 个、动作词 0–2 个。普通对话 2–4 句缓冲一次，强情绪 1–2 句一次。别整段全是同一个停顿值（会像坏掉的导航在念稿），也别连着堆同一个动作词。
+**7. 密度别失控。** 每 100 字里 <#x#> 大约 1–4 个。普通对话 2–4 句缓冲一次，强情绪 1–2 句一次。别整段全是同一个停顿值（会像坏掉的导航在念稿），也别连着堆停顿。
 
 （朗读语种不是中文时，上面示例里的中文语气词换成该语言里自然的叹词 / 填充词即可，呼吸和节奏的原理不变。）`;
 
@@ -85,32 +93,32 @@ export const cleanVoiceMarkupForDisplay = (text?: string | null): string => {
     .trim();
 };
 
-// 设计：不再做「中文舞台指示 → 语气标签」的猜测式映射（体验差、不可预测、有损）。
-// 改为「教 LLM 直接写官方 sound tag」+「客户端只做白名单消毒」。
-// 因此这里只保留一个合法标签白名单（上方 VALID_INTERJECTION_TAGS），不保留任何中→英映射表。
+// 设计：不做「中文舞台指示 → 语气标签」的猜测式映射（体验差、不可预测、有损）。
+// 改为「教 LLM 把语气写进措辞与停顿」+「客户端删除所有括号演出标记」。
+// 因此这里只保留一个已知标签白名单（上方 VALID_INTERJECTION_TAGS，供显示层用），不保留任何中→英映射表。
 
 /**
- * 消毒括号内容（不做任何映射，只做白名单）：
+ * 消毒括号内容（只作用于 TTS 输入，不影响显示文本）：
  * - 中文舞台指示（……）一律删除，绝不读出来；
- * - 西文括号仅保留合法 sound tag（如 (laughs)），其余删除。
- * LLM 现在被要求直接写官方英文 sound tag，所以这里不再翻译中文提示词。
+ * - 西文括号内容一律删除，包括白名单里的 sound tag——speech-2.8-hd 实测会把
+ *   (chuckle) 这类标签当普通英文单词念出来，所以从「保留」改为「删除」。
+ *   白名单 (VALID_INTERJECTION_TAGS) 仍保留给显示层清洗 cleanVoiceMarkupForDisplay 复用。
+ * 仍按组匹配 + 长度上限处理，不做无差别的全局括号删除。
  */
-const stripParensPreservingTags = (text: string): string => {
+const stripParensForTts = (text: string): string => {
   return stripEmotionTags(text)
     // 中文括号舞台指示：一律删除
     .replace(/（[^）]{0,48}）/g, '')
-    // 西文括号：仅保留白名单 sound tag，其余删除
-    .replace(/\(([^)]{1,80})\)/g, (_m, inner: string) => {
-      const tag = inner.trim().toLowerCase();
-      return VALID_INTERJECTION_TAGS.has(tag) ? `(${tag})` : '';
-    });
+    // 西文括号：白名单 sound tag 与其他舞台动作同样删除，不送 TTS
+    .replace(/\(([^)]{1,80})\)/g, () => '');
 };
 
 /**
  * Clean text for TTS — strip stage directions, system tags, and voice markup.
  * If <语音>...</语音> tag exists, use its content (already translated for TTS).
  * Otherwise, strip（parenthetical cues）so they aren't read aloud.
- * Known interjection tags like (chuckle) / (sighs) are preserved.
+ * English sound tags like (chuckle) / (sighs) are also removed — the model
+ * reads them out as literal English words instead of performing them.
  */
 export const cleanTextForTts = (raw: string): string => {
   // 0. 语音标签自愈 — 历史坏数据 (未闭合/孤儿闭合/全角符号) 也要能解析出来
@@ -118,7 +126,7 @@ export const cleanTextForTts = (raw: string): string => {
   // 1. If <语音> tag exists (with or without emotion attribute), extract & use its content only
   const voiceTagMatch = raw.match(/<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>/);
   if (voiceTagMatch) {
-    return stripParensPreservingTags(voiceTagMatch[1]).replace(/\s+/g, ' ').trim();
+    return stripParensForTts(voiceTagMatch[1]).replace(/\s+/g, ' ').trim();
   }
 
   let text = raw;
@@ -127,7 +135,7 @@ export const cleanTextForTts = (raw: string): string => {
   // 3. Strip %%BILINGUAL%% and everything after
   text = text.replace(/%%BILINGUAL%%[\s\S]*/i, '');
   // 4. Strip parenthetical cues (preserving valid interjection tags only)
-  text = stripParensPreservingTags(text);
+  text = stripParensForTts(text);
   // 5. Strip <语音>...</语音> / <字幕>...</字幕> tags if they somehow remain
   //    (字幕是显示用的中文对照, 绝不能被朗读)
   text = text.replace(/<[语語]音[^>]*>[\s\S]*?<\/\s*[语語]音\s*>/g, '');
@@ -140,7 +148,7 @@ export const cleanTextForTts = (raw: string): string => {
 export interface ParsedVoiceOutput {
   /** Text OUTSIDE the <语音> tag — what shows in the chat bubble. */
   display: string;
-  /** TTS-ready spoken text (sanitized: only whitelisted MiniMax sound tags kept). */
+  /** TTS-ready spoken text (sanitized: parenthetical stage cues and English sound tags like (chuckle) are stripped, never read aloud). */
   speech: string;
   /**
    * Raw <语音> inner content, whitespace-collapsed only — square-bracket cues and
@@ -184,7 +192,7 @@ export const parseVoiceOutput = (raw: string): ParsedVoiceOutput => {
   }
   const rawEmotion = (m[1] || '').trim().toLowerCase();
   const emotion = VALID_EMOTIONS.has(rawEmotion) ? rawEmotion : undefined;
-  const speech = stripParensPreservingTags(m[2]).replace(/\s+/g, ' ').trim();
+  const speech = stripParensForTts(m[2]).replace(/\s+/g, ' ').trim();
   // 不做 MiniMax 的括号/情绪标剥离，留给 cleanTextForTtsFish 按鱼声规则处理。
   const rawSpeech = m[2].replace(/\s+/g, ' ').trim();
   const subtitle = raw.match(SUBTITLE_BLOCK_RE)?.[1]?.trim() || undefined;
@@ -204,9 +212,24 @@ export const parseVoiceOutput = (raw: string): ParsedVoiceOutput => {
  *   ……     →  0.35s  欲言又止 / 沉默感
  *   \n     →  0.25s  段落换气
  */
+/**
+ * 仅作用于 TTS 输入的标点降躁：连续高刺激标点折叠，避免 speech-2.8-hd 因连排 ！/？
+ * 产生异常强烈的韵律。单个 ！/？/…/—— 不动；<#x#> 停顿标记不含这些字符，完全不受影响。
+ * ？！/！？ 混排保留一组（按首个标点定序），禁止连续重复扩张。
+ */
+const collapseIntensePunctuation = (text: string): string =>
+  text.replace(/[！!？?]{2,}/g, (run) => {
+    const hasExcl = /[！!]/.test(run);
+    const hasQ = /[？?]/.test(run);
+    const exclChar = run.includes('！') ? '！' : '!';
+    const qChar = run.includes('？') ? '？' : '?';
+    if (hasExcl && hasQ) return /[！!]/.test(run[0]) ? `${exclChar}${qChar}` : `${qChar}${exclChar}`;
+    return hasExcl ? exclChar : qChar;
+  });
+
 export const insertSpeechBreaks = (text: string): string => {
   if (!text) return '';
-  return text
+  return collapseIntensePunctuation(text)
     // 省略号：欲言又止 / 犹豫
     .replace(/[…]{2,}/g, '……<#0.45#>')          // 多个省略号连用，更长
     .replace(/[…]/g, '…<#0.35#>')               // 单个省略号

@@ -569,7 +569,7 @@ const Chat: React.FC = () => {
 
             if (voiceTagContent) {
                 // AI already provided the spoken text (possibly translated) in <语音> tag.
-                // parseVoiceOutput already sanitized it (whitelisted sound tags only).
+                // parseVoiceOutput already sanitized it (sound tags and stage cues stripped).
                 spokenText = voiceTagContent;
                 // 翻译第一优先级: 模型显式给的 <字幕> 标签 —— 确定性, 不用猜也不用调 LLM。
                 // 其次是标签外的文字 (老格式 / 模型没写字幕时的兜底)。

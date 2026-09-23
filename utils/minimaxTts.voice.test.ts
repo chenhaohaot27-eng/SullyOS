@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripEmotionTags, cleanTextForTts, parseVoiceOutput, insertSpeechBreaks, cleanVoiceMarkupForDisplay } from './minimaxTts';
+import { stripEmotionTags, cleanTextForTts, parseVoiceOutput, insertSpeechBreaks, cleanVoiceMarkupForDisplay, buildVoiceSettings } from './minimaxTts';
 
 describe('stripEmotionTags', () => {
   it('removes [emotion] / 【emotion】 tags anywhere, leaves prose', () => {
@@ -13,14 +13,14 @@ describe('stripEmotionTags', () => {
 });
 
 describe('cleanTextForTts', () => {
-  it('strips emotion tags and Chinese stage cues, keeps whitelisted sound tags', () => {
+  it('strips emotion tags, Chinese stage cues and English sound tags', () => {
     const out = cleanTextForTts('[angry] 说话呀笨蛋(sighs)（叹气）');
     expect(out).not.toMatch(/\[angry\]/);
     expect(out).not.toContain('（叹气）');
-    expect(out).toContain('(sighs)');
+    expect(out).not.toContain('(sighs)');
   });
   it('uses <语音> content (with attribute) when present', () => {
-    expect(cleanTextForTts('显示文字<语音 emotion="happy">spoken (chuckle)</语音>')).toBe('spoken (chuckle)');
+    expect(cleanTextForTts('显示文字<语音 emotion="happy">spoken (chuckle)</语音>')).toBe('spoken');
   });
 });
 
@@ -124,5 +124,69 @@ describe('insertSpeechBreaks', () => {
     expect(out).toMatch(/<#0\.\d+#>/);
     const maxPause = Math.max(...[...out.matchAll(/<#([\d.]+)#>/g)].map(m => parseFloat(m[1])));
     expect(maxPause).toBeLessThanOrEqual(0.6);
+  });
+});
+
+// ─── 沉稳声线修复：sound tag 清洗 + 标点降躁 + emotion 优先级 ───
+
+describe('MiniMax TTS sound tag 清洗（不再保留英文标签）', () => {
+  it('删除 (chuckle)，保留 <#0.3#> 停顿标记', () => {
+    expect(cleanTextForTts('天天，(chuckle)<#0.3#>你别乱跑。')).toBe('天天，<#0.3#>你别乱跑。');
+  });
+  it('连续 sound tag 全部删除，<#0.5#> 保留', () => {
+    expect(cleanTextForTts('(chuckle)(breath)<#0.5#>好吧。')).toBe('<#0.5#>好吧。');
+  });
+  it('parseVoiceOutput().speech 同样剥掉 sound tag（<语音> 路径）', () => {
+    expect(parseVoiceOutput('<语音 emotion="calm">(chuckle) 别乱跑</语音>').speech).toBe('别乱跑');
+  });
+  it('非白名单的西文括号内容维持原有删除行为', () => {
+    expect(cleanTextForTts('正文（正常中文括注保留在显示层）(stage direction)好了')).toBe('正文好了');
+  });
+  it('显示层 cleanVoiceMarkupForDisplay 行为不变：白名单动作词仍从显示文本移除，普通括号保留', () => {
+    expect(cleanVoiceMarkupForDisplay('(sighs) 唉，<#0.4#> 真是的。')).not.toContain('(sighs)');
+    expect(cleanVoiceMarkupForDisplay('备注(2026) 还在')).toBe('备注(2026) 还在');
+  });
+});
+
+describe('MiniMax TTS 标点降躁（仅 TTS 输入层）', () => {
+  it('连续三个感叹号折叠为单个', () => {
+    const out = insertSpeechBreaks(cleanTextForTts('你慢一点！！！'));
+    expect(out).not.toContain('！！');
+    expect(out).toContain('你慢一点');
+  });
+  it('连续问号折叠，单个 ！/？/……/—— 不动', () => {
+    const out = insertSpeechBreaks(cleanTextForTts('真的吗？？慢点！……好吧——行'));
+    expect(out).not.toContain('？？');
+    expect(out).toContain('真的吗？');
+    expect(out).toContain('慢点！');
+    expect(out).toContain('…'); // 省略号字符保留（既有实现会把 …… 拆成两个带停顿的单省略号）
+    expect(out).toContain('——');
+  });
+  it('？！ 混排保留一组，不重复扩张', () => {
+    const out = insertSpeechBreaks(cleanTextForTts('什么？！？！真的假的？？？'));
+    expect(out).not.toMatch(/[！!？?]{2,}/); // 没有任何连排高刺激标点残留
+    expect(out).toMatch(/？<#0\.26#>！/);    // ？！ 保留一组（中间是自动插入的停顿标记）
+  });
+  it('<#x#> 停顿标记完整保留', () => {
+    const out = insertSpeechBreaks(cleanTextForTts('我没事。<#0.5#>只是有点累。'));
+    // 与句末自动停顿去重取最长（0.5s 不变），仅格式化为两位小数
+    expect(out).toContain('<#0.50#>');
+  });
+});
+
+describe('MiniMax TTS emotion 优先级（明确强情绪不被 calm 默认覆盖）', () => {
+  const vp = { voiceId: 'v', emotion: 'calm' } as any;
+  it('明确 <语音 emotion="angry"> 原样送达 voice_setting.emotion', () => {
+    const r = parseVoiceOutput('<语音 emotion="angry">你到底去哪了？</语音>');
+    expect(r.emotion).toBe('angry');
+    expect(buildVoiceSettings(vp, r.emotion).emotion).toBe('angry');
+  });
+  it('无动态值时回落角色静态 emotion；都没有则不传', () => {
+    expect(buildVoiceSettings(vp).emotion).toBe('calm');
+    expect(buildVoiceSettings(undefined).emotion).toBeUndefined();
+  });
+  it('无效 emotion 丢弃（不产生 calm 之外的意外值）', () => {
+    expect(parseVoiceOutput('<语音 emotion="excited">嗨</语音>').emotion).toBeUndefined();
+    expect(buildVoiceSettings(vp, 'excited').emotion).toBe('calm');
   });
 });

@@ -239,14 +239,16 @@ const prepareCallAssistantReply = (reply: ParsedCallReply, enhanceBasicTimeline 
   const inferredTimeline = inferAvatarPerformanceTimelineFromText(performanceText);
   const inferredPerformance = inferredTimeline[0]?.direction || inferAvatarPerformanceFromText(performanceText);
   // Voice emotion must be derivable as soon as the final line exists so TTS can run
-  // in parallel with the secondary action director. Explicit voice/leading tags win;
-  // otherwise use the deterministic local text inference.
-  const speechEmotion = voiceTag.emotion || leadingEmotion || inferredPerformance.emotion;
+  // in parallel with the secondary action director. Explicit voice/leading tags win.
+  // 本地关键词推断 (inferredPerformance) 只服务 avatar 表演 fallback，不再直达 MiniMax TTS ——
+  // 普通问候 / 哈哈 / 问句不允许仅凭文本就被拔高成 happy/surprised（声线无故昂扬的元凶）。
+  // 没有明确标签时不传强 emotion，由角色静态 voiceProfile.emotion 兜底。
+  const speechEmotion = voiceTag.emotion || leadingEmotion;
   const fallbackPerformance = {
     ...inferredPerformance,
     emotion: normalizeAvatarEmotion(speechEmotion || inferredPerformance.emotion),
   };
-  const performance = resolveAvatarPerformance(reply.performance || fallbackPerformance, speechEmotion);
+  const performance = resolveAvatarPerformance(reply.performance || fallbackPerformance, speechEmotion || inferredPerformance.emotion);
   // 演出时间轴：LLM 给了多条指令就全部保留（按正文位置比例调度）；
   // 一条没给时退化为"开头一条"的单指令时间轴。
   let performanceCues: AvatarPerformanceCue[];
@@ -498,15 +500,15 @@ ${getVoicePromptOverride(getTtsProvider()) ?? (getTtsProvider() === 'fishaudio' 
 
 示例：
 啊，我知道了
-<语音 emotion="happy">Ok, I get it (chuckle)</语音>
+<语音>Ok, I get it.</语音>
 
 你说真的？那也太离谱了吧。
 <语音 emotion="surprised">Wait... are you serious? That's insane.</语音>
 
 要求：
 - <语音> 里的翻译要自然口语化，不要机翻味，要符合你的角色性格
-- <语音> 里只写会被朗读的文字；想要笑/叹气等真实语气，用官方英文标签 (laughs)/(sighs)/(chuckle) 等，**不要写中文（轻笑）**，也不要写中文舞台旁白
-- 每条消息只有一个 <语音> 标签，emotion 属性可选；情绪不强就别加
+- <语音> 里只写会被朗读的文字；不要写 (chuckle)/(laughs)/(sighs) 等英文声音标签（会被直接删掉），**不要写中文（轻笑）**，也不要写中文舞台旁白——动作神态写在标签外的中文正文里
+- 每条消息只有一个 <语音> 标签，emotion 属性可选；情绪不强就别加，默认保持你本人自然、克制的日常语气（可用 calm）
 - 中文部分和 <语音> 部分表达的意思要一致` : '';
   return [coreContext, timeContext, callPrompt, voiceLangPrompt].filter(Boolean).join('\n\n');
 };
