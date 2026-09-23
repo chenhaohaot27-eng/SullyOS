@@ -43,6 +43,7 @@ import {
     resolveStoryTheaterMask,
     resolveStoryPresetDocument,
     selectStoryArchiveBatch,
+    STORY_PLAYER_AGENCY_GUARD,
     storyTheaterMemoryRecipientIds,
     storyTheaterThreadId,
     type StoryAffinityInput,
@@ -728,6 +729,9 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 ...(multiAffinityGuide ? [{ role: 'system' as const, content: multiAffinityGuide }] : []),
                 ...(affinityEnabled ? [{ role: 'system' as const, content: RELATIONSHIP_TEXTURE_GUIDE }] : []),
                 ...(affinityAwarenessReminder ? [{ role: 'system' as const, content: affinityAwarenessReminder }] : []),
+                // 剧情底线：玩家执笔权 ≠ 剧情免疫权。无条件注入——内置/自建预设、
+                // 见面入口、聊天邀请 (meetStoryLaunch) 进入的剧情全部经过同一组装点。
+                { role: 'system' as const, content: STORY_PLAYER_AGENCY_GUARD },
                 { role: 'system' as const, content: identityGuard },
             ];
             // Gemini Native 不接受以 assistant/model 结尾的请求：不能把原生 assistant
