@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     PIN_LENGTH,
     __resetPinLockSessionForTests,
@@ -116,56 +116,106 @@ describe('锁屏密码：修改与关闭', () => {
     });
 });
 
-describe('锁屏密码：会话锁定行为', () => {
+describe('锁屏密码：会话锁定行为（解锁状态只存当前 JS 页面生命周期的内存）', () => {
+    /**
+     * 真实浏览器的生命周期（本组测试对齐的设计）：
+     *  - 刷新 / 关标签重开 / PWA 重进 = 销毁旧 JS 上下文并创建全新的（内存必清零）；
+     *  - SPA 内部切 App = 同一 JS 上下文内的组件导航（模块内存保留）。
+     * 因此解锁标记只放模块级变量，不依赖 sessionStorage —— 它在同标签页刷新后
+     * 并不清空，靠它做「会话已解锁」会把解锁状态泄漏到刷新之后。
+     * 测试里用 vi.resetModules() + 重新动态 import 来忠实模拟「新 JS 上下文」，
+     * 而不是只调用 __resetPinLockSessionForTests 复位同一个实例。
+     */
+
     beforeEach(async () => {
+        localStorage.clear();
+        __resetPinLockSessionForTests();
+        vi.resetModules();
         await setupPinLock(PIN, PIN);
     });
 
-    it('页面新会话（刷新 / 重开）时重新锁定', async () => {
-        // 首次进入：需要验证
-        expect(isPinGateActive()).toBe(true);
+    it('模拟真实刷新（重新加载 JS 上下文）：解锁状态消失，重新上锁', async () => {
+        // 页面 A：输入正确密码并解锁
+        const pageA = await import('./pinLock');
+        expect(await pageA.verifyPin(PIN)).toBe(true);
+        pageA.markSessionUnlocked();
+        expect(pageA.isSessionUnlocked()).toBe(true);
+        expect(pageA.isPinGateActive()).toBe(false);
 
-        // 输入正确密码解锁
-        expect(await verifyPin(PIN)).toBe(true);
-        markSessionUnlocked();
-        expect(isSessionUnlocked()).toBe(true);
-        expect(isPinGateActive()).toBe(false);
-
-        // 模拟刷新 / 关闭后重开：新会话 → 重新上锁
-        startNewSession();
-        expect(isSessionUnlocked()).toBe(false);
-        expect(isPinGateActive()).toBe(true);
+        // 刷新 = 销毁旧 JS 上下文、创建新 JS 上下文（重新加载模块）。
+        // localStorage 里的 PIN 配置仍在（重新上锁的前提），内存里的解锁标记不复存在。
+        vi.resetModules();
+        const pageB = await import('./pinLock');
+        expect(pageB.isSessionUnlocked()).toBe(false);
+        expect(pageB.isPinLockEnabled()).toBe(true);
+        expect(pageB.isPinGateActive()).toBe(true);
+        // 新页面里 PIN 仍然有效，但必须重新验证一次才能开门
+        expect(await pageB.verifyPin(PIN)).toBe(true);
+        expect(pageB.isPinGateActive()).toBe(true);
+        pageB.markSessionUnlocked();
+        expect(pageB.isPinGateActive()).toBe(false);
     });
 
-    it('解锁状态只写 sessionStorage，绝不写 localStorage', async () => {
-        expect(isPinGateActive()).toBe(true);
-        markSessionUnlocked();
-        expect(isSessionUnlocked()).toBe(true);
-        // localStorage 里除密码配置外不允许出现任何「已解锁」标记
-        const storedKeys: string[] = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k) storedKeys.push(k);
+    it('关闭后重开（同样是全新 JS 上下文）：重新上锁', async () => {
+        const pageA = await import('./pinLock');
+        pageA.markSessionUnlocked();
+        expect(pageA.isPinGateActive()).toBe(false);
+        vi.resetModules();
+        const pageB = await import('./pinLock');
+        expect(pageB.isPinGateActive()).toBe(true);
+    });
+
+    it('解锁状态不落到任何持久存储：不写 localStorage，也不读写 sessionStorage', async () => {
+        const ss = {
+            getItem: vi.fn((): string | null => null),
+            setItem: vi.fn(),
+            removeItem: vi.fn(),
+            clear: vi.fn(),
+            key: vi.fn((): string | null => null),
+            length: 0,
+        };
+        const hadSS = Object.prototype.hasOwnProperty.call(globalThis, 'sessionStorage');
+        const origSS = (globalThis as any).sessionStorage;
+        (globalThis as any).sessionStorage = ss;
+        try {
+            vi.resetModules();
+            const page = await import('./pinLock');
+            await page.setupPinLock(PIN, PIN);
+            page.markSessionUnlocked();
+            expect(page.isSessionUnlocked()).toBe(true);
+            // 即使 sessionStorage 存在也完全不碰（防回归：一旦开始用它，
+            // 同标签页刷新后 sessionStorage 仍保留旧值，锁会失效）
+            expect(ss.getItem).not.toHaveBeenCalled();
+            expect(ss.setItem).not.toHaveBeenCalled();
+            expect(ss.removeItem).not.toHaveBeenCalled();
+            expect(localStorage.getItem('sullyos_pin_unlocked_v1')).toBeNull();
+            // localStorage 里只有 PIN 配置（enabled/salt/hash/iterations），没有解锁标记
+            const storedKeys: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k) storedKeys.push(k);
+            }
+            expect(storedKeys).toEqual(['sullyos_pin_lock_v1']);
+        } finally {
+            if (hadSS) (globalThis as any).sessionStorage = origSS;
+            else delete (globalThis as any).sessionStorage;
         }
-        expect(storedKeys).toEqual(['sullyos_pin_lock_v1']);
-        expect(localStorage.getItem('sullyos_pin_unlocked_v1')).toBeNull();
-        expect(localStorage.getItem('sullyos_pin_unlocked')).toBeNull();
     });
 
-    it('已解锁的同一会话内不重复弹密码', async () => {
+    it('同一页面内（SPA 切换 App）不重复弹密码', async () => {
         expect(await verifyPin(PIN)).toBe(true);
         markSessionUnlocked();
-        // 会话内反复查询（模拟在微信 / 见面 / 设置 / 相册等 App 间切换）
+        // 同一 JS 上下文内反复查询（模拟在微信 / 见面 / 设置 / 相册等 App 间切换）
         for (let i = 0; i < 5; i++) {
             expect(isPinGateActive()).toBe(false);
         }
-        // 密码仍然有效（只是不再要求重输）
+        // 密码仍然有效（只是本次打开期间不再要求重输）
         expect(await verifyPin(PIN)).toBe(true);
     });
 
     it('锁屏关闭时不会出现锁屏门', async () => {
         await disablePinLock(PIN);
-        startNewSession(); // 即使换了新会话
+        __resetPinLockSessionForTests(); // 即使换了新会话 / 新页面
         expect(isPinLockEnabled()).toBe(false);
         expect(isPinGateActive()).toBe(false);
     });

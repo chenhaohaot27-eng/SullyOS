@@ -563,8 +563,9 @@ const PhoneShell: React.FC = () => {
   const showImportRecoveryPrompt = !!importRecoveryMarker;
 
   // 锁屏密码门：仅「已开启 + 本次会话未解锁」时挡在滑动锁屏之前。
-  // 解锁标记只进 sessionStorage —— 刷新 / 重开标签 / PWA 重进即失效（重新上锁），
-  // 同一会话内切 App 绝不重复弹。未开启锁屏密码的老用户恒为 false，行为零变化。
+  // 解锁标记只存 JS 内存（模块级变量）—— 刷新 / 重开标签 / PWA 重进会销毁整个
+  // JS 上下文（内存清零，重新上锁），同一页面内切 App 不重载模块，绝不重复弹。
+  // 未开启锁屏密码的老用户恒为 false，行为零变化。
   const [pinGateActive, setPinGateActive] = useState(() => isPinLockEnabled() && !isSessionUnlocked());
   const handlePinUnlock = () => {
     markSessionUnlocked();

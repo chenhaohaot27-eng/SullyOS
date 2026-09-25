@@ -6,18 +6,19 @@
  *  - 密码验证完全在本机完成，不调用任何聊天 API，不消耗 token，不上传服务器。
  *  - 不明文保存 PIN：Web Crypto PBKDF2-SHA256 + random salt，localStorage 只存
  *    { enabled, salt(hex), hash(hex), iterations }。
- *  - 「本次是否已解锁」只放 sessionStorage（页面生命周期），绝不写 localStorage ——
- *    刷新 / 关标签重开 / PWA 重进都会重新上锁；同一会话内切 App 不重复验证。
+ *  - 「本次是否已解锁」只存当前 JS 页面生命周期的内存（模块级变量）：
+ *      · 刷新 / 关标签重开 / PWA 重进 = 创建全新 JS 上下文，内存清零 → 重新上锁；
+ *      · SPA 内部切 App 不刷新页面，模块内存保留 → 不重复验证。
+ *    （不用 sessionStorage：它只在「标签页关闭」时清空，同标签页刷新后仍保留，
+ *      「刷新后重新锁定」会失效。）
  *  - 旧用户没有任何相关数据时自然视为「锁屏关闭」，零额外步骤。
  *
  * 自包含模块（不进 OSContext），对齐 backupReminder.ts 的写法。
- * Node 测试环境没有 sessionStorage：读写都带 try/catch + 内存兜底。
  */
 
 export const PIN_LENGTH = 6;
 
 const STORAGE_KEY = 'sullyos_pin_lock_v1';
-const SESSION_KEY = 'sullyos_pin_unlocked_v1';
 
 /** PBKDF2 迭代次数。本地验证 6 位 PIN 足够，同时保证手机上毫秒级完成。 */
 const PBKDF2_ITERATIONS = 100000;
@@ -63,39 +64,12 @@ const writeStoredConfig = (config: PinLockStoredConfig | null): void => {
     } catch { /* 隐私模式等存不进去：锁屏功能视为不可用，不影响其他数据 */ }
 };
 
-/** sessionStorage 的内存兜底（Node 测试环境 / 极端隐私模式下用）。 */
-const memorySession = new Map<string, string>();
+/* ───────── 会话解锁状态：只存当前 JS 页面生命周期的内存 ─────────
+ * 刷新 / 关标签 / PWA 重进都会销毁整个 JS 上下文（内存必清零，比任何 storage 事件都可靠），
+ * 而 SPA 内部切换 App 只是组件级导航，不重载模块 → 状态保留，不重复弹密码。
+ * 不读不写 localStorage / sessionStorage，天然不会被持久化。 */
+let sessionUnlocked = false;
 
-const sessionGet = (key: string): string | null => {
-    try {
-        const ss = (globalThis as any).sessionStorage;
-        if (ss && typeof ss.getItem === 'function') {
-            const v = ss.getItem(key);
-            if (v !== null) return v;
-        }
-    } catch { /* fall through */ }
-    return memorySession.get(key) ?? null;
-};
-
-const sessionSet = (key: string, value: string): void => {
-    let stored = false;
-    try {
-        const ss = (globalThis as any).sessionStorage;
-        if (ss && typeof ss.setItem === 'function') {
-            ss.setItem(key, value);
-            stored = true;
-        }
-    } catch { stored = false; }
-    if (!stored) memorySession.set(key, value);
-};
-
-const sessionRemove = (key: string): void => {
-    try {
-        const ss = (globalThis as any).sessionStorage;
-        if (ss && typeof ss.removeItem === 'function') ss.removeItem(key);
-    } catch { /* ignore */ }
-    memorySession.delete(key);
-};
 /* ───────── 密码派生与校验（Web Crypto PBKDF2-SHA256） ───────── */
 
 const toHex = (buf: ArrayBuffer): string =>
@@ -149,11 +123,11 @@ export const isValidPin = (pin: unknown): pin is string =>
 /** 锁屏密码是否已开启（旧用户无数据 → false）。 */
 export const isPinLockEnabled = (): boolean => readStoredConfig() !== null;
 
-/** 本次页面会话是否已解锁过（sessionStorage / 内存，刷新即失效）。 */
-export const isSessionUnlocked = (): boolean => sessionGet(SESSION_KEY) === '1';
+/** 本次页面会话是否已解锁过（仅 JS 内存；刷新 / 关闭页面即消失）。 */
+export const isSessionUnlocked = (): boolean => sessionUnlocked;
 
-/** 验证通过后调用：本次会话内不再弹锁屏。只写 sessionStorage，绝不写 localStorage。 */
-export const markSessionUnlocked = (): void => sessionSet(SESSION_KEY, '1');
+/** 验证通过后调用：本次页面生命周期内不再弹锁屏。只改内存变量，绝不写任何 storage。 */
+export const markSessionUnlocked = (): void => { sessionUnlocked = true; };
 
 /**
  * PhoneShell 用：当前是否需要挡住锁屏。
@@ -216,7 +190,7 @@ export const disablePinLock = async (currentPin: string): Promise<PinLockResult>
     return { ok: true };
 };
 
-/** 仅供测试：模拟「新会话」（清掉 sessionStorage / 内存兜底里的解锁标记）。 */
+/** 仅供测试：把内存里的解锁标记复位（真实浏览器里刷新 / 重开页面会自然发生）。 */
 export const __resetPinLockSessionForTests = (): void => {
-    sessionRemove(SESSION_KEY);
+    sessionUnlocked = false;
 };
