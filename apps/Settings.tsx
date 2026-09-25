@@ -29,6 +29,7 @@ import ActiveMsgGlobalSettingsModal from '../components/settings/ActiveMsgGlobal
 import { syncAmsgLlmCredentials, syncAmsgToolConfig, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
 import { ActiveMsgClient } from '../utils/activeMsgClient';
 import VersionInfo from '../components/settings/VersionInfo';
+import PinLockSettingsSection from '../components/settings/PinLockSettingsSection';
 import { isPushVapidReady } from '../utils/pushVapid';
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import { DB } from '../utils/db';
@@ -2873,6 +2874,9 @@ const Settings: React.FC = () => {
                 </button>
             </div>
         </SettingsSection>
+
+        {/* ───────── 隐私与安全：锁屏密码（本地验证，不走 API） ───────── */}
+        <PinLockSettingsSection />
 
         {/* 实时感知配置区域 */}
         <SettingsSection

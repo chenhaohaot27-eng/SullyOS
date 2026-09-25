@@ -7,6 +7,8 @@ import StatusBar from './os/StatusBar';
 import Launcher from '../apps/Launcher';
 import CompanionLockChrome from './os/CompanionLockChrome';
 import { loadCompanionFrameStyle } from './os/companionFrameStyles';
+import PinLockScreen from './PinLockScreen';
+import { isPinLockEnabled, isSessionUnlocked, markSessionUnlocked } from '../utils/pinLock';
 
 // 按需懒加载各 App —— 切到对应 App 时才下载/解析其代码块，首屏只加载 Launcher 与外壳，
 // 大体积 App（MemoryPalace / VRWorld / Songwriting 等）不再压在主包里。
@@ -560,6 +562,16 @@ const PhoneShell: React.FC = () => {
   const [importRecoveryDismissed, setImportRecoveryDismissed] = useState(false);
   const showImportRecoveryPrompt = !!importRecoveryMarker;
 
+  // 锁屏密码门：仅「已开启 + 本次会话未解锁」时挡在滑动锁屏之前。
+  // 解锁标记只进 sessionStorage —— 刷新 / 重开标签 / PWA 重进即失效（重新上锁），
+  // 同一会话内切 App 绝不重复弹。未开启锁屏密码的老用户恒为 false，行为零变化。
+  const [pinGateActive, setPinGateActive] = useState(() => isPinLockEnabled() && !isSessionUnlocked());
+  const handlePinUnlock = () => {
+    markSessionUnlocked();
+    setPinGateActive(false);
+    unlock();
+  };
+
   useEffect(() => {
     if (showDisclaimer || importRecoveryDismissed || importRecoveryMarker) return;
     const marker = getPendingImportMarker();
@@ -781,6 +793,18 @@ const PhoneShell: React.FC = () => {
   const companionLockFrame = storedCompanionFrame;
 
   if (isLocked) {
+    // 锁屏密码门优先于滑动锁屏：验证全在本机（PBKDF2），不调用任何 API。
+    if (pinGateActive) {
+      return (
+        <PinLockScreen
+          lockWallpaperValue={lockBgImageValue}
+          contentColor={contentColor}
+          hours={virtualTime.hours}
+          minutes={virtualTime.minutes}
+          onUnlocked={handlePinUnlock}
+        />
+      );
+    }
     const unreadCount = Object.values(unreadMessages).reduce((a,b) => a+b, 0);
     const unreadCharId = Object.keys(unreadMessages)[0];
     const unreadChar = unreadCharId ? characters.find(c => c.id === unreadCharId) : null;
