@@ -494,6 +494,8 @@ export const ContextBuilder = {
             artists: string;
             lyricWindow: string[];      // 前2当前后2（共 ≤5 行）；可为空（没歌词）
             activeIdx: number;          // 在 lyricWindow 里的高亮位置，-1 表示没歌词
+            /** 播放平台名（'QQ音乐' / '网易云音乐'）；本地生成歌可省略。 */
+            sourceLabel?: string;
         } | null,
         charListening?: {
             songId?: number;            // 用来回查这首歌是不是从 user 收来的
@@ -534,12 +536,12 @@ export const ContextBuilder = {
         if (canRead && userListening && userListening.songName) {
             lines.push(`### 【此刻的对话氛围】`);
             if (isListeningTogether) {
-                lines.push(`你正在和 ${userName || '对方'} 一起听《${userListening.songName}》— ${userListening.artists}${elapsedText}`);
+                lines.push(`你正在和 ${userName || '对方'} 一起听《${userListening.songName}》— ${userListening.artists}${userListening.sourceLabel ? `（通过${userListening.sourceLabel}播放）` : ''}${elapsedText}`);
                 if (recentTrackSwitch && recentTrackSwitch.songName !== userListening.songName) {
                     lines.push(`（刚才一起听时歌被切了：从《${recentTrackSwitch.songName}》— ${recentTrackSwitch.artists} 换成了现在这首。你们仍然在一起听，这次一起听没有结束、也不用重新开始，自然地跟上就好。）`);
                 }
             } else {
-                lines.push(`${userName || '对方'} 正在听《${userListening.songName}》— ${userListening.artists}`);
+                lines.push(`${userName || '对方'} 正在听《${userListening.songName}》— ${userListening.artists}${userListening.sourceLabel ? `（通过${userListening.sourceLabel}播放）` : ''}`);
                 if (recentTrackSwitch && recentTrackSwitch.songName !== userListening.songName) {
                     lines.push(`（你们刚才本来在一起听《${recentTrackSwitch.songName}》— ${recentTrackSwitch.artists}，播放器切歌后那次"一起听"自然结束了。你能察觉到歌换成了现在这首；想继续陪 ${userName || '对方'} 听下去就在回复里自然接上并重新加入，不想也不必勉强，顺其自然。）`);
                 }

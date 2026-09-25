@@ -15,7 +15,7 @@ function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin || "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, Depth, X-Brave-API-Key, X-Notion-API-Key, X-Feishu-Token, X-Xhs-Cookie, X-Xhs-Platform, X-Rnote-API-Key, X-Xhs-Experiment-Ack, X-Netease-Cookie, X-WebDAV-Method, X-WebDAV-Depth, X-WebDAV-Range, X-GitHub-Method, X-GitHub-Api-Version, X-CF-Method, Mcp-Session-Id, Accept, Range",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Depth, X-Brave-API-Key, X-Notion-API-Key, X-Feishu-Token, X-Xhs-Cookie, X-Xhs-Platform, X-Rnote-API-Key, X-Xhs-Experiment-Ack, X-Netease-Cookie, X-QQmusic-Cookie, X-WebDAV-Method, X-WebDAV-Depth, X-WebDAV-Range, X-GitHub-Method, X-GitHub-Api-Version, X-CF-Method, Mcp-Session-Id, Accept, Range",
     "Access-Control-Expose-Headers": "Mcp-Session-Id",
     "Access-Control-Max-Age": "86400",
   };
@@ -825,6 +825,326 @@ async function fetchFromAnyUpstream(upstreamPath, timeoutMs = 8000) {
     }
   }
   return { text: '', status: 502, upstream: '', error: errors.join(' | ') };
+}
+
+// ========== QQ音乐：zzc 签名 + u6.y.qq.com musicu 网关 ==========
+// 协议均经真实请求验证（2026-09）：
+//  - search / lyric / song detail / vkey: u6.y.qq.com/cgi-bin/musics.fcg，需要 zzc 签名（SHA-1 派生）
+//  - 用户资料 / 歌单详情 / 我喜欢: c.y.qq.com 的 fcg 接口（需要登录 cookie）
+// 安全：cookie 只从请求头读、只转发给腾讯上游，绝不写日志 / 不进缓存 key。
+const QQ_SIGN_P1I = [23, 14, 6, 36, 16, 40, 7, 19];
+const QQ_SIGN_P2I = [16, 1, 32, 12, 19, 27, 8, 5];
+const QQ_SIGN_SCR = [89, 39, 179, 150, 218, 82, 58, 252, 177, 52, 186, 123, 120, 64, 242, 133, 143, 161, 121, 179];
+
+function bytesToHex(bytes) {
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** QQ musicu 网关签名：SHA-1(body) → 按位取字符 / 异或混淆 → 'zzc...'（小写）。 */
+async function qqZzcSign(payload) {
+  const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(payload));
+  const hx = bytesToHex(new Uint8Array(digest)).toUpperCase();
+  const p1 = QQ_SIGN_P1I.filter(i => i < hx.length).map(i => hx[i]).join('');
+  const p2 = QQ_SIGN_P2I.filter(i => i < hx.length).map(i => hx[i]).join('');
+  const p3 = new Uint8Array(20);
+  for (let i = 0; i < 20; i++) p3[i] = QQ_SIGN_SCR[i] ^ parseInt(hx.substr(i * 2, 2), 16);
+  let bin = '';
+  for (const b of p3) bin += String.fromCharCode(b);
+  const b64 = btoa(bin).replace(/\//g, '').replace(/\+/g, '').replace(/=/g, '');
+  return ('zzc' + p1 + b64 + p2).toLowerCase();
+}
+
+/** u6.y.qq.com musicu 调用（GET ?data= + sign）。返回解析后的 JSON 或抛错。 */
+async function qqMusicuCall(dataObj, webcgikey) {
+  const body = JSON.stringify(dataObj);
+  const sign = await qqZzcSign(body);
+  const url = `https://u6.y.qq.com/cgi-bin/musics.fcg?_webcgikey=${encodeURIComponent(webcgikey)}&sign=${sign}&_=${Date.now()}&format=json&data=${encodeURIComponent(body)}`;
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'Referer': 'https://y.qq.com/',
+      'Origin': 'https://y.qq.com',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    },
+  });
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { throw new Error(`qq musicu non-json: ${text.slice(0, 120)}`); }
+}
+
+/** 从原始 cookie 字符串里取 uin（去非数字）与 qm_keyst/qqmusic_key。 */
+function qqCookieIdentity(cookieStr) {
+  const map = {};
+  for (const part of String(cookieStr || '').split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    map[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+  }
+  let uin = map.uin || map.wxuin || map.qqmusic_uin || '';
+  uin = String(uin).replace(/\D/g, '');
+  const keyst = map.qm_keyst || map.qqmusic_key || '';
+  return { uin, keyst };
+}
+
+/** QQ 音质档：M500(128)/M800(320)/C400(m4a)/F000(flac)/A000(ape)。 */
+const QQ_FILE_TYPES = {
+  m4a: { s: 'C400', e: '.m4a' },
+  128: { s: 'M500', e: '.mp3' },
+  320: { s: 'M800', e: '.mp3' },
+  flac: { s: 'F000', e: '.flac' },
+  ape: { s: 'A000', e: '.ape' },
+};
+
+/** 统一音质 → QQ 可用档位尝试顺序（账号权限不够时逐级回落，绝不整首失败）。 */
+function qqQualityAttemptOrder(quality) {
+  switch (quality) {
+    case 'lossless':
+    case 'hires': return ['flac', '320', '128', 'm4a'];
+    case 'higher':
+    case 'exhigh': return ['320', '128', 'm4a'];
+    case 'standard':
+    default: return ['128', 'm4a'];
+  }
+}
+
+/** 通用 Song 字段归一（search / 歌单详情共用）。 */
+function qqNormalizeTrack(t) {
+  if (!t) return null;
+  return {
+    songmid: t.mid || t.songmid || '',
+    songid: Number(t.id || t.songid || 0),
+    songname: t.name || t.songname || t.title || '',
+    singerNames: (t.singer || []).map(s => s.name || s.singer_name).filter(Boolean).join(' / '),
+    albumname: (t.album && (t.album.name || t.album.title)) || t.albumname || '',
+    albumPmid: (t.album && (t.album.pmid || t.album.mid)) || t.albummid || '',
+    mediaMid: (t.file && t.file.media_mid) || t.media_mid || '',
+    interval: Number(t.interval || 0),
+    payPlay: Number((t.pay && (t.pay.pay_play ?? t.pay.payplay)) || 0) === 1,
+  };
+}
+
+function qqAlbumPic(pmid) {
+  return pmid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${pmid}.jpg` : '';
+}
+
+// QQ 边缘缓存 TTL（秒）。未列出 = 不缓存（登录态 / 用户数据不进缓存）。
+const QQ_CACHE_TTL = {
+  'search': 600,
+  'lyric': 30 * 24 * 3600,
+  'songlist': 600,
+  'song/url': 180,
+};
+
+function qqBuildCacheKey(action, body, cookieBucket) {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(body || {})) {
+    if (v == null) continue;
+    p.set(k, String(v));
+  }
+  const sorted = [...p.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const qs = sorted.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return new Request(`https://sully-qqmusic-cache.internal/${action}/${cookieBucket}?${qs}`, { method: 'GET' });
+}
+
+/** c.y.qq.com fcg GET（带 Referer / 可选登录 cookie）。 */
+async function qqFcgGet(pathname, params, cookieStr) {
+  const qs = new URLSearchParams({ format: 'json', ...params }).toString();
+  const url = `https://c.y.qq.com${pathname}?${qs}`;
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json',
+      'Referer': 'https://y.qq.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      ...(cookieStr ? { 'Cookie': cookieStr } : {}),
+    },
+  });
+  const text = await res.text();
+  return { text, status: res.status };
+}
+
+/**
+ * /qqmusic/* 的各个 action。返回 Response 或 null（null = 未知 action，
+ * 由调用方回 404）。所有响应都是统一 contract（result/errMsg/data）。
+ */
+async function handleQqMusicAction(action, body, ident, qqCookie, respond, respondAndCache, jsonResponse, origin) {
+  // ── search：music.search.SearchCgiService.DoSearchForQQMusicDesktop ──
+  if (action === 'search') {
+    const keyword = String(body.keyword || body.key || '').trim();
+    if (!keyword) return jsonResponse({ result: 400, errMsg: 'keyword 不能为空' }, { origin });
+    const pageNo = Number(body.pageNo || 1);
+    const pageSize = Math.min(Number(body.pageSize || 30), 50);
+    const j = await qqMusicuCall({
+      comm: { g_tk: 5381, uin: 0, format: 'json', inCharset: 'utf-8', outCharset: 'utf-8', notice: 0, platform: 'yqq.json', needNewCode: 1, ct: 19, cv: 0 },
+      req_1: { module: 'music.search.SearchCgiService', method: 'DoSearchForQQMusicDesktop', param: { search_type: 0, query: keyword, page_num: pageNo, num_per_page: pageSize } },
+    }, 'music.search.SearchCgiService.DoSearchForQQMusicDesktop');
+    const song = j?.req_1?.data?.body?.song || {};
+    const list = (song.list || []).map(qqNormalizeTrack).filter(t => t && t.songmid);
+    return respondAndCache({ result: 100, data: { list, total: Number(song.sum ?? song.totalnum ?? list.length), pageNo, pageSize, keyword } });
+  }
+
+  // ── lyric：music.musichallSong.PlayLyricInfo.GetPlayLyricInfo（qrc=0 → LRC + 翻译） ──
+  if (action === 'lyric') {
+    const songmid = String(body.songmid || body.id || '').trim();
+    if (!songmid) return jsonResponse({ result: 400, errMsg: 'songmid 不能为空' }, { origin });
+    const j = await qqMusicuCall({
+      comm: { g_tk: 5381, uin: 0, format: 'json', inCharset: 'utf-8', outCharset: 'utf-8', notice: 0, platform: 'yqq.json', needNewCode: 1, ct: 19, cv: 0 },
+      req_1: { module: 'music.musichallSong.PlayLyricInfo', method: 'GetPlayLyricInfo', param: { songMid: songmid, qrc: 0, trans: 1 } },
+    }, 'music.musichallSong.PlayLyricInfo.GetPlayLyricInfo');
+    const d = j?.req_1?.data || {};
+    // atob 出来是 latin1；中文歌词是 UTF-8 字节，需要按字节再解一次
+    const utf8FromB64 = (s) => {
+      if (!s) return '';
+      try {
+        const bin = atob(s);
+        const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0) & 0xff);
+        return new TextDecoder('utf-8').decode(bytes);
+      } catch { return ''; }
+    };
+    return respondAndCache({ result: 100, data: { lrc: utf8FromB64(d.lyric), trans: utf8FromB64(d.trans) } });
+  }
+
+  // ── song/url：vkey.GetVkeyServer.CgiGetVkey，目标音质 → 逐级回落 ──
+  if (action === 'song/url') {
+    const songmid = String(body.songmid || body.id || '').trim();
+    if (!songmid) return jsonResponse({ result: 400, errMsg: 'songmid 不能为空' }, { origin });
+    let mediaMid = String(body.mediaMid || '').trim();
+    if (!mediaMid) {
+      const det = await qqMusicuCall({
+        comm: { g_tk: 5381, uin: 0, format: 'json', inCharset: 'utf-8', outCharset: 'utf-8', notice: 0, platform: 'yqq.json', needNewCode: 1, ct: 19, cv: 0 },
+        req_1: { module: 'music.pf_song_detail_svr', method: 'get_song_detail_yqq', param: { song_mid: songmid } },
+      }, 'music.pf_song_detail_svr.get_song_detail_yqq');
+      mediaMid = det?.req_1?.data?.track_info?.file?.media_mid || songmid;
+    }
+    const order = qqQualityAttemptOrder(String(body.quality || 'exhigh'));
+    const guid = String(Math.floor(Math.random() * 1e7));
+    const comm = {
+      g_tk: 5381, uin: ident.uin || 0, format: 'json', inCharset: 'utf-8', outCharset: 'utf-8',
+      notice: 0, platform: 'yqq.json', needNewCode: 1, ct: 19, cv: 0,
+    };
+    if (ident.uin && ident.keyst) comm.authst = ident.keyst;
+    for (const t of order) {
+      const ft = QQ_FILE_TYPES[t];
+      if (!ft) continue;
+      const file = `${ft.s}${songmid}${mediaMid}${ft.e}`;
+      try {
+        const j = await qqMusicuCall({
+          comm,
+          req_0: { module: 'vkey.GetVkeyServer', method: 'CgiGetVkey', param: { filename: [file], guid, songmid: [songmid], songtype: [0], uin: String(ident.uin || 0), loginflag: 1, platform: '20' } },
+        }, 'vkey.GetVkeyServer.CgiGetVkey');
+        const d = j?.req_0?.data;
+        const purl = d?.midurlinfo?.[0]?.purl || '';
+        if (purl) {
+          const sip = (d?.sip || []).find(s => s.startsWith('https')) || (d?.sip || [])[0] || 'https://aqqmusic.tc.qq.com/';
+          const full = `${sip.replace(/\/?$/, '/')}${purl}`.replace(/^http:\/\//i, 'https://');
+          return respondAndCache({ result: 100, data: full, quality: t });
+        }
+      } catch (e) { /* 该档位失败，试下一档 */ }
+    }
+    return jsonResponse({ result: 400, errMsg: '获取播放链接失败（可能需要登录 QQ音乐 / 该曲无版权）' }, { origin });
+  }
+
+  // ── songlist：歌单详情（c.y fcg_ucc_getcdinfo_byids_cp） ──
+  if (action === 'songlist') {
+    const id = String(body.id || '').trim();
+    if (!id) return jsonResponse({ result: 400, errMsg: 'id 不能为空' }, { origin });
+    const { text } = await qqFcgGet('/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg', { type: 1, utf8: 1, disstid: id, loginUin: ident.uin || 0 }, qqCookie || undefined);
+    let j = null;
+    try { j = JSON.parse(text); } catch { return jsonResponse({ result: 502, errMsg: 'songlist upstream non-json' }, { origin }); }
+    const cd = (j?.cdlist || [])[0];
+    if (!cd) return jsonResponse({ result: 404, errMsg: '歌单不存在' }, { origin });
+    const songs = (cd.songs || cd.songlist || []).map(qqNormalizeTrack).filter(t => t && t.songmid);
+    return respondAndCache({
+      result: 100,
+      data: {
+        id: String(cd.dissid || id),
+        name: cd.dissname || '',
+        cover: String(cd.logo || '').replace(/^http:\/\//i, 'https://'),
+        songCount: Number(cd.total_song_num || songs.length),
+        songs,
+      },
+    });
+  }
+
+  // ── user/detail：用户资料 + 我的歌单（fcg_get_profile_homepage，需登录 cookie） ──
+  if (action === 'user/detail') {
+    const uin = String(body.uin || ident.uin || '').trim();
+    if (!uin || !ident.keyst) return jsonResponse({ result: 301, errMsg: '未登录（缺少 QQ音乐 cookie）' }, { origin });
+    const { text } = await qqFcgGet('/rsc/fcgi-bin/fcg_get_profile_homepage.fcg', { cid: 205360838, userid: uin, reqfrom: 1 }, qqCookie);
+    let j = null;
+    try { j = JSON.parse(text); } catch { return jsonResponse({ result: 502, errMsg: 'profile upstream non-json' }, { origin }); }
+    if (j?.code === 1000) return jsonResponse({ result: 301, errMsg: '未登录或 cookie 已过期' }, { origin });
+    const creator = j?.creator || {};
+    const playlists = (j?.disslist || []).map(p => ({
+      id: String(p.dissid ?? p.tid ?? ''),
+      name: p.dissname || p.title || '',
+      cover: String(p.logo || p.headurl || '').replace(/^http:\/\//i, 'https://'),
+      count: Number(p.song_cnt ?? p.songnum ?? 0),
+    })).filter(p => p.id);
+    return respond({
+      result: 100,
+      data: {
+        uin,
+        nickname: creator.nick || creator.nickname || '',
+        avatarUrl: String(creator.headpic || creator.head || '').replace(/^http:\/\//i, 'https://'),
+        playlists,
+      },
+    });
+  }
+
+  // ── login/status：用 cookie 拉一次 profile，能拉到 = 已登录 ──
+  if (action === 'login/status') {
+    if (!ident.uin || !ident.keyst) return respond({ result: 100, data: { loggedIn: false } });
+    const { text } = await qqFcgGet('/rsc/fcgi-bin/fcg_get_profile_homepage.fcg', { cid: 205360838, userid: ident.uin, reqfrom: 1 }, qqCookie);
+    let j = null;
+    try { j = JSON.parse(text); } catch { return respond({ result: 100, data: { loggedIn: false } }); }
+    if (j?.code === 1000) return respond({ result: 100, data: { loggedIn: false } });
+    const creator = j?.creator || {};
+    return respond({
+      result: 100,
+      data: {
+        loggedIn: true,
+        uin: ident.uin,
+        nickname: creator.nick || creator.nickname || '',
+        avatarUrl: String(creator.headpic || creator.head || '').replace(/^http:\/\//i, 'https://'),
+      },
+    });
+  }
+
+  // ── likelist：我喜欢的歌（fcg_musiclist_getmyfav，dirid=201，需登录） ──
+  if (action === 'likelist') {
+    if (!ident.uin || !ident.keyst) return jsonResponse({ result: 301, errMsg: '未登录' }, { origin });
+    const { text } = await qqFcgGet('/splcloud/fcgi-bin/fcg_musiclist_getmyfav.fcg', { dirid: 201, dirinfo: 1, g_tk: 5381 }, qqCookie);
+    let j = null;
+    try { j = JSON.parse(text); } catch { return jsonResponse({ result: 502, errMsg: 'likelist upstream non-json' }, { origin }); }
+    if (j?.code === 1000) return jsonResponse({ result: 301, errMsg: '未登录或 cookie 已过期' }, { origin });
+    const mids = Object.values(j?.mapmid || {});
+    return respond({ result: 100, data: { mids } });
+  }
+
+  // ── like：把歌加进「我喜欢」（fcg_music_add2songdir dirid=201，需登录） ──
+  if (action === 'like') {
+    if (!ident.uin || !ident.keyst) return jsonResponse({ result: 301, errMsg: '未登录' }, { origin });
+    const songmid = String(body.songmid || '').trim();
+    if (!songmid) return jsonResponse({ result: 400, errMsg: 'songmid 不能为空' }, { origin });
+    if (body.like === false) {
+      // QQ 侧取消喜欢需要歌单编辑接口，第一版不做远端取消，仅本地移除
+      return respond({ result: 100, data: { ok: true, remote: false } });
+    }
+    const { text } = await qqFcgGet('/splcloud/fcgi-bin/fcg_music_add2songdir.fcg', {
+      g_tk: 5381, midlist: songmid, typelist: '13', dirid: 201, addtype: '', formsender: 4, r2: 0, r3: 1, utf8: 1,
+    }, qqCookie);
+    let j = null;
+    try { j = JSON.parse(text); } catch { return jsonResponse({ result: 502, errMsg: 'like upstream non-json' }, { origin }); }
+    if (Number(j?.code) === 1) return jsonResponse({ result: 301, errMsg: '未登录或 cookie 已过期' }, { origin });
+    if (Number(j?.code) === 0) return respond({ result: 100, data: { ok: true, remote: true } });
+    return jsonResponse({ result: 400, errMsg: `添加失败: ${j?.msg || j?.code || 'unknown'}` }, { origin });
+  }
+
+  // ── logout：QQ 登录态只存在用户设备本地，服务端无会话可注销 ──
+  if (action === 'logout') {
+    return respond({ result: 100, data: { ok: true } });
+  }
+
+  return null;
 }
 
 
@@ -3995,6 +4315,59 @@ export default {
       }
 
       return response;
+    }
+
+    // ========== QQ音乐代理（直接对接腾讯上游 + 统一 normalize） ==========
+    // 前端 POST /qqmusic/<action> { ...body }，登录态走 X-QQmusic-Cookie 请求头。
+    // 稳定内部 contract：{ result: 100, data } 成功 / { result: 301, errMsg: '未登录' } /
+    // { result: 4xx/5xx, errMsg }。前端不接触第三方原始 response shape。
+    if (url.pathname.startsWith('/qqmusic/')) {
+      const action = url.pathname.replace('/qqmusic/', '').replace(/\/+$/, '');
+      const qqCookie = request.headers.get('X-QQmusic-Cookie') || '';
+      let body = {};
+      if (request.method === 'POST') {
+        try { body = await request.json() || {}; } catch { body = {}; }
+      } else {
+        for (const [k, v] of url.searchParams.entries()) body[k] = v;
+      }
+      const ident = qqCookieIdentity(qqCookie);
+      const cookieBucket = ident.keyst ? 'qqvip' : 'anon';
+
+      try {
+        const ttl = QQ_CACHE_TTL[action] || 0;
+        const cacheKey = ttl > 0 ? qqBuildCacheKey(action, body, cookieBucket) : null;
+        if (cacheKey) {
+          const cached = await caches.default.match(cacheKey);
+          if (cached) {
+            const text = await cached.text();
+            return new Response(text, {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8', 'X-Sully-Cache': 'HIT', ...corsHeaders(origin) },
+            });
+          }
+        }
+
+        const respond = (obj) => new Response(JSON.stringify(obj), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json; charset=utf-8', 'X-Sully-Cache': 'MISS', ...corsHeaders(origin) },
+        });
+        const respondAndCache = (obj) => {
+          if (cacheKey) {
+            const cacheResp = new Response(JSON.stringify(obj), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': `public, max-age=${ttl}` },
+            });
+            if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(caches.default.put(cacheKey, cacheResp));
+            else caches.default.put(cacheKey, cacheResp).catch(() => {});
+          }
+          return respond(obj);
+        };
+
+        const result = await handleQqMusicAction(action, body, ident, qqCookie, respond, respondAndCache, jsonResponse, origin);
+        if (result) return result;
+      } catch (e) {
+        return jsonResponse({ error: 'qqmusic upstream failed', detail: String((e && e.message) || e) }, { status: 502, origin });
+      }
     }
 
     // ========== Brave Search 代理 ==========

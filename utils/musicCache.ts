@@ -38,6 +38,13 @@ const TTL_RULES: Array<{ path: string; ttl: number; exact?: boolean }> = [
   { path: '/playlist/detail',    ttl: 10 * 60 * 1000 },
   { path: '/playlist/track/all', ttl: 10 * 60 * 1000 },
 
+  // QQ音乐（/qq/* 前缀 —— 与网易云 path 空间天然隔离；盐含 'qq|...' 再加一层）
+  { path: '/qq/lyric',              ttl: 24 * 60 * 60 * 1000 },
+  { path: '/qq/songlist',           ttl: 10 * 60 * 1000 },
+  { path: '/qq/song/url',           ttl: 90 * 1000 },
+  { path: '/qq/login/status',       ttl: 60 * 1000 },
+  { path: '/qq/user/detail',        ttl: 5 * 60 * 1000 },
+
   // 歌词基本不会改
   { path: '/lyric',              ttl: 24 * 60 * 60 * 1000 },
 

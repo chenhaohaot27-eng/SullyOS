@@ -22,14 +22,32 @@ import {
     endAllActiveListenSessions,
     LISTEN_SESSIONS_CHANGED_EVENT,
 } from '../utils/listenSession';
+import {
+    migrateMusicCfg,
+    switchMusicProvider,
+    sameSongIdentity,
+    type StreamingMusicProvider,
+} from '../utils/musicProviders/types';
+import { qqApi } from '../utils/musicProviders/qq';
 
 /* ───────────── 类型 ───────────── */
 export type MusicQuality = 'standard' | 'higher' | 'exhigh' | 'lossless' | 'hires';
 
+/**
+ * 双平台扩展（MUSIC DUAL PROVIDER）：
+ *  - provider：当前流媒体平台（默认 'netease'，老用户零感知）；
+ *  - 顶层 cookie 永远 = 网易云 cookie（旧读取方不受影响），netease.cookie 是它的镜像；
+ *  - qq.cookie 是 QQ音乐 登录 cookie，与网易云登录态完全独立、互不覆盖。
+ * 完整迁移逻辑见 utils/musicProviders/types.ts 的 migrateMusicCfg。
+ */
 export interface MusicCfg {
   workerUrl: string;
   cookie: string;
   quality: MusicQuality;
+  /** 当前流媒体平台（netease / qq）。 */
+  provider?: StreamingMusicProvider;
+  netease?: { cookie?: string };
+  qq?: { cookie?: string };
 }
 
 export interface Song {
@@ -40,6 +58,13 @@ export interface Song {
   albumPic: string;
   duration: number;
   fee: number;
+  // ── Streaming source extensions（跨平台歌曲身份，避免网易云数字 id 与 QQ songmid 撞号） ──
+  /** 来源平台；旧网易云数据 undefined 视为 netease。 */
+  source?: 'netease' | 'qq' | 'local';
+  /** 平台内 canonical id：QQ 用 songmid（string）。identity = `${source}:${sourceId}`。 */
+  sourceId?: string;
+  /** QQ 专用：file.media_mid（拼 vkey 文件名用）。 */
+  qqMediaMid?: string;
   // ── Local-source extensions (used for AI-generated songs from 写歌 App) ──
   /** True for songs not from netease — play them via blob from IndexedDB. */
   local?: boolean;
@@ -97,6 +122,9 @@ export const MUSIC_DEFAULT_CFG: MusicCfg = {
   workerUrl: '',
   cookie: '',
   quality: 'exhigh',
+  provider: 'netease',
+  netease: {},
+  qq: {},
 };
 
 /* ───────────── 工具 ───────────── */
@@ -133,12 +161,15 @@ const loadCfg = (): MusicCfg => {
   try {
     const raw = localStorage.getItem(LS_CFG_KEY);
     if (!raw) return { ...MUSIC_DEFAULT_CFG };
-    const cfg = { ...MUSIC_DEFAULT_CFG, ...JSON.parse(raw) };
-    const migrated = migrateWorkerUrl(cfg.workerUrl);
-    if (migrated !== cfg.workerUrl) {
-      cfg.workerUrl = migrated;
-      try { localStorage.setItem(LS_CFG_KEY, JSON.stringify(cfg)); } catch {}
-    }
+    // v1（只有顶层 cookie）→ v2（provider + 两平台独立 credential）自动迁移，
+    // 老网易云 cookie 原样保留、默认 provider='netease'。
+    const migrated = migrateMusicCfg(JSON.parse(raw)) as MusicCfg;
+    const cfg: MusicCfg = {
+      ...MUSIC_DEFAULT_CFG,
+      ...migrated,
+      workerUrl: migrateWorkerUrl(migrated.workerUrl),
+    };
+    try { localStorage.setItem(LS_CFG_KEY, JSON.stringify(cfg)); } catch {}
     return cfg;
   } catch { return { ...MUSIC_DEFAULT_CFG }; }
 };
@@ -328,6 +359,10 @@ interface MusicContextType {
   setCfg: (next: MusicCfg) => void;
   /** 当前真正在用的服务地址：cfg.workerUrl 留空时 = 中心代理地址 */
   effectiveWorkerUrl: string;
+  /** 当前流媒体平台（netease / qq；= cfg.provider，缺省 netease）。 */
+  activeProvider: StreamingMusicProvider;
+  /** 切换平台：安全停止播放 / 清队列 / 结束 active 一起听（provider_switch），两平台登录态保留。 */
+  switchProvider: (p: StreamingMusicProvider) => void;
 
   // 播放队列 / 当前曲
   queue: Song[];
@@ -395,15 +430,57 @@ const MusicContext = createContext<MusicContextType | undefined>(undefined);
 /* ───────────── Provider ───────────── */
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cfg, setCfgState] = useState<MusicCfg>(loadCfg);
-  const setCfg = useCallback((next: MusicCfg) => {
+  const setCfg = useCallback((nextRaw: MusicCfg) => {
+    // 归一：顶层 cookie 永远镜像网易云 cookie；provider 缺省 netease。
+    const neteaseCookie = nextRaw.netease?.cookie ?? nextRaw.cookie ?? '';
+    const next: MusicCfg = {
+      ...nextRaw,
+      provider: nextRaw.provider === 'qq' ? 'qq' : 'netease',
+      netease: { cookie: neteaseCookie },
+      qq: { cookie: nextRaw.qq?.cookie ?? '' },
+    };
+    next.cookie = neteaseCookie;
     setCfgState(prev => {
-      // 换账号 → 上一个账号的缓存全部失效，避免看到旧账号数据。
-      // 换地址那一半由下面 effectiveWorkerUrl 的 effect 统一管（中心地址变化也走那条）。
-      if (prev.cookie !== next.cookie) _clearAllCache();
+      // 换账号 / 换平台 → 上一个身份的缓存全部失效，避免看到旧账号 / 旧平台数据。
+      // （两平台 credential 独立：只动 provider 字段不会丢另一边的登录态。）
+      if (
+        prev.cookie !== next.cookie ||
+        (prev.qq?.cookie || '') !== (next.qq?.cookie || '') ||
+        prev.provider !== next.provider
+      ) _clearAllCache();
       return next;
     });
     saveCfg(next);
   }, []);
+
+  /**
+   * 切换流媒体平台（网易云音乐 ⇄ QQ音乐）：
+   *  - 当前播放安全停止、progress/lyric 复位；
+   *  - 队列清空（防止 QQ 时期残留的网易云曲目拿错 API 请求，反之亦然）；
+   *  - 两平台登录态互不清除；本地生成的歌不受影响（不属于任何 provider）；
+   *  - active 一起听 session 以 endReason='provider_switch' 安全结束，不留幽灵 active；
+   *  - 搜索结果 / profile 由 UI 层在 provider 变化时自行清空重拉。
+   */
+  const switchProvider = useCallback((next: StreamingMusicProvider) => {
+    setCfgState(prev => {
+      if ((prev.provider || 'netease') === next) return prev;
+      const switched = switchMusicProvider(prev as any, next) as MusicCfg;
+      _clearAllCache();
+      // 停止播放 + 复位
+      const a = audioRef.current;
+      if (a) { try { a.pause(); a.src = ''; } catch {} }
+      setPlaying(false); setProgress(0); setDuration(0);
+      setLyric([]); setTlyric([]); setLoadingSong(false);
+      setIdx(-1); setQueueState([]);
+      setLikedSet(new Set()); setQqLikedSet(new Set());
+      setListeningTogetherWith([]);
+      // 正式 session 安全结束（无 active 时 no-op）
+      void endAllActiveListenSessions('provider_switch');
+      return switched;
+    });
+    // setCfgState 的 updater 里不便做副作用持久化，这里补一次落盘
+    setCfgState(prev => { saveCfg(prev); return prev; });
+  }, [saveCfg]);
 
   // 中心地址（设置 → 网络代理）。cfg.workerUrl 留空时用的就是它，进 state 是为了让
   // 设置页显示的"当前生效地址"能跟着变——请求那边不看这份，每次现读中心配置。
@@ -498,9 +575,23 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     toastHandlerRef.current = h;
   }, []);
 
-  // 用户信息
+  // 用户信息（网易云分支保持不变；QQ音乐分支走 qqApi.profile 映射成同一形状）
   const [profile, setProfile] = useState<NeteaseProfile | null>(null);
   const refreshProfile = useCallback(async () => {
+    if ((cfg.provider || 'netease') === 'qq') {
+      if (!cfg.qq?.cookie) { setProfile(null); return; }
+      try {
+        const p = await qqApi.profile(cfg, () => resolveMusicWorkerUrl(cfg));
+        if (!p) { setProfile(null); return; }
+        setProfile({
+          userId: Number(p.uin) || 0,
+          nickname: p.nickname || '',
+          avatarUrl: toHttps(p.avatarUrl || ''),
+          playlistCount: p.playlists.length,
+        });
+      } catch { setProfile(null); }
+      return;
+    }
     if (!cfg.cookie) { setProfile(null); return; }
     try {
       const r = await musicApi.loginStatus(cfg);
@@ -525,9 +616,17 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => { refreshProfile(); }, [refreshProfile]);
 
-  // 喜欢列表
+  // 喜欢列表（网易云 numeric id 集合 + QQ songmid 集合，两套互不混淆）
   const [likedSet, setLikedSet] = useState<Set<number>>(new Set());
+  const [qqLikedSet, setQqLikedSet] = useState<Set<string>>(new Set());
   useEffect(() => {
+    if ((cfg.provider || 'netease') === 'qq') {
+      if (!cfg.qq?.cookie) { setQqLikedSet(new Set()); return; }
+      qqApi.likedMids(cfg, () => resolveMusicWorkerUrl(cfg))
+        .then(mids => setQqLikedSet(new Set(mids)))
+        .catch(() => {});
+      return;
+    }
     if (!cfg.cookie) { setLikedSet(new Set()); return; }
     musicApi.call(cfg, '/likelist', {}).then(r => {
       const ids: number[] = r?.ids || r?.data?.ids || [];
@@ -540,20 +639,40 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   //   - 本地歌 → 在 localAlbum 里就算喜欢，不在就不喜欢；toggle = add/remove
   const liked = !!current && (
     current.local
-      ? localAlbumSongs.some(s => s.id === current.id)
-      : likedSet.has(current.id)
+      ? localAlbumSongs.some(s => sameSongIdentity(s, current))
+      : current.source === 'qq'
+        ? qqLikedSet.has(current.sourceId || '')
+        : likedSet.has(current.id)
   );
   const toggleLike = useCallback(async () => {
     if (!current) return;
     // ── 本地歌：toggle from album ──
     if (current.local) {
-      const inAlbum = localAlbumSongs.some(s => s.id === current.id);
+      const inAlbum = localAlbumSongs.some(s => sameSongIdentity(s, current));
       if (inAlbum) {
         removeLocalSong(current.id);
         toast('已从「一起写的歌」移除', 'info');
       } else {
         addLocalSong(current);
         toast('已加入「一起写的歌」', 'success');
+      }
+      return;
+    }
+    // ── QQ音乐歌：songmid 进「我喜欢」；取消只做本地移除（QQ 侧无对应取消接口） ──
+    if (current.source === 'qq') {
+      if (!cfg.qq?.cookie) { toast('需要登录 QQ音乐', 'error'); return; }
+      const mid = current.sourceId || '';
+      const willLike = !qqLikedSet.has(mid);
+      try {
+        await qqApi.like(cfg, () => resolveMusicWorkerUrl(cfg), mid, willLike);
+        setQqLikedSet(prev => {
+          const next = new Set(prev);
+          if (willLike) next.add(mid); else next.delete(mid);
+          return next;
+        });
+        toast(willLike ? '已添加到喜欢' : '已取消喜欢（仅本地）', 'success');
+      } catch (e: any) {
+        toast(`喜欢失败: ${e.message}`, 'error');
       }
       return;
     }
@@ -572,7 +691,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch (e: any) {
       toast(`喜欢失败: ${e.message}`, 'error');
     }
-  }, [current, cfg, likedSet, localAlbumSongs, addLocalSong, removeLocalSong, toast]);
+  }, [current, cfg, likedSet, qqLikedSet, localAlbumSongs, addLocalSong, removeLocalSong, toast]);
 
   // 播放模式
   const [playMode, setPlayMode] = useState<PlayMode>('loop');
@@ -646,7 +765,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [recentTrackChange, setRecentTrackChange] = useState<RecentTrackChange | null>(null);
   useEffect(() => {
     const previousSong = previousSongRef.current;
-    if (previousSong && previousSong.id !== current?.id) {
+    if (previousSong && !sameSongIdentity(previousSong, current)) {
       const wasListening = listeningTogetherRef.current;
       if (wasListening.length > 0) {
         setRecentTrackChange({
@@ -714,10 +833,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (replaceQueue) {
       setQueueState(replaceQueue);
-      setIdx(typeof startIdx === 'number' ? startIdx : replaceQueue.findIndex(s => s.id === song.id));
+      setIdx(typeof startIdx === 'number' ? startIdx : replaceQueue.findIndex(s => sameSongIdentity(s, song)));
     } else if (alsoSetQueue) {
       const qnow = queueRef.current;
-      const existing = qnow.findIndex(s => s.id === song.id);
+      const existing = qnow.findIndex(s => sameSongIdentity(s, song));
       if (existing >= 0) {
         setIdx(existing);
       } else {
@@ -802,6 +921,42 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               title: song.name,
               artist: song.artists,
               album: song.album,
+            });
+          } catch {}
+        }
+        setLoadingSong(false);
+        return;
+      }
+
+      // ── QQ音乐分支 ── songmid 走 qqApi（Worker 侧逐级音质回落），歌词 LRC + 翻译。
+      // 其余（Media Session / 进度条 / 一起听）与网易云共用同一套播放器状态。
+      if (song.source === 'qq' && song.sourceId) {
+        const [urlRes, lyricRes] = await Promise.all([
+          qqApi.songUrl(cfgRef.current, () => resolveMusicWorkerUrl(cfgRef.current), song),
+          qqApi.lyric(cfgRef.current, () => resolveMusicWorkerUrl(cfgRef.current), song.sourceId!).catch(() => null),
+        ]);
+        if (!urlRes?.url) {
+          toast('暂无播放地址（可能需要登录 QQ音乐 / 该曲无版权）', 'error');
+          setLoadingSong(false);
+          return;
+        }
+        const a = audioRef.current!;
+        a.src = urlRes.url.replace(/^http:\/\//i, 'https://');
+        a.play().catch(() => {});
+        if (lyricRes) {
+          setLyric(parseLyric(lyricRes.lrc || ''));
+          setTlyric(parseLyric(lyricRes.trans || ''));
+        }
+        if ('mediaSession' in navigator) {
+          try {
+            (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
+              title: song.name,
+              artist: song.artists,
+              album: song.album,
+              artwork: song.albumPic ? [
+                { src: song.albumPic, sizes: '300x300', type: 'image/jpeg' },
+                { src: song.albumPic, sizes: '512x512', type: 'image/jpeg' },
+              ] : [],
             });
           } catch {}
         }
@@ -955,6 +1110,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!current) return null;
         return {
           songId: current.id,
+          source: current.source,
+          sourceId: current.sourceId,
           name: current.name,
           artists: current.artists,
           album: current.album,
@@ -1023,10 +1180,19 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
 
           const pl = playlists[chosenIdx];
-          if (pl.songs.find(s => s.id === song.id)) {
+          if (pl.songs.find(s => sameSongIdentity(s, song))) {
             return { playlistTitle: pl.title, created: false };
           }
-          const updatedPl = { ...pl, songs: [...pl.songs, song], updatedAt: now };
+          // Song.source（流媒体平台）与 CharPlaylistSong.source（'user'/'discovered' 收藏来源）
+          // 语义不同：入库时把平台挪到 streamingSource，provenance 统一记 'user'。
+          const storedSong = {
+            ...song,
+            source: 'user' as const,
+            streamingSource: song.source ?? 'netease',
+            sourceId: song.sourceId ?? String(song.id),
+            addedAt: now,
+          };
+          const updatedPl = { ...pl, songs: [...pl.songs, storedSong], updatedAt: now };
           playlists[chosenIdx] = updatedPl;
 
           const updatedProfile = { ...profile, playlists, updatedAt: now };
@@ -1047,6 +1213,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const value: MusicContextType = {
     cfg, setCfg, effectiveWorkerUrl,
+    activeProvider: (cfg.provider === 'qq' ? 'qq' : 'netease'),
+    switchProvider,
     queue, setQueue, idx, current,
     playing, progress, duration, loadingSong,
     lyric, tlyric, activeLyricIdx,

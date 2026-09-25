@@ -43,6 +43,8 @@ export { cleanApiMessages, flattenImageContentParts } from './promptMessageClean
 export interface UserListeningContext {
     songName: string;
     artists: string;
+    /** 播放平台名（'QQ音乐' / '网易云音乐'）；本地生成歌省略。 */
+    sourceLabel?: string;
     lyricWindow: string[];
     activeIdx: number;
 }
@@ -156,6 +158,7 @@ function deriveListeningFromSnapshot(
             userListeningContext = {
                 songName: current.name,
                 artists: current.artists,
+                sourceLabel: current.source === 'qq' ? 'QQ音乐' : current.local ? undefined : '网易云音乐',
                 lyricWindow: window,
                 activeIdx,
             };
@@ -164,6 +167,7 @@ function deriveListeningFromSnapshot(
         userListeningContext = {
             songName: current.name,
             artists: current.artists,
+            sourceLabel: current.source === 'qq' ? 'QQ音乐' : current.local ? undefined : '网易云音乐',
             lyricWindow: [],
             activeIdx: -1,
         };

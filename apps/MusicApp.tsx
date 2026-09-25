@@ -11,7 +11,10 @@ import {
   MetaChip, SubActions,
 } from './music/MusicUI';
 import NeteaseProfilePage from './music/NeteaseProfilePage';
+import QQProfilePage from './music/QQProfilePage';
 import CharVisitPage from './music/CharVisitPage';
+import { qqApi } from '../utils/musicProviders/qq';
+import { getSongIdentity } from '../utils/musicProviders/types';
 import ShareSongToCharModal from '../components/music/ShareSongToCharModal';
 import TogetherListenModal from '../components/music/TogetherListenModal';
 import { getAllMusicListenSessions, groupListenStatsByChar, type CharListenStats } from '../utils/listenSession';
@@ -31,7 +34,7 @@ type View = 'search' | 'settings' | 'player' | 'profile' | 'visit_char';
 const MusicApp: React.FC = () => {
   const { closeApp, addToast, characters, userProfile } = useOS();
   const {
-    cfg, setCfg, effectiveWorkerUrl,
+    cfg, setCfg, effectiveWorkerUrl, activeProvider, switchProvider,
     current, playing, progress, duration, loadingSong,
     lyric, tlyric, activeLyricIdx,
     profile, playSong, togglePlay, nextSong, prevSong, seek,
@@ -137,32 +140,41 @@ const MusicApp: React.FC = () => {
     box.scrollTo({ top: elTopInBox - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' });
   }, [activeLyricIdx, view]);
 
-  // ── 搜索 ──
+  // ── 搜索 ──（provider-aware：网易云走 musicApi，QQ音乐走 qqApi adapter，互不串台）
   const doSearch = useCallback(async () => {
     const kw = keyword.trim(); if (!kw) return;
     setSearching(true);
     trackEvent('搜索一首歌');
     try {
-      const r = await musicApi.search(cfg, kw);
-      const songs: Song[] = (r?.result?.songs || []).map((s: any) => ({
-        id: s.id, name: s.name,
-        artists: (s.ar || s.artists || []).map((a: any) => a.name).join(' / '),
-        album: s.al?.name || s.album?.name || '',
-        albumPic: toHttps(s.al?.picUrl || s.album?.picUrl || ''),
-        duration: (s.dt || s.duration || 0) / 1000,
-        fee: s.fee ?? 0,
-      }));
-      setResults(songs);
-      if (!songs.length) {
-        const hint = r?.msg || r?.message || (r?.code != null ? `code=${r.code}` : '') || '无数据';
-        addToast(`没找到: ${hint}`, 'info');
+      let songs: Song[] = [];
+      let hint = '';
+      if (activeProvider === 'qq') {
+        songs = await qqApi.search(cfg, () => effectiveWorkerUrl, kw);
+        if (!songs.length) hint = 'QQ音乐没搜到这首歌';
+      } else {
+        const r = await musicApi.search(cfg, kw);
+        songs = (r?.result?.songs || []).map((s: any) => ({
+          id: s.id, name: s.name,
+          artists: (s.ar || s.artists || []).map((a: any) => a.name).join(' / '),
+          album: s.al?.name || s.album?.name || '',
+          albumPic: toHttps(s.al?.picUrl || s.album?.picUrl || ''),
+          duration: (s.dt || s.duration || 0) / 1000,
+          fee: s.fee ?? 0,
+          source: 'netease' as const,
+        }));
+        if (!songs.length) hint = r?.msg || r?.message || (r?.code != null ? `code=${r.code}` : '') || '无数据';
       }
+      setResults(songs);
+      if (!songs.length) addToast(`没找到: ${hint}`, 'info');
     } catch (e: any) {
       addToast(`搜索失败：${e.message}`, 'error');
     } finally {
       setSearching(false);
     }
-  }, [keyword, cfg, addToast]);
+  }, [keyword, cfg, activeProvider, effectiveWorkerUrl, addToast]);
+
+  // 切平台 → 清空上一平台的搜索结果（缓存与登录态由 MusicContext 管）
+  useEffect(() => { setResults([]); }, [activeProvider]);
 
   // ════════════════ 搜索页 ════════════════
   const renderSearch = () => (
@@ -209,7 +221,7 @@ const MusicApp: React.FC = () => {
           </button>
         </div>
       )}
-      {!cfg.cookie && (
+      {activeProvider === 'netease' && !cfg.cookie && (
         <div className="px-5 -mt-1 mb-1.5 relative z-10">
           <button
             onClick={() => setView('profile')}
@@ -217,6 +229,17 @@ const MusicApp: React.FC = () => {
             style={{ background: `${C.vip}18`, color: C.vip, border: `1px solid ${C.vip}30` }}
           >
             未登录 — 点击登录网易云
+          </button>
+        </div>
+      )}
+      {activeProvider === 'qq' && !cfg.qq?.cookie && (
+        <div className="px-5 -mt-1 mb-1.5 relative z-10">
+          <button
+            onClick={() => setView('settings')}
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] cursor-pointer"
+            style={{ background: `${C.vip}18`, color: C.vip, border: `1px solid ${C.vip}30` }}
+          >
+            未登录 — 点击设置 QQ音乐 Cookie
           </button>
         </div>
       )}
@@ -237,14 +260,14 @@ const MusicApp: React.FC = () => {
         )}
         {results.map(s => (
           <SongRow
-            key={s.id}
+            key={getSongIdentity(s)}
             name={s.name}
             artists={s.artists}
             album={s.album}
             albumPic={s.albumPic}
             duration={fmtTime(s.duration)}
             isVip={s.fee === 1}
-            isActive={current?.id === s.id}
+            isActive={!!current && getSongIdentity(current) === getSongIdentity(s)}
             onClick={() => { playSong(s); trackEvent('播放搜索结果里的一首歌'); }}
             onMore={() => setShareSong(s)}
           />
@@ -528,9 +551,30 @@ const MusicApp: React.FC = () => {
         <BokehBg />
         <MizuHeader title="设置" onBack={() => setView('search')} />
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 text-sm relative z-10 shizuku-scrollbar">
+          {/* 音乐平台（网易云音乐 / QQ音乐）—— 切换即安全停止播放并结束一起听，两边登录互相独立 */}
+          <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
+            <div className="text-[10px] mb-2 tracking-wider flex items-center gap-1.5" style={{ color: C.muted }}>
+              <Sparkle size={6} color={C.glow} delay={0} /> 音乐平台
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {([['netease', '网易云音乐'], ['qq', 'QQ音乐']] as const).map(([p, label]) => (
+                <button key={p} onClick={() => { switchProvider(p); trackEvent('切换音乐平台', { provider: p }); }}
+                  className="py-2 rounded-xl text-[10px] transition-all"
+                  style={{
+                    background: activeProvider === p ? `linear-gradient(135deg, ${C.primary}, ${C.accent})` : C.glass,
+                    color: activeProvider === p ? 'white' : C.muted,
+                    border: activeProvider === p ? '1px solid transparent' : `1px solid rgba(255,255,255,0.3)`,
+                  }}>{label}</button>
+              ))}
+            </div>
+            <div className="text-[9px] mt-1.5 italic" style={{ color: C.faint }}>
+              {activeProvider === 'qq' ? 'QQ音乐（登录后可搜歌 / 播放 / 歌词 / 我的歌单 / 喜欢）' : '网易云音乐（全部原有功能保持不变）'}。
+              切换平台会停止当前播放并结束「一起听」；两个平台的登录互相独立，切换不会登出另一边。
+            </div>
+          </div>
           <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
             <div className="text-[10px] mb-2 tracking-wider flex items-center justify-between" style={{ color: C.muted }}>
-              <span className="flex items-center gap-1.5"><Sparkle size={6} color={C.glow} delay={0} /> 服务地址</span>
+              <span className="flex items-center gap-1.5"><Sparkle size={6} color={C.sakura} delay={0.5} /> 服务地址</span>
               {!followsCentral && (
                 <button onClick={() => setDraft({ workerUrl: '' })}
                   className="text-[9px] underline" style={{ color: C.muted }}>改回跟随中心</button>
@@ -545,9 +589,26 @@ const MusicApp: React.FC = () => {
                 : <>只在音乐里用这个地址，「设置 → 网络代理」改了也不跟</>}
             </div>
           </div>
+          {activeProvider === 'qq' ? (
+            <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
+              <div className="text-[10px] mb-2 tracking-wider flex items-center gap-1.5" style={{ color: C.muted }}>
+                <Sparkle size={6} color={C.sakura} delay={0.5 } /> QQ音乐 Cookie 登录
+              </div>
+              <textarea className="w-full rounded-xl px-3 py-2 outline-none text-[10px] shizuku-glass" rows={3}
+                value={cfg.qq?.cookie || ''}
+                onChange={e => setDraft({ qq: { cookie: e.target.value } } as any)}
+                placeholder="uin=oXXXX; qm_keyst=XXXX; ..."
+                style={{ color: C.text, fontFamily: 'monospace', resize: 'none' }} />
+              <div className="text-[9px] mt-1.5 italic leading-relaxed" style={{ color: C.faint }}>
+                电脑打开 y.qq.com 并登录 → F12 开发者工具 → 网络/应用 → 复制 Cookie（至少包含 uin 和 qm_keyst）粘贴到这里。<br />
+                扫码登录通道依赖 QQ 官方页面内的推送协议、暂无法安全复刻，因此采用与 QQMusicApi 生态一致的 Cookie 登录；
+                绝不会要求输入 QQ 密码。Cookie 只保存在本机，不会上传。
+              </div>
+            </div>
+          ) : (
           <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
             <div className="text-[10px] mb-2 tracking-wider flex items-center gap-1.5" style={{ color: C.muted }}>
-              <Sparkle size={6} color={C.sakura} delay={0.5} /> 会员 Cookie
+              <Sparkle size={6} color={C.sakura} delay={0.5} /> 网易云会员 Cookie
             </div>
             <textarea className="w-full rounded-xl px-3 py-2 outline-none text-[10px] shizuku-glass" rows={3} value={cfg.cookie}
               onChange={e => setDraft({ cookie: e.target.value })} placeholder="MUSIC_U=xxx 或直接粘贴值..."
@@ -556,6 +617,7 @@ const MusicApp: React.FC = () => {
               也可以在「我的」页面里扫码 / 手机号登录，自动填入 cookie
             </div>
           </div>
+          )}
           <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
             <div className="text-[10px] mb-2 tracking-wider flex items-center gap-1.5" style={{ color: C.muted }}>
               <Sparkle size={6} color={C.lavender} delay={1} /> 音质
@@ -619,6 +681,14 @@ const MusicApp: React.FC = () => {
       {view === 'player' && renderPlayer()}
       {view === 'settings' && renderSettings()}
       {view === 'profile' && (
+        activeProvider === 'qq' ? (
+          <QQProfilePage
+            onBack={closeApp}
+            onOpenSearch={() => setView('search')}
+            onOpenSettings={() => setView('settings')}
+            onShareSong={setShareSong}
+          />
+        ) : (
         <NeteaseProfilePage
           onBack={closeApp}
           onOpenPlayer={() => setView('player')}
@@ -627,6 +697,7 @@ const MusicApp: React.FC = () => {
           onVisitChar={id => { setVisitCharId(id); setView('visit_char'); trackEvent('进入角色音乐角落'); }}
           onShareSong={setShareSong}
         />
+        )
       )}
       {/* 分享给角色 — 任何 view 下都可弹出（播放页 Share / 搜索列表 ··· / 我的歌单 ···） */}
       <ShareSongToCharModal

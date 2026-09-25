@@ -974,6 +974,7 @@ export const useChatAI = ({
                             return {
                                 songName: music.current.name,
                                 artists: music.current.artists,
+                                sourceLabel: music.current.source === 'qq' ? 'QQ音乐' : music.current.local ? undefined : '网易云音乐',
                                 lyricWindow: window,
                                 activeIdx: idx - from,
                             };
@@ -983,6 +984,7 @@ export const useChatAI = ({
                         return {
                             songName: music.current.name,
                             artists: music.current.artists,
+                            sourceLabel: music.current.source === 'qq' ? 'QQ音乐' : music.current.local ? undefined : '网易云音乐',
                             lyricWindow: [],
                             activeIdx: -1,
                         };

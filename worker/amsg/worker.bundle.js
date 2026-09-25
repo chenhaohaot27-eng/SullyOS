@@ -3,7 +3,7 @@
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.22_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2_94acb5c02e0926ba93b78cca9e6808bb/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -1118,7 +1118,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.22_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-5J73MSQ5.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2_94acb5c02e0926ba93b78cca9e6808bb/node_modules/@rei-standard/amsg-server/dist/chunk-5J73MSQ5.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -7105,7 +7105,7 @@ var resolveScheduleSlots = (schedule, now) => {
   }
   return { current: null, next: schedule.slots[0] };
 };
-var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ new Date()) => {
+var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ new Date(), options = {}) => {
   if (!schedule || !schedule.slots || schedule.slots.length === 0) return "";
   const { current: currentSlot, next: nextSlot } = resolveScheduleSlots(schedule, now);
   const isPreDawnCarryOver = !currentSlot && now.getHours() < PRE_DAWN_END_HOUR;
@@ -7134,9 +7134,25 @@ var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ 
 `;
   const footnote = `
 \uFF08\u4E0D\u662F\u53F0\u8BCD\uFF0C\u4E0D\u7528\u8BF4\u51FA\u53E3\u2014\u2014\u8BA9\u5B83\u5F71\u54CD\u4F60\u7684\u8BED\u6C14\u548C\u60C5\u7EEA\u5C31\u597D\u3002\uFF09`;
-  let out = slotHeader;
+  let out = "";
+  if (options.includeFullDay) {
+    const rows = schedule.slots.map((slot) => {
+      let line = `- ${slot.startTime} ${slot.activity}`;
+      if (slot.location) line += `\uFF08${slot.location}\uFF09`;
+      if (slot.description) line += `\uFF1A${slot.description}`;
+      return line;
+    });
+    out += `\u4F60\u4ECA\u5929\u7684\u5B8C\u6574\u65E5\u7A0B\uFF1A
+${rows.join("\n")}
+`;
+  }
+  out += slotHeader;
   if (narrative) {
     out += preamble + narrative + footnote;
+  }
+  if (options.includeChangeInstruction && nextSlot) {
+    out += `
+\u4F60\u62E5\u6709\u66F4\u6539\u672A\u6765\u65E5\u7A0B\u8BA1\u5212\u7684\u80FD\u529B\uFF1B\u9700\u8981\u65F6\u5728\u56DE\u590D\u672B\u5C3E\u5355\u72EC\u8F93\u51FA\uFF1A[[ACTION:CHANGE_SCHEDULE | ${nextSlot.startTime} | \u53BB\u8D85\u5E02]]\uFF08\u65F6\u6BB5\u5FC5\u987B\u6765\u81EA\u4E0A\u8868\u4E14\u5C1A\u672A\u5F00\u59CB\uFF09\u3002`;
   }
   out += "\n";
   return out;
@@ -11320,8 +11336,8 @@ var stripSourceTags = (t) => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, "\
 var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
 var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
 var stripRoleNamePrefix = (t) => t.replace(/^[\w一-龥]+:\s*/, "");
-var stripBusinessTagsForBubble = (t) => t.replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
-var stripBusinessTagsForNotification = (t) => stripBusinessTagsForBubble(t).replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[XHS_[A-Z_]+\]\]/g, "");
+var stripBusinessTagsForBubble = (t) => t.replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION|SEND_PHOTO)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
+var stripBusinessTagsForNotification = (t) => stripBusinessTagsForBubble(t).replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD|SEND_PHOTO)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[XHS_[A-Z_]+\]\]/g, "");
 var stripAllDoubleBracketTags = (t) => t.replace(/\[\[[\s\S]*?\]\]/g, "");
 var stripQuotes2 = (t) => t.replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, "").replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, "").replace(/\[回复\s*[""“][^""”]*?[""”](?:\.{0,3})\]\s*[：:]?\s*/g, "").replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, "");
 var stripSystemLogLeak = (t) => t.replace(/[\[【]\s*(?:系统|系統|System)\s*(?:提示)?\s*[:：][^\[\]【】]*[\]】]\s*/gi, "").replace(/\[\s*(?:系统|系統)\s*\]\s*/g, "");

@@ -2484,6 +2484,14 @@ export interface CharPlaylistSong {
      * 让记忆/对话能自然带上这层关系，而不是当成一首中立的歌。
      */
     source?: 'user' | 'discovered';
+    /**
+     * 流媒体来源（netease / qq / local）—— 跨平台歌曲身份（getSongIdentity）用，
+     * 与上面的 source（收藏来源 provenance）是两回事，互不冲突。
+     * 旧网易云数据无此字段 → 视为 netease。
+     */
+    streamingSource?: 'netease' | 'qq' | 'local';
+    /** 平台内 canonical id：QQ 用 songmid（string），网易云沿用 numeric id。 */
+    sourceId?: string;
     /** 加入歌单时间，用来排序 / 显示"最近收藏" */
     addedAt?: number;
 }

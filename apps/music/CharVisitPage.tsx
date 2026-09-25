@@ -307,8 +307,13 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer }) => {
   }, [char, profile, cfg, fillingPl, updateCharacter, addToast]);
 
   const playPlaylistSong = (pl: CharPlaylist, song: CharPlaylistSong) => {
-    // 用 char 歌单作为队列，点击的歌作为起点
-    const queue: Song[] = pl.songs.map(s => ({ ...s }));
+    // 用 char 歌单作为队列，点击的歌作为起点。
+    // CharPlaylistSong.source 是收藏来源（user/discovered），播放侧要的是流媒体平台
+    // （Song.source）—— streamingSource 有值就用它（QQ 歌按 songmid 播放），否则视为网易云。
+    const queue: Song[] = pl.songs.map(s => {
+      const { source, streamingSource, ...rest } = s as CharPlaylistSong;
+      return { ...rest, source: (streamingSource ?? 'netease') as Song['source'] };
+    });
     const startIdx = queue.findIndex(s => s.id === song.id);
     playSong(queue[startIdx], { replaceQueue: queue, startIdx });
     onOpenPlayer();
