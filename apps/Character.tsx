@@ -1390,7 +1390,9 @@ ${isInitialGeneration ? `
                             <VisualIdentityPanel
                                 key={formData.id}
                                 visualIdentity={formData.visualIdentity}
-                                onChange={(next) => handleChange('visualIdentity', next)}
+                                visualIdentityPresets={formData.visualIdentityPresets}
+                                activeVisualIdentityPresetId={formData.activeVisualIdentityPresetId}
+                                onChangePatch={(patch) => setFormData(prev => (prev && prev.id === editingId) ? { ...prev, ...patch } : prev)}
                                 addToast={addToast}
                             />
 

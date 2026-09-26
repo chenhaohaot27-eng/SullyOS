@@ -1,66 +1,58 @@
 # Visual Identity State
 
-角色视觉身份系统：Phase 2A/2B/2C 已完成并发布（main e28aed13）。
-Phase 2D（ZIP 导入/导出）+ Phase 2E（摄影语义修正）已完成（本地 dev，未提交）。
+角色视觉身份系统：Phase 2A–2E 已发布（main 2704f551）。
+Phase 2F（多视觉形态预设）已完成（本地 dev，未提交）。
 
-## 系统现状（截至 Phase 2E）
+## 系统现状（截至 Phase 2F）
 
-- 数据底座：`CharacterProfile.visualIdentity?`（types.ts）+ `utils/visualIdentity.ts`（blobRef CRUD/校验）
-- UI：`components/character/VisualIdentityPanel.tsx`（简易/精细模式，挂在 apps/Character.tsx identity 标签页，key=formData.id 按 characterId 隔离）
-- 生图注入：`utils/imageGenerationService.ts` characterId → DB.getCharacter → 参考图合并（主图→临时→其他，≤5 张）+ 身份 prompt；OpenAI 跳过图保文字
-- 设置页：ImageGenerationSettings 自带折叠；RelayRouter /v1↔/v1beta 自动切换（utils/imageGenerationRelayRouter.ts）
+- 数据：`CharacterProfile.visualIdentity?`（legacy，保留）+ **`visualIdentityPresets?: VisualIdentityPreset[]` + `activeVisualIdentityPresetId?`**（Phase 2F 新增，全部可选，零迁移兼容）
+- `VisualIdentityPreset = { id, name, description?, identity: VisualIdentity, createdAt, updatedAt }`
+- 生图：`imageGenerationService` characterId → `getActiveVisualIdentity(char)`（active 预设优先，否则 legacy）→ Phase 2C 注入（prompt + references）→ Phase 2E 摄影语义
+- UI：`VisualIdentityPanel`（Character.tsx identity 标签页）顶部「视觉形态」库 + 下方复用的简易/精细编辑面板
+- ZIP：manifest 支持 `presetName / presetDescription`（可选，旧包兼容）
 
-## Phase 2D：视觉身份 ZIP 导入/导出
+## Phase 2F 要点
 
-**新增**：`utils/visualIdentityZip.ts`（jszip，仓库既有依赖）+ `utils/visualIdentityZip.test.ts`
+**新增**：`utils/visualIdentityPresets.ts`（纯 helper）+ `utils/visualIdentityPresets.test.ts`（15 项）
 
-- 包结构：`VisualIdentity.zip = manifest.json + images/<role>.<ext>`
-- manifest：`{ version, appearanceSummary, fixedTraits, variableTraits, identityStrength, references[{file, role, isPrimary}] }`
-- 导出 `exportVisualIdentityZip(vi)`：参考图从 blobRef resolve 后写入 images/；文件名按 role（primary_face/front/...），去重后缀；只含 visualIdentity 数据，不含聊天/记忆/Key
-- 导入 `importVisualIdentityZip(blob)`：
-  - 标准 ZIP：恢复主图/role/文字字段；未标主图自动提升第一张；非法 role 规范化为 other
-  - 普通 ZIP（无 manifest）：提取图片（role=other、首图主图），UI 进入人工整理（面板本身支持改主图/role/删除）
-  - 上限仍 5 张，超出记入 `skippedFiles` 并 toast 提示
-  - 失败（缺文件/manifest 损坏/非 ZIP）：明确报错并清理本次已写入的全部 Blob，不留孤儿
-  - 图片走 putImageBlob → blob_assets，不写 base64 进 localStorage
-- UI：VisualIdentityPanel 精细模式新增「导入/导出视觉身份包」；导入整体替换当前角色 references（旧 Blob 同步清理）；普通 ZIP 保留现有文字字段
-- JSZip 在 Node 不能直接读写 Blob：统一先转 Uint8Array/arraybuffer（浏览器同样兼容）
+- helper：`getActiveVisualIdentity / getActiveVisualIdentityPreset / createVisualIdentityPreset / renameVisualIdentityPreset / resolveActivePresetId / migrateLegacyVisualIdentityToPreset / deleteVisualIdentityPreset`（结构化 `VisualIdentityHost`，CharacterProfile 天然满足）
+- 迁移：legacy → 「默认形态」直接复用原 blobRef（不写新 Blob）；legacy 字段保留（回退 + 共享引用方）；重复迁移返回 null
+- 删除：只清理该预设独占的 Blob；被其他 preset / legacy 引用的 blobRef 保留；删除当前预设自动切到剩余第一套，无 preset 回退 legacy/空状态
+- UI：形态卡（当前形态标记 / 设为当前 / 新建空白 / 内联重命名 / 删除 / legacy→形态迁移按钮）；编辑面板写入当前 active 预设（无预设时写 legacy，旧行为）
+- ZIP：导入 = 新增 preset 并设为当前（不覆盖已有形态）；名称 presetName → ZIP 文件名 → 「导入形态」兜底；导出 = 当前 active 形态（写入 presetName/presetDescription，旧 importer 仍可读核心字段）
+- 每套独立 5 张上限；切换由玩家手动完成，不做剧情自动识别 / 多形态混合 / AI 判断
+- 文案已改：「启用后，角色生图会自动使用当前视觉形态的参考图与外观设定。」
 
-## Phase 2E：摄影语义与现实感修正
+## 历史阶段（已发布 main 2704f551）
 
-**新增**：`utils/photoSemantics.ts` + `utils/photoSemantics.test.ts`
-**接入**：`imageGenerationService.ts` 在 `identityPrompt + 原prompt` 之后调用 `applyPhotoSemantics(prompt, { identityActive })`，只在末尾追加 `[摄影约束]`，不改写原文
+- 2A 数据底座（types + utils/visualIdentity + blobRef 存储）
+- 2B UI 面板（简易/精细）、生图设置折叠、RelayRouter /v1↔/v1beta
+- 2C 生图注入（characterId → 参考图合并 + 身份 prompt；OpenAI 跳图保文字；DB.getCharacter）
+- 2D ZIP 标准包（manifest + images/，失败清理孤儿 Blob）
+- 2E 摄影语义（自拍/镜子/他拍/现实感/商业豁免，`utils/photoSemantics.ts`）
 
-- 自拍（自拍/selfie/给你拍张自拍/发张自拍）→ 前置摄像头第一视角：手机本体不出现、允许轻伸手臂/肩膀、禁止第三人称拍到举手机、禁止屏幕朝外
-- 镜子自拍（镜子自拍/mirror selfie）→ 才允许手机入画 + 合理镜面构图（不施加"手机不出现"约束）
-- 他拍/街拍/偷拍/candid/第三人称 → 才允许第三人称镜头完整看到角色（含手持手机）
-- 默认现实摄影约束（中英双语）：natural human anatomy / realistic hands / subtle natural veins / realistic skin texture / natural ambient light / ordinary smartphone photography；避免夸张血管、塑料 CGI 皮肤、过度锐化、过度修图、商业棚拍海报感
-- 明确海报/商业摄影/插画/杂志封面 → 原样返回，不强压随手拍
-- 触发条件：自拍/他拍语义，或 prompt 含拍照语境（照片/生活照/photo/…），或视觉身份启用；`visualIdentity enabled=false` 时对普通照片仍可用（拍照语义触发）
-- 现有 9 项 imageGenerationService 集成测试不受影响（无语义 prompt 原样透传）
+## 测试与构建（Phase 2F）
 
-## 测试与构建
+- 新增 15 项：兼容回退（legacy 无 presets / activeId 失效）、迁移不复制 Blob、创建/重命名、删除非当前/当前、共享 blobRef 不误删、独占 Blob 清理、service 级切换（prompt/references 随 active 预设切换、不混入其他 preset）、legacy 行为不变、characterId 隔离、ZIP 导入新增 preset 不覆盖、presetName 导出/再导入、旧 ZIP 无形态字段不报错
+- 定向套件 12 个文件 129/129 通过（visualIdentity×6 + zip + photoSemantics + RelayRouter + SettingsSection + giftCharacterSend + chatPhotoIntent）
+- tsc：本阶段文件 0 错误；build：workers ✓ + vite ✓ built in 35.86s
 
-- 新增 23 项测试：visualIdentityZip 12（标准包导入/字段恢复/blobRef 写入/导出再导入/普通 ZIP/超 5 张/失败清理孤儿/characterId 隔离/旧角色兼容）+ photoSemantics 11（自拍/镜子/他拍/生活照现实感/商业豁免/原文保留）
-- 定向套件 11 个文件 114/114 通过（visualIdentity* 5 + zip + photoSemantics + RelayRouter + SettingsSection + giftCharacterSend + chatPhotoIntent）
-- tsc：本阶段文件 0 错误（仓库预存错误未动）
-- build：workers ✓ + vite ✓ built in 35.46s
+## Changed Files（Phase 2F，未提交）
 
-## Changed Files（Phase 2D/2E，未提交）
-
-- `utils/visualIdentityZip.ts`（新增）
-- `utils/visualIdentityZip.test.ts`（新增）
-- `utils/photoSemantics.ts`（新增）
-- `utils/photoSemantics.test.ts`（新增）
-- `utils/imageGenerationService.ts`（prompt 链接入 applyPhotoSemantics，+6 行）
-- `components/character/VisualIdentityPanel.tsx`（ZIP 导入/导出按钮 + 草稿同步 effect）
+- `types.ts`：+VisualIdentityPreset 接口 + CharacterProfile 两个可选字段（注意 types.ts 在 dev 树混有其他未提交改动，发布需按 2704f551 流程做部分暂存）
+- `utils/visualIdentityPresets.ts`（新增）
+- `utils/visualIdentityPresets.test.ts`（新增）
+- `utils/imageGenerationService.ts`：注入点改用 getActiveVisualIdentity（+2 行）
+- `utils/visualIdentityZip.ts`：manifest/导入/导出支持 presetName/presetDescription
+- `components/character/VisualIdentityPanel.tsx`：形态库 UI + 预设路由写入 + ZIP 新语义 + 文案修正
+- `apps/Character.tsx`：面板接线（onChangePatch 整体 patch）
 
 ## Blockers
 
-- 无。注意：dev 工作树仍含大量无关未提交改动（food/pin-lock/music 等），发布时需按 e28aed13 流程筛选提交。
+- 无。dev 工作树仍有大量无关未提交改动（food/pin-lock/music 等），发布需筛选。
 
 ## Next
 
-1. 发布 Phase 2D/2E（沿上次发布流程：基于 origin/main 的 worktree + 定向测试 + ff push）
-2. 可选：摄影语义阈值实测调优（关键词命中率 / 约束强度）
-3. 可选：标准包跨设备迁移文档（docs/）
+1. 发布 Phase 2F（沿 2704f551 流程：origin/main worktree + 部分暂存 types.ts + 定向测试 + ff push）
+2. 可选：形态卡缩略图（当前仅文字卡）
+3. 可选（明确超出本阶段）：剧情关键词自动切换形态

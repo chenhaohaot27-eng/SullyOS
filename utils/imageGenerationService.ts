@@ -11,6 +11,7 @@ import { withImageGenerationLogMeta } from './imageGenerationLogging';
 import { normalizeVisualIdentity, resolveVisualIdentityReferences } from './visualIdentity';
 import { buildVisualIdentityPrompt } from './visualIdentityPrompt';
 import { applyPhotoSemantics } from './photoSemantics';
+import { getActiveVisualIdentity } from './visualIdentityPresets';
 
 export type ReferenceImageInput = string | {
     data?: string;
@@ -520,8 +521,10 @@ export class ImageGenerationService {
             try {
                 const { DB } = await import('./db');
                 const char = await DB.getCharacter(options.characterId);
-                if (char?.visualIdentity) {
-                    visualIdentity = normalizeVisualIdentity(char.visualIdentity);
+                // Phase 2F：优先当前 active 形态预设，否则回退 legacy visualIdentity（行为不变）
+                const activeVi = char ? getActiveVisualIdentity(char) : undefined;
+                if (activeVi) {
+                    visualIdentity = normalizeVisualIdentity(activeVi);
                     if (visualIdentity.enabled && visualIdentity.references.length > 0) {
                         identityReferences = await resolveVisualIdentityReferences(visualIdentity.references);
                         identityPrompt = buildVisualIdentityPrompt(visualIdentity);

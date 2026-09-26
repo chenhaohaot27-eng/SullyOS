@@ -36,6 +36,9 @@ export const VISUAL_IDENTITY_PACKAGE_VERSION = 1;
 /** manifest.json 结构。 */
 export interface VisualIdentityManifest {
     version: number;
+    /** 形态预设名（Phase 2F，可选；旧包无此字段） */
+    presetName?: string;
+    presetDescription?: string;
     appearanceSummary?: string;
     fixedTraits?: string[];
     variableTraits?: string[];
@@ -55,6 +58,9 @@ export interface VisualIdentityZipImport {
     hadManifest: boolean;
     /** 因超过 5 张上限等原因被忽略的文件名（提示用户选择） */
     skippedFiles: string[];
+    /** 标准包写入的形态名（Phase 2F；旧包 / 普通 ZIP 为 undefined，由 UI 用文件名兜底） */
+    presetName?: string;
+    presetDescription?: string;
 }
 
 const EXT_MIME: Record<string, string> = {
@@ -97,7 +103,10 @@ function isImagePath(path: string): boolean {
  * 导出视觉身份标准包：manifest + images/（图片从 blobRef 解析出原始 Blob）。
  * 解析失败的参考图会被跳过（包内仍保持自洽，可再次导入）。
  */
-export async function exportVisualIdentityZip(vi: VisualIdentity): Promise<Blob> {
+export async function exportVisualIdentityZip(
+    vi: VisualIdentity,
+    options?: { presetName?: string; presetDescription?: string },
+): Promise<Blob> {
     const resolved = await resolveVisualIdentityReferences(vi.references);
     if (resolved.length === 0) {
         throw new Error('没有可导出的参考图（图片可能已丢失），请先重新上传');
@@ -108,6 +117,8 @@ export async function exportVisualIdentityZip(vi: VisualIdentity): Promise<Blob>
     const usedNames = new Set<string>();
     const manifest: VisualIdentityManifest = {
         version: VISUAL_IDENTITY_PACKAGE_VERSION,
+        presetName: options?.presetName?.trim() || undefined,
+        presetDescription: options?.presetDescription?.trim() || undefined,
         appearanceSummary: vi.appearanceSummary?.trim() || undefined,
         fixedTraits: vi.fixedTraits?.length ? vi.fixedTraits : undefined,
         variableTraits: vi.variableTraits?.length ? vi.variableTraits : undefined,
@@ -234,6 +245,8 @@ async function importStandardZip(zip: JSZip, manifestEntry: JSZip.JSZipObject): 
         },
         hadManifest: true,
         skippedFiles,
+        presetName: typeof manifest.presetName === 'string' && manifest.presetName.trim() ? manifest.presetName.trim() : undefined,
+        presetDescription: typeof manifest.presetDescription === 'string' && manifest.presetDescription.trim() ? manifest.presetDescription.trim() : undefined,
     };
 }
 

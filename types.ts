@@ -2887,6 +2887,9 @@ export interface CharacterProfile {
   hideBeforeMessageId?: number;
   /** 角色视觉身份：生图时的参考图库与外观描述。*/
   visualIdentity?: VisualIdentity;
+  /** 视觉形态预设（Phase 2F）：同一角色多套外观；生图优先使用 activeVisualIdentityPresetId 指向的预设，未设置时回退上面的 visualIdentity。 */
+  visualIdentityPresets?: VisualIdentityPreset[];
+  activeVisualIdentityPresetId?: string;
   
   dateBackground?: string;
   sprites?: Record<string, string>;
@@ -3267,6 +3270,16 @@ export interface VisualIdentity {
   identityStrength?: VisualIdentityStrength;
   /** 参考图列表（至少 1 张，最多 5 张） */
   references: VisualIdentityReference[];
+}
+
+/** 视觉形态预设（Phase 2F）：一套完整 VisualIdentity + 名称；切换由玩家手动完成，不复制 Blob（直接复用原 blobRef）。 */
+export interface VisualIdentityPreset {
+  id: string;
+  name: string;
+  description?: string;
+  identity: VisualIdentity;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface CharacterExportData extends Omit<CharacterProfile, 'id' | 'memories' | 'refinedMemories' | 'activeMemoryMonths' | 'impression' | 'groupId'> {
