@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowBendDownRight, ArrowClockwise, ArrowLeft, Broadcast, CaretDown, CaretLeft, CaretRight, ChatCircleDots, Clock, Database, DownloadSimple, Eye, EyeSlash, FilmSlate, GearSix, HeartStraight, Key, MapPin, PaperPlaneTilt, PencilSimple, SlidersHorizontal, SpinnerGap, Trash, X } from '@phosphor-icons/react';
+import { Archive, ArrowBendDownRight, ArrowClockwise, ArrowLeft, Broadcast, Camera, CaretDown, CaretLeft, CaretRight, ChatCircleDots, Clock, Database, DownloadSimple, Eye, EyeSlash, FilmSlate, GearSix, HeartStraight, Key, MapPin, PaperPlaneTilt, PencilSimple, SlidersHorizontal, SpinnerGap, Trash, X } from '@phosphor-icons/react';
 import { useOS } from '../../../context/OSContext';
 import MobileAutoGrowTextarea from '../../os/MobileAutoGrowTextarea';
 import VisualViewportFixedLayer from '../../os/VisualViewportFixedLayer';
@@ -58,6 +58,8 @@ import { incrementDigestRound, runCognitiveDigestion } from '../../../utils/memo
 import StoryQuickPresetPanel from './StoryQuickPresetPanel';
 import { StoryAppearanceButton, useStoryTextPresentation } from './StoryTheaterTheme';
 import ImmersiveStoryText from './ImmersiveStoryText';
+import SceneCameraModal from '../SceneCameraModal';
+import { buildStorySceneContext } from '../../../utils/sceneCameraContext';
 import { shareOrDownloadFile } from '../../../utils/shareExport';
 
 interface Props {
@@ -304,6 +306,8 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     const [expandedArchivedIds, setExpandedArchivedIds] = useState<Set<number>>(() => new Set());
     const [exporting, setExporting] = useState(false);
     const [showQuickPreset, setShowQuickPreset] = useState(false);
+    // Phase 3C：「见面摄影机」共享弹层（剧情模式入口）
+    const [showSceneCamera, setShowSceneCamera] = useState(false);
     const [rerollingId, setRerollingId] = useState<number | null>(null);
     const [messageMenu, setMessageMenu] = useState<Message | null>(null);
     const [editingMessage, setEditingMessage] = useState<Message | null>(null);
@@ -802,6 +806,8 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 <div className='min-w-0 flex-1'><div className='text-[9px] tracking-[.24em] uppercase font-bold text-violet-500'>Story theater</div><h1 className='font-serif font-semibold truncate'>{entry.title}</h1></div>
                 {onOpenVectorMemory && <button onClick={onOpenVectorMemory} className='w-9 h-9 rounded-full grid place-items-center text-violet-600' title='本剧情向量记忆' aria-label='本剧情向量记忆'><Database size={18} /></button>}
                 <button disabled={exporting || messages.length === 0} onClick={() => void exportStory()} className='w-9 h-9 rounded-full grid place-items-center text-violet-600 disabled:opacity-30' title='导出全部剧情原文' aria-label='导出全部剧情原文'>{exporting ? <SpinnerGap size={18} className='animate-spin' /> : <DownloadSimple size={18} />}</button>
+                {/* Phase 3C：摄影机入口 — 共享 SceneCameraModal，多 NPC 群像第一版不实现（取首位角色） */}
+                <button disabled={actors.length === 0} onClick={() => setShowSceneCamera(true)} className='w-9 h-9 rounded-full grid place-items-center text-violet-600 disabled:opacity-30' title='摄影机' aria-label='摄影机'><Camera size={18} /></button>
                 <StoryAppearanceButton readingEntry />
                 <button onClick={onEdit} className='w-9 h-9 rounded-full grid place-items-center'><GearSix size={19} /></button>
             </div>
@@ -935,6 +941,14 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 <div className='mt-5 grid grid-cols-2 gap-3'><button disabled={mutatingMessage} onClick={() => setDeletingMessage(null)} className='h-12 rounded-2xl border border-slate-200 bg-white text-xs font-bold text-slate-600 disabled:opacity-30'>取消</button><button disabled={mutatingMessage} onClick={() => void deleteStoryMessage()} className='h-12 rounded-2xl bg-rose-600 text-white text-xs font-bold disabled:opacity-30'>{mutatingMessage ? '正在删除…' : '确认删除'}</button></div>
             </div>
         </div>}
+        {/* Phase 3C：见面摄影机（剧情模式入口，与陪伴模式共享同一 SceneCameraModal / service） */}
+        {actors.length > 0 && <SceneCameraModal
+            open={showSceneCamera}
+            onClose={() => setShowSceneCamera(false)}
+            contextSource='story'
+            character={actors[0]}
+            getSceneContext={() => buildStorySceneContext(messages, entry.title, promptIdentityName)}
+        />}
     </div>;
 };
 

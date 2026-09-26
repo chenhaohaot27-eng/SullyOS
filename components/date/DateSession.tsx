@@ -16,6 +16,8 @@ import { planNovelLoadMore } from '../../utils/dateSessionHistory';
 import { getPendingReplyText } from '../../utils/pendingReply';
 import { stripLeadingEmotionTags, readDateTextPresentation, writeDateTextPresentation, type StoryTextPresentation } from '../../utils/storyTextPresentation';
 import ImmersiveStoryText from './story/ImmersiveStoryText';
+import SceneCameraModal from './SceneCameraModal';
+import { buildCompanionSceneContext } from '../../utils/sceneCameraContext';
 
 // 语音情绪标记 [v:xxx]：跟立绘情绪 [emotion] 分开的独立通道。立绘的 happy 是
 // 夸张的表情、语音的 happy 是音色情绪，两者强度/语义差异大，不能一概而论。
@@ -185,6 +187,9 @@ const DateSession: React.FC<DateSessionProps> = ({
     
     // Settings Overlay State (Internal)
     const [showSettings, setShowSettings] = useState(false);
+
+    // Phase 3C：「见面摄影机」共享弹层（陪伴模式入口）
+    const [showSceneCamera, setShowSceneCamera] = useState(false);
 
     // 顶栏折叠菜单：常驻只留「输入」+「菜单」两钮，低频操作全收进来
     const [showMenu, setShowMenu] = useState(false);
@@ -807,6 +812,10 @@ const DateSession: React.FC<DateSessionProps> = ({
             {/* Menu Layer — 常驻只留「输入」+「菜单」两钮，其余操作收进带文字标签的下拉菜单 */}
             <div className="absolute top-0 right-0 p-4 pt-12 z-[100] flex flex-col items-end gap-2 pointer-events-auto">
                 <div className="flex gap-3">
+                    {/* Phase 3C：摄影机入口 — 简洁相机 icon，不遮挡正文或输入框 */}
+                    <button onClick={(e) => { e.stopPropagation(); setShowSceneCamera(true); setShowMenu(false); setShowVoiceLangPicker(false); }} title="摄影机" aria-label="摄影机" className="w-10 h-10 rounded-full flex items-center justify-center border transition-all shadow-lg active:scale-95 bg-black/30 backdrop-blur-md border-white/20 text-white hover:bg-white/20">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" /></svg>
+                    </button>
                     <button onClick={(e) => { e.stopPropagation(); setShowInputBox(!showInputBox); setShowMenu(false); setShowVoiceLangPicker(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center border transition-all shadow-lg active:scale-95 ${showInputBox ? 'bg-primary border-primary text-white' : 'bg-black/30 backdrop-blur-md border-white/20 text-white hover:bg-white/20'}`}>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" /></svg>
                     </button>
@@ -1193,6 +1202,15 @@ const DateSession: React.FC<DateSessionProps> = ({
                     <button onClick={() => { onDeleteMessage(selectedMessage!); setModalType('none'); }} className="w-full py-3 bg-red-50 text-red-500 font-medium rounded-2xl">删除记录</button>
                 </div>
             </Modal>
+
+            {/* Phase 3C：见面摄影机（陪伴模式入口，共享 SceneCameraModal） */}
+            <SceneCameraModal
+                open={showSceneCamera}
+                onClose={() => setShowSceneCamera(false)}
+                contextSource="companion"
+                character={char}
+                getSceneContext={() => buildCompanionSceneContext(messages, char.name)}
+            />
         </div>
     );
 };

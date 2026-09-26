@@ -3282,6 +3282,58 @@ export interface VisualIdentityPreset {
   updatedAt: number;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Scene Camera Types (Phase 3B)
+// ─────────────────────────────────────────────────────────────
+
+/** 摄影模式（第一版仅支持 scene-snapshot 和 duo-photo）。 */
+export type SceneCameraMode = 'scene-snapshot' | 'duo-photo' | 'pov-selfie' | 'creative-director';
+
+/** 玩家在画面中的可见性策略（玩家无 Visual Identity 时的自然呈现方式）。 */
+export type SceneCameraPlayerVisibility = 'full' | 'back' | 'profile' | 'partial' | 'blur' | 'none';
+
+/** Scene Camera 结构化摄影方案（Director 输出，Renderer 输入）。 */
+export interface SceneCameraShotPlan {
+  version: number;
+  mode: SceneCameraMode;
+
+  // Scene composition
+  subjects: string[];
+  characterState: string;
+  playerVisibility: SceneCameraPlayerVisibility;
+  environment: string;
+  moment: string;
+
+  // Photography parameters (explicit control to avoid template reuse)
+  bodyOrientation: string;
+  interaction?: string;
+  expression: string;
+  gaze: string;
+
+  cameraPosition: string;
+  shotSize: string;
+  cameraFeel: string;
+
+  composition: string;
+  foreground?: string;
+  background: string;
+  lighting: string;
+  wardrobe?: string;
+
+  // Continuity & differentiation
+  continuityConstraints: string[];
+  avoidConstraints: string[];
+
+  finalPrompt: string;
+
+  // Metadata
+  directorProvider?: string;
+  directorModel?: string;
+  rendererProvider?: string;
+  rendererModel?: string;
+  createdAt: number;
+}
+
 export interface CharacterExportData extends Omit<CharacterProfile, 'id' | 'memories' | 'refinedMemories' | 'activeMemoryMonths' | 'impression' | 'groupId'> {
     version: number;
     type: 'sully_character_card';
