@@ -666,6 +666,17 @@ export const DB = {
     });
   },
 
+  /** 按 id 读取单个角色；不存在的 id 返回 undefined（objectStore.get，不做全表扫描）。 */
+  getCharacter: async (id: string): Promise<CharacterProfile | undefined> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_CHARACTERS, 'readonly');
+      const request = transaction.objectStore(STORE_CHARACTERS).get(id);
+      request.onsuccess = () => resolve(request.result || undefined);
+      request.onerror = () => reject(request.error);
+    });
+  },
+
   saveCharacter: async (character: CharacterProfile): Promise<void> => {
     const db = await openDB();
     // 等事务真正提交再 resolve —— 否则调用方 await 后立刻重读 DB 会拿到旧值 (情绪 buff 落库竞态根因).

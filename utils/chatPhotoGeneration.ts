@@ -102,13 +102,17 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
         return fail('生图 API 未启用，请先在「设置 → 生图」中开启并测试通过');
     }
 
-    let referenceImages: ReferenceImageInput[] = [];
+    // ─── Phase 2C：优先使用 characterId（自动处理 visualIdentity），兜底旧头像 ─────
+    let characterId: string | undefined;
+    let legacyReferenceImages: ReferenceImageInput[] = [];
+
     if (intent.includeCharacter) {
+        characterId = char.id;
+        // 兜底：若角色没有 visualIdentity，仍尝试读取头像作为参考图
         try {
-            referenceImages = await collectCharacterReferenceImages(char);
+            legacyReferenceImages = await collectCharacterReferenceImages(char);
         } catch (e) {
-            console.warn('[ChatPhoto] 角色参考图读取失败，改为不带参考图生成:', e);
-            referenceImages = [];
+            console.warn('[ChatPhoto] 角色头像读取失败，继续生成:', e);
         }
     }
 
@@ -117,24 +121,15 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
         result = await generateImage({
             prompt: intent.prompt,
             style: intent.style || undefined,
-            referenceImages,
+            characterId,
+            // 若 visualIdentity 启用，服务层会优先使用 visualIdentity 参考图；
+            // 否则兜底使用头像（向后兼容旧角色）
+            referenceImages: legacyReferenceImages,
         });
     } catch (e) {
-        // openai-images 等不支持参考图的接口：去掉参考图再试一次（同一次用户意图内的
-        // 降级，不是自动重试——依然只允许成功一次出图）。
-        if (e instanceof ImageGenerationError && e.code === 'REFERENCE_NOT_SUPPORTED' && referenceImages.length > 0) {
-            try {
-                result = await generateImage({
-                    prompt: intent.prompt,
-                    style: intent.style || undefined,
-                    referenceImages: [],
-                });
-            } catch (e2) {
-                return fail(errMessage(e2));
-            }
-        } else {
-            return fail(errMessage(e));
-        }
+        // openai-images 等不支持参考图的接口：服务层已处理跳过逻辑，
+        // 这里仅需捕获其他错误
+        return fail(errMessage(e));
     }
 
     try {

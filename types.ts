@@ -2882,9 +2882,11 @@ export interface CharacterProfile {
    * 不能突破最大范围向更早读取；一旦被移动中的最大范围越过便自动失效。
    */
   contextUserStartMessageId?: number;
-  hideSystemLogs?: boolean; 
+  hideSystemLogs?: boolean;
   /** 旧版归档内部隐藏线；新版 AI 原文范围不再拿它当用户断点。 */
-  hideBeforeMessageId?: number; 
+  hideBeforeMessageId?: number;
+  /** 角色视觉身份：生图时的参考图库与外观描述。*/
+  visualIdentity?: VisualIdentity;
   
   dateBackground?: string;
   sprites?: Record<string, string>;
@@ -3222,6 +3224,49 @@ export interface GroupTopicBox {
     deliveredMemberIds?: string[];
     createdAt: number;
     updatedAt: number;
+}
+
+/** 角色视觉身份强度策略：影响生图时参考图的权重。 */
+export type VisualIdentityStrength = 'loose' | 'balanced' | 'strict';
+
+/** 参考图角色标记：用于区分参考图的用途。 */
+export type VisualIdentityReferenceRole =
+  | 'primary-face'    // 主要正脸参考
+  | 'front'           // 正脸辅助
+  | 'three-quarter'   // 3/4 侧面
+  | 'profile'         // 侧脸
+  | 'full-body'       // 全身
+  | 'body'            // 体型参考
+  | 'other';          // 其他
+
+/** 单张视觉身份参考图。 */
+export interface VisualIdentityReference {
+  id: string;
+  /** 参考图用途标记 */
+  role: VisualIdentityReferenceRole;
+  /** blobref:<id> 令牌，指向 blob_assets 中的图片 Blob */
+  blobRef: string;
+  /** 是否为主参考图（简易模式至少需要一张） */
+  isPrimary?: boolean;
+  createdAt: number;
+}
+
+/** 角色视觉身份：生图参考图库 + 外观特征描述。 */
+export interface VisualIdentity {
+  /** 是否启用视觉身份系统 */
+  enabled: boolean;
+  /** 使用模式：简易=只选图，精细=填写详细特征 */
+  mode: 'simple' | 'advanced';
+  /** 外观总结（精细模式，100-300字） */
+  appearanceSummary?: string;
+  /** 固定外观特征（精细模式，如发色/瞳色/身高等） */
+  fixedTraits?: string[];
+  /** 可变外观特征（精细模式，如服装/发型/配饰等） */
+  variableTraits?: string[];
+  /** 参考图权重策略 */
+  identityStrength?: VisualIdentityStrength;
+  /** 参考图列表（至少 1 张，最多 5 张） */
+  references: VisualIdentityReference[];
 }
 
 export interface CharacterExportData extends Omit<CharacterProfile, 'id' | 'memories' | 'refinedMemories' | 'activeMemoryMonths' | 'impression' | 'groupId'> {

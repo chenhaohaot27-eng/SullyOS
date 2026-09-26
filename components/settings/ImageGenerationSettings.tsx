@@ -15,14 +15,20 @@ import {
     resolveImageModelSelection,
     type AvailableImageModel,
 } from '../../utils/imageGenerationService';
+import { applyRelayRouterProviderSwitch } from '../../utils/imageGenerationRelayRouter';
+import {
+    imageGenerationSectionStatus,
+    IMAGE_GENERATION_SECTION_DEFAULT_OPEN,
+    toggleImageGenerationSectionOpen,
+} from '../../utils/imageGenerationSettingsSection';
 
 interface Props {
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 const PROVIDER_OPTIONS: Array<{ value: ImageGenerationProvider; label: string; note: string }> = [
-    { value: 'gemini-native', label: 'Gemini Native', note: '支持多张参考图' },
-    { value: 'openai-images', label: 'OpenAI-compatible Images', note: 'POST /images/generations' },
+    { value: 'gemini-native', label: 'Gemini Native', note: 'Gemini 原生生图 · 支持多张参考图' },
+    { value: 'openai-images', label: 'OpenAI-compatible Images', note: 'GPT Image 等 · POST /images/generations' },
 ];
 
 const RESOLUTIONS: ImageGenerationResolution[] = ['1K', '2K', '4K'];
@@ -43,6 +49,8 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
     const [status, setStatus] = useState('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const previewObjectUrlRef = useRef<string | null>(null);
+    // 与其他 SettingsSection 一致：默认收起，标题行常显（标题 + 已启用/未启用状态），点击展开/收起
+    const [open, setOpen] = useState(IMAGE_GENERATION_SECTION_DEFAULT_OPEN);
 
     const replacePreviewUrl = (next: string | null, isObjectUrl = false) => {
         if (previewObjectUrlRef.current) URL.revokeObjectURL(previewObjectUrlRef.current);
@@ -56,6 +64,22 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
 
     const patchDraft = <K extends keyof ImageGenerationConfig>(key: K, value: ImageGenerationConfig[K]) => {
         setDraft(current => ({ ...current, [key]: value }));
+        setStatus('');
+    };
+
+    /**
+     * 切换接口模式：仅当 Base URL 指向 RelayRouter（api.relayrouter.ai）时，
+     * 自动把尾部 /v1 ↔ /v1beta 改写成目标协议的版本路径；其他地址原样保留。
+     * API Key 与其余字段不动；不同 provider 的模型列表继续互相隔离。
+     */
+    const switchProvider = (provider: ImageGenerationProvider) => {
+        if (provider === draft.provider) return;
+        const nextBaseUrl = applyRelayRouterProviderSwitch(draft.baseUrl, provider);
+        setDraft(current => ({
+            ...current,
+            provider,
+            baseUrl: nextBaseUrl === current.baseUrl ? current.baseUrl : nextBaseUrl,
+        }));
         setStatus('');
     };
 
@@ -168,24 +192,38 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
     const selectedListModel = visibleModels.some(model => model.id === draft.model) ? draft.model : '';
     const refreshedAt = lastRefreshedAt[draft.provider];
 
+    const statusChip = imageGenerationSectionStatus(savedConfig.enabled);
+
     return (
         <section className="rounded-3xl border border-white/60 bg-white/80 p-5 shadow-sm">
-            <div className="mb-4 flex items-center gap-3">
+            <div className="flex items-center gap-3">
+                <button
+                    type="button"
+                    onClick={() => setOpen(toggleImageGenerationSectionOpen)}
+                    aria-expanded={open}
+                    aria-controls="image-generation-settings-body"
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
                 <div className="rounded-xl bg-fuchsia-100/70 p-2 text-fuchsia-600" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
                         <path strokeLinecap="round" strokeLinejoin="round" d="m3 16.5 5.2-5.2a2 2 0 0 1 2.8 0l1.5 1.5 2.2-2.2a2 2 0 0 1 2.8 0L21 14.1M6.75 7.5h.01M5.25 3.75h13.5A2.25 2.25 0 0 1 21 6v12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18V6a2.25 2.25 0 0 1 2.25-2.25Z" />
                     </svg>
                 </div>
-                <div className="min-w-0 flex-1">
-                    <h2 className="text-sm font-semibold tracking-wider text-slate-600">生图 API</h2>
-                    <p className="mt-0.5 text-[10px] leading-relaxed text-slate-400">独立于聊天与识图 API；未来生图功能统一走服务层。</p>
-                </div>
-                <span className={`rounded-full px-2 py-1 text-[9px] font-bold ${savedConfig.enabled ? 'bg-fuchsia-100 text-fuchsia-600' : 'bg-slate-100 text-slate-400'}`}>
-                    {savedConfig.enabled ? '已启用' : '未启用'}
+                    <div className="min-w-0 flex-1">
+                        <h2 className="text-sm font-semibold tracking-wider text-slate-600">生图 API</h2>
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-slate-400">独立于聊天与识图 API；未来生图功能统一走服务层。</p>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`h-3 w-3 shrink-0 text-slate-300 transition-transform ${open ? 'rotate-180' : ''}`}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                </button>
+                <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-bold ${statusChip.className}`}>
+                    {statusChip.label}
                 </span>
             </div>
 
-            <div className="space-y-4">
+            {open && (
+            <div id="image-generation-settings-body" className="mt-4 space-y-4">
                 <div className="flex items-center justify-between gap-3 rounded-2xl border border-fuchsia-100 bg-fuchsia-50/60 p-3.5">
                     <div>
                         <div className="text-xs font-bold text-slate-600">启用生图 API</div>
@@ -209,7 +247,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                             <button
                                 type="button"
                                 key={option.value}
-                                onClick={() => patchDraft('provider', option.value)}
+                                onClick={() => switchProvider(option.value)}
                                 className={`rounded-xl border px-3 py-2.5 text-left transition ${draft.provider === option.value ? 'border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700' : 'border-slate-200 bg-white/70 text-slate-500'}`}
                             >
                                 <span className="block text-xs font-bold">{option.label}</span>
@@ -329,6 +367,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                 {previewUrl && <img src={previewUrl} alt="生图 API 测试预览" className="mx-auto max-h-64 w-auto rounded-2xl border border-fuchsia-100 bg-white object-contain shadow-sm" />}
                 <p className="px-1 text-[9px] leading-relaxed text-slate-300">测试会真实调用一次当前生图接口，可能产生费用；自动化测试不会请求真实服务。临时预览关闭或替换时会释放。</p>
             </div>
+            )}
         </section>
     );
 };

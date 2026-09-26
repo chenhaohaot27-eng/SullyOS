@@ -28,6 +28,7 @@ import { stripSensitiveCardFields } from '../utils/characterCard';
 import { confirmExportSafety } from '../utils/exportGuard';
 import { trackEvent } from '../utils/analytics';
 import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/character/CharacterGroupFilter';
+import VisualIdentityPanel from '../components/character/VisualIdentityPanel';
 import {
     EXTERNAL_MEMORY_MAX_CHARS,
     extractExternalMemoryText,
@@ -1384,6 +1385,14 @@ ${isInitialGeneration ? `
                                     placeholder="在这个世界里，魔法是存在的..."
                                 />
                            </div>
+
+                            {/* 视觉身份：固定形象参考图库（数据存 character.visualIdentity + blob_assets，按 characterId 隔离） */}
+                            <VisualIdentityPanel
+                                key={formData.id}
+                                visualIdentity={formData.visualIdentity}
+                                onChange={(next) => handleChange('visualIdentity', next)}
+                                addToast={addToast}
+                            />
 
                            {/* 时间感知 & 时区：三个独立开关，可任意组合（聊天时间感知 / 自定义时区 / 线下时间感知） */}
                            <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 space-y-4">

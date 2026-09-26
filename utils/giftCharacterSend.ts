@@ -153,13 +153,17 @@ async function runGiftImageGeneration(gift: GiftRecord, char: CharacterProfile):
         return fail('生图 API 未启用，请先在「设置 → 生图」中开启并测试通过');
     }
 
-    let referenceImages: Parameters<typeof generateImage>[0]['referenceImages'] = [];
+    // ─── Phase 2C：优先使用 characterId（自动处理 visualIdentity），兜底旧头像 ─────
+    let characterId: string | undefined;
+    let legacyReferenceImages: Parameters<typeof generateImage>[0]['referenceImages'] = [];
+
     if (giftIncludeCharacterOf(gift)) {
+        characterId = char.id;
+        // 兜底：若角色没有 visualIdentity，仍尝试读取头像作为参考图
         try {
-            referenceImages = await collectCharacterReferenceImages(char);
+            legacyReferenceImages = await collectCharacterReferenceImages(char);
         } catch (e) {
-            console.warn('[Gift] 角色参考图读取失败，改为不带参考图生成:', e);
-            referenceImages = [];
+            console.warn('[Gift] 角色头像读取失败，继续生成:', e);
         }
     }
 
@@ -168,24 +172,16 @@ async function runGiftImageGeneration(gift: GiftRecord, char: CharacterProfile):
         result = await generateImage({
             prompt: gift.image.prompt || gift.gift.name,
             style: giftStyleOf(gift) || undefined,
-            referenceImages,
+            characterId,
+            // 若 visualIdentity 启用，服务层会优先使用 visualIdentity 参考图；
+            // 否则兜底使用头像（向后兼容旧角色）
+            referenceImages: legacyReferenceImages,
             // 分辨率/比例不传 → 服务层按 imageGenerationConfig 默认值。
         });
     } catch (e) {
-        // 与 ChatPhoto 同款：provider 不支持参考图 → 去掉参考图降级再试一次（仅一次，非自动重试）。
-        if (e instanceof ImageGenerationError && e.code === 'REFERENCE_NOT_SUPPORTED' && referenceImages && referenceImages.length > 0) {
-            try {
-                result = await generateImage({
-                    prompt: gift.image.prompt || gift.gift.name,
-                    style: giftStyleOf(gift) || undefined,
-                    referenceImages: [],
-                });
-            } catch (e2) {
-                return fail(errMessage(e2));
-            }
-        } else {
-            return fail(errMessage(e));
-        }
+        // openai-images 等不支持参考图的接口：服务层已处理跳过逻辑，
+        // 这里仅需捕获其他错误
+        return fail(errMessage(e));
     }
 
     try {

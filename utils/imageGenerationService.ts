@@ -3,9 +3,13 @@ import type {
     ImageGenerationConfig,
     ImageGenerationProvider,
     ImageGenerationResolution,
+    VisualIdentity,
+    VisualIdentityReference,
 } from '../types';
 import { loadImageGenerationConfig, normalizeImageGenerationConfig } from './imageGenerationConfig';
 import { withImageGenerationLogMeta } from './imageGenerationLogging';
+import { normalizeVisualIdentity, resolveVisualIdentityReferences } from './visualIdentity';
+import { buildVisualIdentityPrompt } from './visualIdentityPrompt';
 
 export type ReferenceImageInput = string | {
     data?: string;
@@ -21,6 +25,8 @@ export interface GenerateImageOptions {
     aspectRatio?: ImageGenerationAspectRatio;
     style?: string;
     signal?: AbortSignal;
+    /** 角色 ID，用于自动注入 visualIdentity 参考图和身份约束提示词 */
+    characterId?: string;
 }
 
 export interface GeneratedImage {
@@ -504,15 +510,85 @@ export class ImageGenerationService {
             throw new ImageGenerationError('INVALID_CONFIG', '请填写完整的生图 URL、API Key、模型和提示词');
         }
 
-        const referenceInputs = options.referenceImages || [];
-        if (referenceInputs.length > 5) throw new ImageGenerationError('INVALID_CONFIG', '参考图最多支持 5 张');
-        if (referenceInputs.length && !config.allowReferenceImages) {
+        // ─── 解析角色视觉身份（若提供 characterId） ─────────────────────────────────
+        let visualIdentity: VisualIdentity | undefined;
+        let identityReferences: Array<{ reference: VisualIdentityReference; blob: Blob }> = [];
+        let identityPrompt = '';
+
+        if (options.characterId) {
+            try {
+                const { DB } = await import('./db');
+                const char = await DB.getCharacter(options.characterId);
+                if (char?.visualIdentity) {
+                    visualIdentity = normalizeVisualIdentity(char.visualIdentity);
+                    if (visualIdentity.enabled && visualIdentity.references.length > 0) {
+                        identityReferences = await resolveVisualIdentityReferences(visualIdentity.references);
+                        identityPrompt = buildVisualIdentityPrompt(visualIdentity);
+                    }
+                }
+            } catch (e) {
+                console.warn('[ImageGen] 视觉身份读取失败，继续生成（不带身份约束）:', e);
+            }
+        }
+
+        // ─── 合并参考图：优先级 ① isPrimary 长期身份图 ② 临时参考图 ③ 其他长期身份图 ─────
+        const tempReferences = options.referenceImages || [];
+        const mergedReferences: ReferenceImageInput[] = [];
+        const seenBlobRefs = new Set<string>();
+
+        // ① 主要身份图（isPrimary）
+        for (const { reference, blob } of identityReferences) {
+            if (reference.isPrimary && !seenBlobRefs.has(reference.blobRef)) {
+                seenBlobRefs.add(reference.blobRef);
+                mergedReferences.push({
+                    data: URL.createObjectURL(blob),
+                    mimeType: blob.type,
+                    name: `identity-primary-${reference.role}`,
+                });
+            }
+        }
+
+        // ② 临时参考图（本次调用传入）
+        mergedReferences.push(...tempReferences);
+
+        // ③ 其他长期身份图（非 isPrimary）
+        for (const { reference, blob } of identityReferences) {
+            if (!reference.isPrimary && !seenBlobRefs.has(reference.blobRef)) {
+                seenBlobRefs.add(reference.blobRef);
+                mergedReferences.push({
+                    data: URL.createObjectURL(blob),
+                    mimeType: blob.type,
+                    name: `identity-${reference.role}`,
+                });
+            }
+        }
+
+        // 参考图总量截断（5 张上限）
+        const finalReferences = mergedReferences.slice(0, 5);
+
+        if (finalReferences.length > 5) throw new ImageGenerationError('INVALID_CONFIG', '参考图最多支持 5 张');
+        if (finalReferences.length && !config.allowReferenceImages) {
             throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前配置已禁止参考图');
         }
         const adapter = ADAPTERS[config.provider];
-        if (referenceInputs.length && !adapter.supportsReferenceImages) {
-            throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前接口模式不支持参考图，请改用 Gemini Native');
+
+        // ─── Provider 行为：OpenAI 不支持参考图，但仍注入文字身份提示词 ─────────────
+        let skipReferencesForProvider = false;
+        if (finalReferences.length && !adapter.supportsReferenceImages) {
+            if (config.provider === 'openai-images') {
+                // OpenAI: 跳过参考图，但保留文字身份约束
+                skipReferencesForProvider = true;
+                if (identityReferences.length > 0) {
+                    console.info('[ImageGen] OpenAI provider 不支持参考图，已跳过图片但保留身份文字描述');
+                }
+            } else {
+                // 其他不支持的 provider：直接报错
+                throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前接口模式不支持参考图，请改用 Gemini Native');
+            }
         }
+
+        // ─── 合并 prompt：身份约束 + 原始 prompt ───────────────────────────────────
+        const finalPrompt = identityPrompt ? `${identityPrompt}\n\n${prompt}` : prompt;
 
         const controller = new AbortController();
         let timedOut = false;
@@ -522,10 +598,11 @@ export class ImageGenerationService {
         const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, config.timeoutMs);
 
         try {
-            const references = await Promise.all(referenceInputs.map(input => toInlineReference(input, this.fetchImpl, controller.signal)));
+            const referencesToSend = skipReferencesForProvider ? [] : finalReferences;
+            const references = await Promise.all(referencesToSend.map(input => toInlineReference(input, this.fetchImpl, controller.signal)));
             const normalizedOptions = {
                 ...options,
-                prompt,
+                prompt: finalPrompt,
                 resolution: options.resolution || config.defaultResolution,
                 aspectRatio: options.aspectRatio || config.defaultAspectRatio,
             };
