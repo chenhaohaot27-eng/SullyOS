@@ -28,7 +28,8 @@ interface Props {
 
 const PROVIDER_OPTIONS: Array<{ value: ImageGenerationProvider; label: string; note: string }> = [
     { value: 'gemini-native', label: 'Gemini Native', note: 'Gemini 原生生图 · 支持多张参考图' },
-    { value: 'openai-images', label: 'OpenAI-compatible Images', note: 'GPT Image 等 · POST /images/generations' },
+    { value: 'gpt-images', label: 'GPT Images', note: 'DALL-E 3 · 支持参考图 + 创意合照' },
+    { value: 'openai-images', label: 'OpenAI-compatible Images', note: '兼容接口 · POST /images/generations' },
 ];
 
 const RESOLUTIONS: ImageGenerationResolution[] = ['1K', '2K', '4K'];
@@ -259,7 +260,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
 
                 <div>
                     <label className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Base URL</label>
-                    <input className={fieldClass} value={draft.baseUrl} onChange={event => patchDraft('baseUrl', event.target.value)} placeholder={draft.provider === 'gemini-native' ? 'https://generativelanguage.googleapis.com' : 'https://api.openai.com/v1'} />
+                    <input className={fieldClass} value={draft.baseUrl} onChange={event => patchDraft('baseUrl', event.target.value)} placeholder={draft.provider === 'gemini-native' ? 'https://generativelanguage.googleapis.com' : draft.provider === 'gpt-images' ? 'https://api.openai.com/v1' : 'https://api.openai.com/v1'} />
                 </div>
 
                 <div>
@@ -343,7 +344,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white/60 px-3.5 py-3">
                     <div>
                         <div className="text-xs font-semibold text-slate-600">允许参考图</div>
-                        <p className="mt-0.5 text-[9px] text-slate-400">Gemini Native 最多 5 张；Images 模式会明确报不支持。</p>
+                        <p className="mt-0.5 text-[9px] text-slate-400">Gemini Native 最多 5 张；GPT Images 支持参考图；Images 模式会明确报不支持。</p>
                     </div>
                     <input type="checkbox" checked={draft.allowReferenceImages} onChange={event => patchDraft('allowReferenceImages', event.target.checked)} className="h-4 w-4 accent-fuchsia-500" />
                 </div>

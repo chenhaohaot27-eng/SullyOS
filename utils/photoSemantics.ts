@@ -17,6 +17,8 @@
 export type PhotoSceneKind =
     | 'selfie'            // 前置摄像头第一视角自拍
     | 'mirror-selfie'     // 镜子自拍（手机可入画）
+    | 'dual-selfie'       // 双人自拍/合照（前置自拍感）
+    | 'dual-photo'        // 双人合照（第三人称视角）
     | 'third-person'      // 他拍 / 街拍 / candid
     | 'commercial'        // 海报 / 商业摄影 / 插画（不强压现实感）
     | 'general';          // 普通角色照片
@@ -31,6 +33,8 @@ export interface PhotoSemanticsResult {
 
 const RE_MIRROR_SELFIE = /镜子自拍|镜中自拍|mirror[\s-]?selfie/i;
 const RE_SELFIE = /自拍|selfie/i;
+const RE_DUAL_SELFIE = /双人自拍|合拍|一起自拍|情侣自拍|和我自拍|跟我自拍|咱俩自拍|我们自拍|together[\s-]?selfie|couple[\s-]?selfie|selfie[\s-]?with|selfie[\s-]?together/i;
+const RE_DUAL_PHOTO = /合照|双人照|情侣照|和我.*照|跟我.*照|一起.*照|我和|我们.*照|together[\s-]?photo|couple[\s-]?photo|photo[\s-]?with|photo[\s-]?together|us[\s-]?photo/i;
 const RE_THIRD_PERSON = /他拍|别人拍|他人拍摄|旁人拍摄|街拍|偷拍|candid|第三人称(拍摄|视角|镜头)/i;
 const RE_COMMERCIAL = /海报|商业摄影|艺术照|杂志封面|写真集|海报风|poster|commercial\s*(photography|shoot)|magazine\s*cover|studio\s*(poster|portrait)|插画|illustration|anime[\s-]?(style|art)/i;
 const RE_PHOTO_CONTEXT = /照片|拍照|拍摄|生活照|随手拍|镜头|相机|出片|photo|picture|snapshot|shot\b|camera/i;
@@ -52,9 +56,34 @@ const SELFIE_PROMPT = [
     '本图为角色用前置摄像头自拍的第一人称视角；画面中通常不出现手机本体',
     '（the phone itself is usually NOT visible），',
     '可以出现轻微伸出的手臂或肩膀（a slightly outstretched arm or shoulder is natural）；',
+    '允许创意角度与巧思构图（creative angles and thoughtful composition are encouraged），',
+    '但仍保持前置自拍的第一人称感（maintain first-person perspective）；',
     '禁止第三人称视角拍到角色举着手机自拍',
     '（do NOT depict the character from a third-person view holding up a phone）；',
     '禁止手机屏幕朝外等不合常理的构图（no phone screen facing outward）。',
+].join('');
+
+const DUAL_SELFIE_PROMPT = [
+    '双人自拍语义（dual front-camera selfie / couple selfie）：',
+    '本图为角色与另一人（玩家/用户）一起用前置摄像头自拍的第一人称视角；',
+    '画面应呈现两人的脸部或上半身（show both people faces or upper bodies），',
+    '构图应有前置自拍的亲密感与近距离感（intimate, close-up feeling of front-camera selfies），',
+    '可以有创意动作、互动姿态、借位、拥抱、贴脸等亲密关系构图',
+    '（creative poses, interaction, playful positioning, hugging, cheek-to-cheek closeness are natural），',
+    '但仍保持前置自拍视角（maintain front-camera perspective），不要变成第三人称他拍；',
+    '手机本体通常不出现（phone itself usually NOT visible）；',
+    '若无法确定用户外貌，可以只显示用户的局部（手臂、肩膀等）或角色主导的构图。',
+].join('');
+
+const DUAL_PHOTO_PROMPT = [
+    '双人合照语义（dual photo / photo together）：',
+    '本图为角色与另一人的合照；可以是第三人称视角拍摄的合照',
+    '（third-person perspective photo of both people together），',
+    '也可以是有创意互动的构图（creative interaction composition），',
+    '如近景角色 + 远景另一人、借位、拥抱、背后环抱、镜面反射、错位透视等',
+    '（creative perspectives like foreground/background separation, playful positioning, hugging from behind, mirror reflections, perspective play），',
+    '允许展示完整的互动场景与环境（show full interaction scene and environment）；',
+    '若无法确定用户外貌，可以只显示用户的局部或模糊呈现。',
 ].join('');
 
 const MIRROR_SELFIE_PROMPT = [
@@ -72,6 +101,9 @@ const THIRD_PERSON_PROMPT = [
 /** 分析 prompt 的摄影场景类型与拍照语境。 */
 export function analyzePhotoSemantics(prompt: string): Pick<PhotoSemanticsResult, 'kind' | 'photoContext'> {
     if (RE_MIRROR_SELFIE.test(prompt)) return { kind: 'mirror-selfie', photoContext: true };
+    // 双人语义优先判断（避免被通用"自拍"或"照片"误捕）
+    if (RE_DUAL_SELFIE.test(prompt)) return { kind: 'dual-selfie', photoContext: true };
+    if (RE_DUAL_PHOTO.test(prompt)) return { kind: 'dual-photo', photoContext: true };
     if (RE_SELFIE.test(prompt)) return { kind: 'selfie', photoContext: true };
     if (RE_THIRD_PERSON.test(prompt)) return { kind: 'third-person', photoContext: true };
     if (RE_COMMERCIAL.test(prompt)) return { kind: 'commercial', photoContext: RE_PHOTO_CONTEXT.test(prompt) };
@@ -89,6 +121,10 @@ export function buildPhotoSemanticsConstraint(prompt: string, identityActive: bo
 
     if (kind === 'mirror-selfie') {
         parts.push(MIRROR_SELFIE_PROMPT);
+    } else if (kind === 'dual-selfie') {
+        parts.push(DUAL_SELFIE_PROMPT);
+    } else if (kind === 'dual-photo') {
+        parts.push(DUAL_PHOTO_PROMPT);
     } else if (kind === 'selfie') {
         parts.push(SELFIE_PROMPT);
     } else if (kind === 'third-person') {

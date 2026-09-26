@@ -21,7 +21,7 @@ export const DEFAULT_IMAGE_GENERATION_CONFIG: Readonly<ImageGenerationConfig> = 
     timeoutMs: 90_000,
 });
 
-const PROVIDERS = new Set<ImageGenerationProvider>(['gemini-native', 'openai-images']);
+const PROVIDERS = new Set<ImageGenerationProvider>(['gemini-native', 'openai-images', 'gpt-images']);
 const RESOLUTIONS = new Set<ImageGenerationResolution>(['1K', '2K', '4K']);
 const ASPECT_RATIOS = new Set<ImageGenerationAspectRatio>(['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16']);
 

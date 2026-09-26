@@ -37,6 +37,49 @@ describe('photoSemantics — 自拍语义', () => {
     });
 });
 
+describe('photoSemantics — 双人合照语义 (Phase 2G)', () => {
+    it('双人自拍 → 前置自拍感双人构图', () => {
+        const out = applyPhotoSemantics('我们一起自拍');
+        expect(analyzePhotoSemantics('我们一起自拍').kind).toBe('dual-selfie');
+        expect(out).toContain('双人自拍');
+        expect(out).toContain('前置摄像头自拍的第一人称视角');
+        expect(out).toContain('两人的脸部或上半身');
+        expect(out).toContain('亲密感');
+    });
+
+    it('中英文双人自拍关键词命中', () => {
+        expect(analyzePhotoSemantics('双人自拍').kind).toBe('dual-selfie');
+        expect(analyzePhotoSemantics('和我自拍').kind).toBe('dual-selfie');
+        expect(analyzePhotoSemantics('情侣自拍').kind).toBe('dual-selfie');
+        expect(analyzePhotoSemantics('couple selfie with you').kind).toBe('dual-selfie');
+        expect(analyzePhotoSemantics('selfie together').kind).toBe('dual-selfie');
+    });
+
+    it('双人合照（非自拍）→ 允许第三人称视角与创意构图', () => {
+        const out = applyPhotoSemantics('我和她的合照');
+        expect(analyzePhotoSemantics('我和她的合照').kind).toBe('dual-photo');
+        expect(out).toContain('双人合照');
+        expect(out).toContain('第三人称视角');
+        expect(out).toContain('创意互动');
+    });
+
+    it('中英文双人合照关键词命中', () => {
+        expect(analyzePhotoSemantics('合照').kind).toBe('dual-photo');
+        expect(analyzePhotoSemantics('双人照').kind).toBe('dual-photo');
+        expect(analyzePhotoSemantics('情侣照').kind).toBe('dual-photo');
+        expect(analyzePhotoSemantics('我和她一起的照片').kind).toBe('dual-photo');
+        expect(analyzePhotoSemantics('photo together').kind).toBe('dual-photo');
+        expect(analyzePhotoSemantics('photo with you').kind).toBe('dual-photo');
+    });
+
+    it('双人语义优先级高于通用自拍/照片（避免误捕）', () => {
+        // "双人自拍" 应识别为 dual-selfie，而非 selfie
+        expect(analyzePhotoSemantics('双人自拍').kind).toBe('dual-selfie');
+        // "我们的合照" 应识别为 dual-photo，而非 general
+        expect(analyzePhotoSemantics('我们的合照').kind).toBe('dual-photo');
+    });
+});
+
 describe('photoSemantics — 现实摄影约束', () => {
     it('普通生活照（视觉身份启用）→ 加中英双语现实感约束', () => {
         const out = applyPhotoSemantics('她在家里的沙发上休息', { identityActive: true });
@@ -54,8 +97,8 @@ describe('photoSemantics — 现实摄影约束', () => {
         expect(out).toContain('no plastic CGI skin');
     });
 
-    it('自拍 / 镜子自拍 / 他拍同样附带现实感约束', () => {
-        for (const prompt of ['发张自拍', '镜子自拍', '路人偷拍的一张照片']) {
+    it('自拍 / 镜子自拍 / 他拍 / 双人自拍同样附带现实感约束', () => {
+        for (const prompt of ['发张自拍', '镜子自拍', '路人偷拍的一张照片', '双人自拍', '我们的合照']) {
             expect(applyPhotoSemantics(prompt)).toContain('no over-retouching');
         }
     });

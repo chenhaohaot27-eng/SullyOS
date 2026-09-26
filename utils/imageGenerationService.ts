@@ -461,9 +461,90 @@ export const openAiImagesAdapter: ImageGenerationProviderAdapter = {
     },
 };
 
+export const gptImagesAdapter: ImageGenerationProviderAdapter = {
+    provider: 'gpt-images',
+    supportsReferenceImages: true,
+    async generate({ config, options, references, signal, fetchImpl }) {
+        const hasReferences = references.length > 0;
+
+        // GPT with reference images: use /images/edits with multipart/form-data
+        if (hasReferences) {
+            const editsEndpoint = openAiEndpoint(config.baseUrl).replace(/\/images\/generations$/i, '/images/edits');
+            const formData = new FormData();
+
+            // Add model and prompt
+            formData.append('model', config.model);
+            formData.append('prompt', composePrompt(options.prompt, options.style));
+            formData.append('n', '1');
+            formData.append('size', openAiSize(options.resolution, options.aspectRatio));
+            formData.append('response_format', 'b64_json');
+
+            // Add reference images as image[] files
+            for (let i = 0; i < references.length; i++) {
+                const reference = references[i];
+                const blob = new Blob(
+                    [Uint8Array.from(atob(reference.base64), c => c.charCodeAt(0))],
+                    { type: reference.mimeType }
+                );
+                formData.append('image', blob, `reference_${i}.png`);
+            }
+
+            const response = await fetchImpl(editsEndpoint, withImageGenerationLogMeta({
+                method: 'POST',
+                headers: { Authorization: `Bearer ${config.apiKey}` },
+                body: formData,
+                signal,
+            }, {
+                operation: 'generate',
+                provider: config.provider,
+                model: config.model,
+                resolution: options.resolution,
+                aspectRatio: options.aspectRatio,
+                referenceImageCount: references.length,
+            }));
+            const payload = await parseProviderResponse(response, config.apiKey);
+            return normalizeImageGenerationResponse(payload);
+        }
+
+        // GPT without reference images: use standard /images/generations
+        const endpoint = openAiEndpoint(config.baseUrl);
+        const response = await fetchImpl(endpoint, withImageGenerationLogMeta({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+            body: JSON.stringify({
+                model: config.model,
+                prompt: composePrompt(options.prompt, options.style),
+                n: 1,
+                size: openAiSize(options.resolution, options.aspectRatio),
+                response_format: 'b64_json',
+            }),
+            signal,
+        }, {
+            operation: 'generate',
+            provider: config.provider,
+            model: config.model,
+            resolution: options.resolution,
+            aspectRatio: options.aspectRatio,
+            referenceImageCount: 0,
+        }));
+        const payload = await parseProviderResponse(response, config.apiKey);
+        return normalizeImageGenerationResponse(payload);
+    },
+    async listAvailableModels({ config, signal, fetchImpl }) {
+        const response = await fetchImpl(buildImageGenerationModelsEndpoint(config), withImageGenerationLogMeta({
+            method: 'GET',
+            headers: { Authorization: `Bearer ${config.apiKey}` },
+            signal,
+        }, { operation: 'list-models', provider: config.provider }));
+        const payload = await parseProviderResponse(response, config.apiKey, 'list-models');
+        return normalizeAvailableImageModels(payload, config.provider);
+    },
+};
+
 const ADAPTERS: Record<ImageGenerationProvider, ImageGenerationProviderAdapter> = {
     'gemini-native': geminiNativeAdapter,
     'openai-images': openAiImagesAdapter,
+    'gpt-images': gptImagesAdapter,
 };
 
 export interface ImageGenerationServiceDependencies {
@@ -574,20 +655,22 @@ export class ImageGenerationService {
         if (finalReferences.length && !config.allowReferenceImages) {
             throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前配置已禁止参考图');
         }
+
         const adapter = ADAPTERS[config.provider];
 
-        // ─── Provider 行为：OpenAI 不支持参考图，但仍注入文字身份提示词 ─────────────
+        // ─── Provider 行为：OpenAI 不支持参考图，但仍注入文字身份提示词；GPT 支持参考图 ─────────────
+        // 检查必须在转换参考图之前，避免无效的网络请求
         let skipReferencesForProvider = false;
         if (finalReferences.length && !adapter.supportsReferenceImages) {
-            if (config.provider === 'openai-images') {
-                // OpenAI: 跳过参考图，但保留文字身份约束
+            const hasUserProvidedRefs = (options.referenceImages?.length || 0) > 0;
+            if (config.provider === 'openai-images' && identityReferences.length > 0 && !hasUserProvidedRefs) {
+                // OpenAI: 只对 identity 参考图跳过（用户未直接提供参考图的情况）
+                // 这种情况下保留文字身份约束，跳过图片
                 skipReferencesForProvider = true;
-                if (identityReferences.length > 0) {
-                    console.info('[ImageGen] OpenAI provider 不支持参考图，已跳过图片但保留身份文字描述');
-                }
+                console.info('[ImageGen] OpenAI provider 不支持参考图，已跳过视觉身份图片但保留身份文字描述');
             } else {
-                // 其他不支持的 provider：直接报错
-                throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前接口模式不支持参考图，请改用 Gemini Native');
+                // 其他情况：用户直接提供了参考图，或非 openai-images provider 不支持
+                throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前接口模式不支持参考图，请改用 Gemini Native 或 GPT Images');
             }
         }
 

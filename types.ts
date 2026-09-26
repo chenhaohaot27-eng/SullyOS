@@ -254,7 +254,7 @@ export interface VisionApiConfig {
 }
 
 /** 全局生图协议。与主对话 API、识图 API 完全独立。 */
-export type ImageGenerationProvider = 'gemini-native' | 'openai-images';
+export type ImageGenerationProvider = 'gemini-native' | 'openai-images' | 'gpt-images';
 
 export type ImageGenerationResolution = '1K' | '2K' | '4K';
 

@@ -91,6 +91,70 @@ describe('imageGenerationService provider adapters', () => {
             .rejects.toMatchObject({ code: 'REFERENCE_NOT_SUPPORTED' });
         expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    it('GPT Images: uses /images/generations without references', async () => {
+        const config = { ...baseConfig, provider: 'gpt-images' as const, baseUrl: 'https://api.example/v1', model: 'dall-e-3' };
+        const fetchMock = vi.fn().mockResolvedValue(response({ data: [{ b64_json: tinyBase64 }] }));
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch, loadConfig: () => config });
+
+        await service.generateImage({ prompt: 'sunset', resolution: '1K', aspectRatio: '1:1' });
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe('https://api.example/v1/images/generations');
+        expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${config.apiKey}`);
+        expect(JSON.parse(String(init.body))).toEqual({
+            model: 'dall-e-3',
+            prompt: 'sunset',
+            n: 1,
+            size: '1024x1024',
+            response_format: 'b64_json',
+        });
+    });
+
+    it('GPT Images: uses /images/edits with multipart/form-data when references provided', async () => {
+        const config = { ...baseConfig, provider: 'gpt-images' as const, baseUrl: 'https://api.example/v1', model: 'dall-e-3' };
+        const fetchMock = vi.fn().mockResolvedValue(response({ data: [{ b64_json: tinyBase64 }] }));
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch, loadConfig: () => config });
+
+        await service.generateImage({
+            prompt: 'enhance this',
+            resolution: '2K',
+            aspectRatio: '1:1',
+            referenceImages: [`data:image/png;base64,${tinyBase64}`],
+        });
+
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe('https://api.example/v1/images/edits');
+        expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${config.apiKey}`);
+        expect(new Headers(init.headers).get('content-type')).toBeNull(); // FormData sets it automatically
+        expect(init.body).toBeInstanceOf(FormData);
+
+        const formData = init.body as FormData;
+        expect(formData.get('model')).toBe('dall-e-3');
+        expect(formData.get('prompt')).toBe('enhance this');
+        expect(formData.get('size')).toBe('2048x2048');
+        expect(formData.get('response_format')).toBe('b64_json');
+        expect(formData.get('image')).toBeInstanceOf(Blob);
+    });
+
+    it('GPT Images: appends multiple reference images as image[] fields', async () => {
+        const config = { ...baseConfig, provider: 'gpt-images' as const, baseUrl: 'https://api.example/v1' };
+        const fetchMock = vi.fn().mockResolvedValue(response({ data: [{ b64_json: tinyBase64 }] }));
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch, loadConfig: () => config });
+
+        await service.generateImage({
+            prompt: 'combine',
+            referenceImages: [
+                `data:image/png;base64,${tinyBase64}`,
+                { data: tinyBase64, mimeType: 'image/jpeg' },
+            ],
+        });
+
+        const formData = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+        const imageFields = formData.getAll('image');
+        expect(imageFields).toHaveLength(2);
+        expect(imageFields[0]).toBeInstanceOf(Blob);
+        expect(imageFields[1]).toBeInstanceOf(Blob);
+    });
 });
 
 describe('image generation response normalization', () => {

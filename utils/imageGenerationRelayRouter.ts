@@ -19,7 +19,7 @@ export function isRelayRouterUrl(baseUrl: string): boolean {
 /**
  * 切换接口模式时，仅对 RelayRouter 地址自动改写版本路径：
  * - 切到 gemini-native：尾部 /v1 → /v1beta
- * - 切到 openai-images：尾部 /v1beta → /v1
+ * - 切到 openai-images 或 gpt-images：尾部 /v1beta → /v1
  * 其他 host（如官方 Google / OpenAI 端点）原样返回，绝不自动改写。
  * API Key 等其余配置由调用方保持不动。
  */
@@ -33,7 +33,7 @@ export function applyRelayRouterProviderSwitch(
     if (nextProvider === 'gemini-native' && /\/v1$/i.test(stripped)) {
         return stripped.replace(/\/v1$/i, '/v1beta');
     }
-    if (nextProvider === 'openai-images' && /\/v1beta$/i.test(stripped)) {
+    if ((nextProvider === 'openai-images' || nextProvider === 'gpt-images') && /\/v1beta$/i.test(stripped)) {
         return stripped.replace(/\/v1beta$/i, '/v1');
     }
     return baseUrl;
