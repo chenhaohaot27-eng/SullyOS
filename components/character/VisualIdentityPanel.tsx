@@ -13,6 +13,10 @@ import {
 } from '../../utils/visualIdentity';
 import { getBlobForRef } from '../../utils/blobRef';
 import {
+    exportVisualIdentityZip,
+    importVisualIdentityZip,
+} from '../../utils/visualIdentityZip';
+import {
     clampVisualIdentityReferenceUpload,
     joinTraitInput,
     MAX_VISUAL_IDENTITY_REFERENCES,
@@ -47,6 +51,18 @@ const VisualIdentityPanel: React.FC<{
     const [fixedTraitsDraft, setFixedTraitsDraft] = useState(() => joinTraitInput(vi.fixedTraits));
     const [variableTraitsDraft, setVariableTraitsDraft] = useState(() => joinTraitInput(vi.variableTraits));
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const zipInputRef = useRef<HTMLInputElement | null>(null);
+    const [zipBusy, setZipBusy] = useState(false);
+
+    // ZIP 标准包导入会整体替换 fixedTraits/variableTraits，同步刷新本地草稿
+    useEffect(() => {
+        setFixedTraitsDraft(joinTraitInput(vi.fixedTraits));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vi.fixedTraits]);
+    useEffect(() => {
+        setVariableTraitsDraft(joinTraitInput(vi.variableTraits));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [vi.variableTraits]);
 
     // 缩略图：blobref 令牌 → objectURL（卸载 / 列表变化时回收，避免移动端内存泄漏）
     const referencesKey = vi.references.map(ref => `${ref.id}:${ref.isPrimary ? 1 : 0}`).join('|');
@@ -123,6 +139,64 @@ const VisualIdentityPanel: React.FC<{
 
     const handleRole = (referenceId: string, role: VisualIdentityReferenceRole) => {
         patch({ references: updateVisualIdentityReferenceRole(vi.references, referenceId, role) });
+    };
+
+    /**
+     * 导入视觉身份包（Phase 2D）：
+     * - 标准 ZIP：恢复主图 / role / 文字字段，整体替换当前 visualIdentity
+     * - 普通 ZIP：只替换参考图（role=other、首图主图），保留现有文字字段，进入人工整理
+     * - 旧参考图的 Blob 同步清理，不残留孤儿；失败时 utils 层已自清理本次写入
+     */
+    const handleImportZip = async (files: FileList | null) => {
+        const file = files?.[0];
+        if (!file) return;
+        setZipBusy(true);
+        try {
+            const result = await importVisualIdentityZip(file);
+            for (const oldRef of vi.references) {
+                try { await removeVisualIdentityReference(oldRef, vi.references); } catch { /* 清理失败不阻塞 */ }
+            }
+            const next = result.hadManifest
+                ? result.visualIdentity
+                : { ...vi, enabled: true, mode: 'advanced' as const, references: result.visualIdentity.references };
+            onChange(next);
+            if (result.hadManifest) {
+                addToast?.(`已导入视觉身份包：${next.references.length} 张参考图 + 外观字段已恢复`, 'success');
+            } else {
+                addToast?.(`已从 ZIP 提取 ${next.references.length} 张图片，请整理主图与角色标记`, 'info');
+            }
+            if (result.skippedFiles.length > 0) {
+                addToast?.(`超出 5 张上限，${result.skippedFiles.length} 张未导入（${result.skippedFiles.slice(0, 3).join('、')}${result.skippedFiles.length > 3 ? '…' : ''}）`, 'info');
+            }
+        } catch (error) {
+            addToast?.(error instanceof Error ? error.message : '视觉身份包导入失败', 'error');
+        } finally {
+            setZipBusy(false);
+            if (zipInputRef.current) zipInputRef.current.value = '';
+        }
+    };
+
+    /** 导出视觉身份包：manifest + images/，仅含 visualIdentity 数据与参考图。 */
+    const handleExportZip = async () => {
+        if (vi.references.length === 0) {
+            addToast?.('还没有参考图可导出', 'error');
+            return;
+        }
+        setZipBusy(true);
+        try {
+            const blob = await exportVisualIdentityZip(vi);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'VisualIdentity.zip';
+            link.click();
+            URL.revokeObjectURL(url);
+            addToast?.('视觉身份包已导出', 'success');
+        } catch (error) {
+            addToast?.(error instanceof Error ? error.message : '视觉身份包导出失败', 'error');
+        } finally {
+            setZipBusy(false);
+        }
     };
 
     const validationErrors = vi.enabled ? validateVisualIdentity(vi) : [];
@@ -300,6 +374,39 @@ const VisualIdentityPanel: React.FC<{
                                 </button>
                             ))}
                         </div>
+                    </div>
+
+                    {/* 视觉身份包（Phase 2D）：标准 ZIP 一键导入 / 导出 */}
+                    <div className="border-t border-slate-100 pt-3">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">视觉身份包 (ZIP)</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                disabled={zipBusy}
+                                onClick={() => zipInputRef.current?.click()}
+                                className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs font-bold text-violet-700 transition active:scale-95 disabled:opacity-40"
+                            >
+                                {zipBusy ? '处理中…' : '📥 导入视觉身份包'}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={zipBusy || vi.references.length === 0}
+                                onClick={() => { void handleExportZip(); }}
+                                className="rounded-xl border border-slate-200 bg-white/70 px-3 py-2.5 text-xs font-bold text-slate-600 transition active:scale-95 disabled:opacity-40"
+                            >
+                                📦 导出视觉身份包
+                            </button>
+                        </div>
+                        <p className="mt-1.5 text-[10px] leading-relaxed text-slate-400">
+                            标准包含 manifest + 参考图，可跨设备迁移；无 manifest 的普通 ZIP 会提取图片供人工整理。只作用于当前角色，最多 5 张。
+                        </p>
+                        <input
+                            ref={zipInputRef}
+                            type="file"
+                            accept=".zip,application/zip"
+                            className="hidden"
+                            onChange={event => { void handleImportZip(event.target.files); }}
+                        />
                     </div>
                 </div>
             )}

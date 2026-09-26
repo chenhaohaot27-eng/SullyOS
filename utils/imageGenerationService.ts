@@ -10,6 +10,7 @@ import { loadImageGenerationConfig, normalizeImageGenerationConfig } from './ima
 import { withImageGenerationLogMeta } from './imageGenerationLogging';
 import { normalizeVisualIdentity, resolveVisualIdentityReferences } from './visualIdentity';
 import { buildVisualIdentityPrompt } from './visualIdentityPrompt';
+import { applyPhotoSemantics } from './photoSemantics';
 
 export type ReferenceImageInput = string | {
     data?: string;
@@ -588,7 +589,13 @@ export class ImageGenerationService {
         }
 
         // ─── 合并 prompt：身份约束 + 原始 prompt ───────────────────────────────────
-        const finalPrompt = identityPrompt ? `${identityPrompt}\n\n${prompt}` : prompt;
+        const identityMergedPrompt = identityPrompt ? `${identityPrompt}\n\n${prompt}` : prompt;
+
+        // ─── Phase 2E 摄影语义修正：只在末尾补充约束，不覆盖剧情原文 ──────────────
+        // 视觉身份启用（或 prompt 自带拍照语义）时按生活照处理；commercial 请求不强压。
+        const finalPrompt = applyPhotoSemantics(identityMergedPrompt, {
+            identityActive: !!(visualIdentity?.enabled && visualIdentity.references.length > 0),
+        });
 
         const controller = new AbortController();
         let timedOut = false;
