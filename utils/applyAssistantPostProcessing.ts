@@ -58,9 +58,12 @@ import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceH
 import { extractChatPhotoIntent } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
-import { executeMeetInvite, extractMeetInviteIntent, findPendingMeetInvitation, validateMeetInviteTiming } from './meetingInvite';
+import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
 import { applyGiftReaction } from './giftActions';
 import { executeGiftSend } from './giftCharacterSend';
+import { extractFoodOrderIntent } from './foodIntent';
+import { executeCharacterFoodOrder, isExplicitFoodRequest } from './foodCharacterOrder';
+import { extractProactiveAction, canExecuteProactiveAction, recordProactiveAction } from './proactiveAction';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -613,12 +616,32 @@ export async function applyAssistantPostProcessing(
         console.warn('[Gift] GIFT_SEND 标签解析失败，已剥掉不执行', { charId: char.id });
     }
     aiContent = giftSendExtraction.cleanedContent;
-    // ─── Step 1.7: 见面邀请意图 MEET_INVITE ───
+    // FOOD_ORDER 永远剥标签；仅前台正常 Chat 在正文落库后执行，worker 路径不执行。
+    const foodOrderExtraction = extractFoodOrderIntent(aiContent);
+    if (foodOrderExtraction.invalidTagFound) {
+        console.warn('[Food] FOOD_ORDER 标签解析失败，已剥掉不执行', { charId: char.id });
+    }
+    aiContent = foodOrderExtraction.cleanedContent;
+    // ─── Step 1.7: 见面邀请意图 MEET_INVITE + 角色对玩家邀请的回应 MEET_REPLY ───
     const meetInviteExtraction = extractMeetInviteIntent(aiContent);
     if (meetInviteExtraction.invalidTagFound) {
         console.warn('[Meet] MEET_INVITE 标签解析失败，已剥掉不执行', { charId: char.id });
     }
     aiContent = meetInviteExtraction.cleanedContent;
+    // 双向协议：[[MEET_REPLY: accepted|declined|deferred]] = 角色回应玩家发出的 pending 邀请，
+    // 标签永远剥掉，回应结果写回原玩家邀请卡；正文（角色自己的话）不受影响。
+    const meetReplyExtraction = extractMeetReplyIntent(aiContent);
+    aiContent = meetReplyExtraction.cleanedContent;
+
+    // ─── Step 1.8: 主动行为意图 PROACTIVE_ACTION（Phase 1） ───
+    // 角色根据上下文自主判断是否执行额外行为（PHOTO / 未来 GIFT/FOOD/MUSIC）。
+    // 与 SEND_PHOTO 区分：PROACTIVE_ACTION 是角色自主，SEND_PHOTO 是玩家明确要求。
+    // 标签永远剥掉（意图 JSON 绝不进气泡），抽到的意图等本轮正文渲染完（末尾）再执行。
+    const proactiveExtraction = extractProactiveAction(aiContent);
+    if (proactiveExtraction.invalidTagFound) {
+        console.warn('[ProactiveAction] PROACTIVE_ACTION 标签解析失败，已剥掉不执行', { charId: char.id });
+    }
+    aiContent = proactiveExtraction.cleanedContent;
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
@@ -2193,7 +2216,27 @@ export async function applyAssistantPostProcessing(
         });
     }
 
-    // ─── Step 7.7: 见面邀请 MEET_INVITE ───
+    // ─── Step 7.65: 角色真实点外卖 FOOD_ORDER ───
+    // 正文就是 placed 表达，因此不再追加角色自回应；Catalog 匹配与 fallback 都在本地完成。
+    // skipSecondPassLLM 表示 Instant Push/worker 落库路径：标签已剥，但明确禁止执行 Food action。
+    if (foodOrderExtraction.intent && !skipSecondPassLLM) {
+        try {
+            const trigger = [...contextMsgs].reverse().find(message => message.role === 'user');
+            await executeCharacterFoodOrder({
+                intent: foodOrderExtraction.intent,
+                char,
+                userName: userProfile?.name,
+                triggerMessageId: trigger?.id,
+                explicitFoodRequest: isExplicitFoodRequest(trigger?.content),
+                now: messageTimestamp ?? Date.now(),
+            });
+            setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+        } catch (e) {
+            console.warn('[Food] 角色外卖订单执行失败（正文不受影响）:', e instanceof Error ? e.message : e);
+        }
+    }
+
+    // ─── Step 7.7: 见面邀请 MEET_INVITE + 角色回应玩家邀请 MEET_REPLY ───
     // 落一张 meet_card 消息（metadata.meet 全量邀请数据）；正文已先渲染，
     // 邀请是"请求"，后续推进等玩家在卡片上选择。解析失败/无意图零开销。
     // 落卡前两道轻量防线（失败只忽略邀请卡，正文照常显示，不让消息报错）：
@@ -2201,6 +2244,20 @@ export async function applyAssistantPostProcessing(
     //     earliestFeasibleAt（跨城/在途的物理可行性由模型按 prompt 规则判断，
     //     前端不做城市距离推理）；
     //  2) pending 去重：该会话已有未回应的邀请时不落第二张 pending 卡。
+    if (meetReplyExtraction.reply) {
+        try {
+            const replyMessages = await DB.getRecentMessagesByCharId(char.id, 200);
+            const applied = await applyMeetReply({ reply: meetReplyExtraction.reply, messages: replyMessages });
+            if (applied) {
+                console.info('[Meet] 角色回应玩家邀请:', meetReplyExtraction.reply);
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            } else {
+                console.warn('[Meet] 收到 MEET_REPLY 但没有待回应的玩家邀请，忽略（正文不受影响）');
+            }
+        } catch (e) {
+            console.warn('[Meet] 玩家邀请回应写回失败（正文不受影响）:', e instanceof Error ? e.message : e);
+        }
+    }
     if (meetInviteExtraction.intent) {
         try {
             const timing = validateMeetInviteTiming(meetInviteExtraction.intent);
@@ -2222,6 +2279,48 @@ export async function applyAssistantPostProcessing(
             }
         } catch (e) {
             console.warn('[Meet] 见面邀请卡落库失败（不影响正文）:', e instanceof Error ? e.message : e);
+        }
+    }
+
+    // ─── Step 7.8: 主动行为执行 PROACTIVE_ACTION（Phase 1） ───
+    // 角色自主判断的行为（PHOTO / 未来 GIFT/FOOD/MUSIC），正文渲染完后执行。
+    // cooldown 命中时静默跳过（标签已剥掉），不影响正常聊天；执行失败只记日志。
+    if (proactiveExtraction.action && proactiveExtraction.action.kind !== 'NONE') {
+        const { action } = proactiveExtraction;
+        try {
+            if (action.kind === 'PHOTO') {
+                // 检查 cooldown（每角色 24h 内最多一次自主拍照）
+                if (!canExecuteProactiveAction(char.id, 'PHOTO')) {
+                    const { getRemainingCooldown } = await import('./proactiveAction');
+                    const remainingMs = getRemainingCooldown(char.id, 'PHOTO');
+                    const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
+                    console.info(`[ProactiveAction] 角色 ${char.name} 的 PHOTO 行为在 cooldown 中（剩余 ${remainingHours}h），跳过`, { charId: char.id });
+                } else if (!action.prompt?.trim()) {
+                    console.warn('[ProactiveAction] PHOTO 行为缺少 prompt，跳过', { charId: char.id });
+                } else {
+                    // 执行自主拍照：复用 executeChatPhotoIntent，但用主动行为的意图
+                    await executeChatPhotoIntent({
+                        char,
+                        intent: {
+                            prompt: action.prompt,
+                            caption: action.caption || '',
+                            includeCharacter: action.includeCharacter === true,
+                            style: action.style || '',
+                        },
+                        persistMessage,
+                        refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
+                        onToast: addToast,
+                        inheritMeta: { ...mcdInheritMeta, proactiveAction: true },
+                    });
+                    // 执行成功后记录时间戳（更新 cooldown）
+                    recordProactiveAction(char.id, 'PHOTO');
+                    console.info('[ProactiveAction] 角色自主拍照已执行', { charId: char.id, kind: 'PHOTO' });
+                }
+            } else {
+                console.warn('[ProactiveAction] 未知行为类型，跳过', { charId: char.id, kind: action.kind });
+            }
+        } catch (e) {
+            console.error('[ProactiveAction] 主动行为执行失败（不影响正文）:', e instanceof Error ? e.message : e);
         }
     }
 }
