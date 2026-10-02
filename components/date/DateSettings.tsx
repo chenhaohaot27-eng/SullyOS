@@ -276,6 +276,24 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                     </div>
                 </section>
 
+                <Section title="玩家输入">
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <label className="text-[11px] text-slate-500 font-bold block">识别括号内叙事</label>
+                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">括号外为玩家台词；括号内为动作、心理或场景描写，角色可以理解，但不会将其视为玩家说出口的话。</p>
+                        </div>
+                        <button
+                            onClick={() => patchStyleConfig({ recognizeParentheticalNarration: styleConfig.recognizeParentheticalNarration === false ? undefined : false })}
+                            className={`w-12 h-7 rounded-full transition-colors relative shrink-0 ${styleConfig.recognizeParentheticalNarration !== false ? 'bg-primary' : 'bg-slate-200'}`}
+                            role="switch"
+                            aria-checked={styleConfig.recognizeParentheticalNarration !== false}
+                            aria-label="识别括号内叙事"
+                        >
+                            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-transform ${styleConfig.recognizeParentheticalNarration !== false ? 'translate-x-5' : 'translate-x-0.5'}`}></div>
+                        </button>
+                    </div>
+                </Section>
+
                 <ObserveSettings char={char} />
 
                 <Section title="文风与叙事 (Writing Style)">

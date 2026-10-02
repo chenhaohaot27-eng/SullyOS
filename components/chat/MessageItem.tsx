@@ -3,6 +3,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Message, ChatTheme } from '../../types';
+import GiftChatCard from './GiftChatCard';
+import MeetingInviteCard from './MeetingInviteCard';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
@@ -14,6 +16,87 @@ import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
+import EmojiImage from './EmojiImage';
+import { useBlobRefUrl } from '../../utils/blobRef';
+import { CHAT_PHOTO_PENDING_STALE_MS, type ChatPhotoMeta } from '../../utils/chatPhotoGeneration';
+import ChatPhotoViewer from './ChatPhotoViewer';
+
+// ─── 聊天拍照气泡（Phase 2A）────────────────────────────────────────────────
+// type='image' + metadata.chatPhoto 的消息专用渲染：pending 显示「正在拍照…」占位、
+// ready 用 useBlobRefUrl 解析 blobref 令牌显示真实图片（刷新/恢复后仍可用）、failed 或
+// pending 停滞过久显示简短原因 + 手动重试按钮（不做自动重试）。
+// Phase 2A.1：ready 图片可点击打开 ChatPhotoViewer 全屏预览（保存/分享/长按存图）。
+const ChatPhotoBubble: React.FC<{
+    messageId: number;
+    meta: ChatPhotoMeta;
+    content: string;
+    isLatestMessage?: boolean;
+    onMediaLoad?: (messageId: number) => void;
+    onRetry?: () => void;
+}> = ({ messageId, meta, content, isLatestMessage, onMediaLoad, onRetry }) => {
+    const imageUrl = useBlobRefUrl(content || undefined);
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const isStalePending = meta.status === 'pending' && Date.now() - (meta.createdAt || 0) > CHAT_PHOTO_PENDING_STALE_MS;
+
+    if (meta.status === 'ready') {
+        return (
+            <div className="w-[220px] max-w-full">
+                {imageUrl ? (
+                    <img
+                        src={imageUrl}
+                        className="w-full rounded-2xl shadow-sm cursor-zoom-in"
+                        alt={meta.caption || '照片'}
+                        loading={isLatestMessage ? 'eager' : 'lazy'}
+                        onLoad={() => onMediaLoad?.(messageId)}
+                        onClick={() => setViewerOpen(true)}
+                        style={{ WebkitTouchCallout: 'default' } as React.CSSProperties}
+                    />
+                ) : (
+                    <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[图片已丢失]</div>
+                )}
+                {!!meta.caption?.trim() && (
+                    <div className="mt-1 px-1 text-[12px] leading-relaxed text-slate-600">{meta.caption}</div>
+                )}
+                {/* 全屏预览：只传既有的 blobref/data URL，不复制图片、不写库 */}
+                {viewerOpen && imageUrl && (
+                    <ChatPhotoViewer
+                        content={content}
+                        displayUrl={imageUrl}
+                        caption={meta.caption}
+                        onClose={() => setViewerOpen(false)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    if (meta.status === 'pending' && !isStalePending) {
+        return (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/95 border border-white/70 shadow-sm text-xs text-slate-500">
+                <svg className="animate-spin h-3.5 w-3.5 shrink-0 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>正在拍照…</span>
+            </div>
+        );
+    }
+
+    const reason = meta.status === 'failed' && meta.reason ? meta.reason : '生成中断';
+    return (
+        <div className="w-[220px] max-w-full px-4 py-3 rounded-2xl bg-rose-50/90 border border-rose-100 shadow-sm">
+            <div className="text-[12px] text-rose-700 font-semibold leading-relaxed">📷 照片没有生成成功</div>
+            <div className="mt-1 text-[11px] text-rose-500/90 leading-relaxed break-all">{reason}</div>
+            {onRetry && (
+                <button
+                    type="button"
+                    onClick={onRetry}
+                    className="mt-2 px-3 py-1 rounded-lg bg-rose-500 text-white text-[11px] font-bold active:scale-95 transition-transform"
+                >
+                    重试
+                </button>
+            )}
+        </div>
+    );
+};
+
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -781,7 +864,7 @@ const ForwardCard: React.FC<{
                                         <div className="text-[10px] text-slate-400 mb-1 px-1">{senderName} {msg.timestamp ? formatTime(msg.timestamp) : ''}</div>
                                         <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-all ${isUser ? 'bg-primary text-white rounded-br-sm' : 'bg-white text-slate-700 rounded-bl-sm shadow-sm border border-slate-100'}`}>
                                             {msg.type === 'image' ? (msg.content ? <img src={msg.content} className="max-w-[200px] rounded-xl" /> : <span className="italic opacity-60">[图片已丢失]</span>) :
-                                             msg.type === 'emoji' ? (msg.content ? <img src={msg.content} className="max-w-[100px]" /> : <span className="italic opacity-60">[表情已丢失]</span>) :
+                                             msg.type === 'emoji' ? (msg.content ? <EmojiImage src={msg.content} className="max-w-[100px]" /> : <span className="italic opacity-60">[表情已丢失]</span>) :
                                              msg.content}
                                         </div>
                                     </div>
@@ -1417,6 +1500,9 @@ interface MessageItemProps {
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
     /** 用户点「生活记录」卡 → 确认 / 否决（角色代记的记录） */
     onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
+    /** 聊天拍照（Phase 2A）：照片生成失败 / 中断后玩家点「重试」 */
+    onRetryChatPhoto?: (messageId: number) => void;
+
     /** 思考链卡片视觉与交互 */
     thinkingChainOptions?: {
         styleId?: ThinkingChainStyleId;
@@ -1464,6 +1550,8 @@ const MessageItem = React.memo(({
     onLuckinSendCart,
     onLuckinCandidate,
     onResolveTransfer,
+    onRetryChatPhoto,
+
     onResolveLifeRecord,
     thinkingChainOptions,
 }: MessageItemProps) => {
@@ -3260,6 +3348,16 @@ const MessageItem = React.memo(({
         return <TransferCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveTransfer={onResolveTransfer} />;
     }
 
+    // 礼物卡（Phase 3）：GiftRecord 的聊天投影，reaction 状态由卡片内部回读真相源。
+    if (m.type === 'gift_card') {
+        return <GiftChatCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} />;
+    }
+
+    // 见面邀请卡：正文全部来自模型输出（metadata.meet），前端只做骨架与按钮。
+    if (m.type === 'meet_card') {
+        return <MeetingInviteCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} />;
+    }
+
     if (m.type === 'life_card') {
         return <LifeRecordCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveLifeRecord={onResolveLifeRecord} />;
     }
@@ -3270,10 +3368,26 @@ const MessageItem = React.memo(({
     if (m.type === 'emoji') {
         return commonLayout(
             m.content ? (
-                <img src={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
+                <EmojiImage src={m.content} className="sully-emoji-msg max-w-[var(--sully-emoji-size,96px)] max-h-[var(--sully-emoji-size,96px)] w-auto h-auto object-contain hover:scale-105 transition-transform drop-shadow-md active:scale-95" loading="lazy" decoding="async" />
             ) : (
                 <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
             )
+        );
+    }
+
+    // 聊天拍照消息（type='image' + metadata.chatPhoto）：「正在拍照…」占位 / 真实图片 / 失败重试
+    // 都走专用气泡；必须在通用 image 分支之前，否则 blobref 令牌会被当 <img src> 原样输出。
+    const chatPhotoMeta = m.type === 'image' ? (m.metadata?.chatPhoto as ChatPhotoMeta | undefined) : undefined;
+    if (chatPhotoMeta) {
+        return commonLayout(
+            <ChatPhotoBubble
+                messageId={m.id}
+                meta={chatPhotoMeta}
+                content={typeof m.content === 'string' ? m.content : ''}
+                isLatestMessage={isLatestMessage}
+                onMediaLoad={onMediaLoad}
+                onRetry={onRetryChatPhoto ? () => onRetryChatPhoto(m.id) : undefined}
+            />,
         );
     }
 
@@ -3424,7 +3538,7 @@ const MessageItem = React.memo(({
         .replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, '')  // imitated history render [xx引用了xx说的「…」，并回复了 ↓]
         .replace(/\[回复\s*[""\u201C][^""\u201D]*?[""\u201D](?:\.{0,3})\]\s*[：:]?\s*/g, '')  // [回复 "content"]: format
         // Residual action/system tags that may have leaked through
-        .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|SEND_EMOJI|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END)[:\s][\s\S]*?\]\]/g, '')
+        .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|SEND_EMOJI|SEND_PHOTO|GIFT_REACT|GIFT_SEND|MEET_INVITE|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END)[:\s][\s\S]*?\]\]/g, '')
         .replace(/\[schedule_message[^\]]*\]/g, '')
         .replace(/<[语語]音[^>]*>[\s\S]*?<\/\s*[语語]音\s*>/g, '')  // strip <语音 ...>...</语音> voice tags (tolerate emotion attr / spaced close)
         .replace(/<[语語]音[^>]*>[\s\S]*$/g, '')             // 未闭合开标签 (历史坏数据): 标签到末尾都是语音内容, 不当正文显示

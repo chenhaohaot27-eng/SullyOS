@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DatePrompts, DATE_STYLE_PRESETS, extractObservation, stripObservation, hasObservation, resolveObserveFields, OBSERVE_OPEN, OBSERVE_CLOSE } from './datePrompts';
+import { DatePrompts, DATE_STYLE_PRESETS, extractObservation, stripObservation, hasObservation, resolveObserveFields, OBSERVE_OPEN, OBSERVE_CLOSE, parseDatePlayerInput, formatDatePlayerInputForModel } from './datePrompts';
 import type { CharacterProfile, UserProfile, Message } from '../types';
 
 const makeChar = (overrides: Partial<CharacterProfile> = {}): CharacterProfile => ({
@@ -103,6 +103,83 @@ describe('DatePrompts.buildSessionPayload', () => {
         const reroll = await DatePrompts.buildSessionPayload({ ...baseInput(makeChar()), variant: 'reroll' });
         const lastReroll = reroll.messages[reroll.messages.length - 1];
         expect(lastReroll.content).toContain('Reroll');
+    });
+
+    describe('识别括号内叙事', () => {
+        it('旧角色字段缺省时默认开启，并结构化本轮玩家输入', async () => {
+            const input = baseInput(makeChar());
+            input.userText = '那我们走吧～（笑着拉开门）';
+            input.allMsgs[input.allMsgs.length - 1].content = input.userText;
+            const { messages } = await DatePrompts.buildSessionPayload(input);
+            const latest = String(messages.at(-1)?.content || '');
+            expect(latest).toContain('[玩家可听见的台词]\n那我们走吧～');
+            expect(latest).toContain('[玩家提供的非台词叙事背景]\n笑着拉开门');
+            expect(sysOf(messages)).toContain('玩家输入中的括号叙事');
+        });
+
+        it('显式关闭后完全保留原有消息与提示词行为', async () => {
+            const text = '那我们走吧（拉开门）';
+            const input = baseInput(makeChar({ dateStyleConfig: { recognizeParentheticalNarration: false } }));
+            input.userText = text;
+            input.allMsgs[input.allMsgs.length - 1].content = text;
+            const { messages } = await DatePrompts.buildSessionPayload(input);
+            const latest = String(messages.at(-1)?.content || '');
+            expect(latest.startsWith(`${text}\n\n(System Note:`)).toBe(true);
+            expect(latest).not.toContain('[玩家可听见的台词]');
+            expect(sysOf(messages)).not.toContain('玩家输入中的括号叙事');
+        });
+
+        it('支持多个括号片段与全角/半角混用', () => {
+            expect(parseDatePlayerInput('先等等（笑了一下)我想想(望向窗外）再走')).toEqual({
+                heardText: '先等等我想想再走',
+                narrationText: '笑了一下\n望向窗外',
+                hasParentheticalNarration: true,
+            });
+        });
+
+        it('纯括号消息被解释为玩家沉默行动，仍保留叙事', () => {
+            const formatted = formatDatePlayerInputForModel('（轻轻点头）');
+            expect(formatted).toContain('[玩家可听见的台词]\n（无；玩家保持沉默）');
+            expect(formatted).toContain('[玩家提供的非台词叙事背景]\n轻轻点头');
+        });
+
+        it('内心描写进入非台词背景，系统规则禁止直接读心', async () => {
+            const thought = '没事（其实很害怕他会离开）';
+            const input = baseInput(makeChar());
+            input.userText = thought;
+            input.allMsgs[input.allMsgs.length - 1].content = thought;
+            const { messages } = await DatePrompts.buildSessionPayload(input);
+            expect(String(messages.at(-1)?.content || '')).toContain('[玩家提供的非台词叙事背景]\n其实很害怕他会离开');
+            const sys = sysOf(messages);
+            expect(sys).toContain('不得精确复述这些内容');
+            expect(sys).toContain('不得表现得像直接读心');
+        });
+
+        it('未闭合括号不吞字；同时存在已闭合片段时也保留未闭合原文', () => {
+            expect(formatDatePlayerInputForModel('我想（还没说完')).toBe('我想（还没说完');
+            const parsed = parseDatePlayerInput('好（点头）然后（还没说完');
+            expect(parsed.heardText).toBe('好然后（还没说完');
+            expect(parsed.narrationText).toBe('点头');
+        });
+
+        it('历史中的每条见面玩家消息都会转换，普通聊天历史保持原文', async () => {
+            const char = makeChar();
+            const historyDate = makeMsg({ content: '早上好（递过咖啡）', metadata: { source: 'date' } });
+            const historyChat = makeMsg({ content: '线上消息（这是普通聊天原文）', metadata: { source: 'chat' } });
+            const opening = makeMsg({ role: 'assistant', content: '[normal] 开场', metadata: { source: 'date' } });
+            const latest = makeMsg({ content: '坐吧（拉开椅子）', metadata: { source: 'date' } });
+            const { messages } = await DatePrompts.buildSessionPayload({
+                char, userProfile: user, allMsgs: [historyDate, historyChat, opening, latest], emojis: [],
+                userText: latest.content, variant: 'send',
+            });
+            const historyText = messages.slice(1, -1).map(message => String(message.content || '')).join('\n');
+            expect(historyText).toContain('[玩家可听见的台词]\n早上好');
+            expect(historyText).toContain('[玩家提供的非台词叙事背景]\n递过咖啡');
+            expect(historyText).toContain('线上消息（这是普通聊天原文）');
+            expect(historyText).not.toContain('[玩家提供的非台词叙事背景]\n这是普通聊天原文');
+            expect(historyDate.content).toBe('早上好（递过咖啡）');
+            expect(latest.content).toBe('坐吧（拉开椅子）');
+        });
     });
 });
 

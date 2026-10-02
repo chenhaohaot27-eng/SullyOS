@@ -35,6 +35,7 @@ import { normalizeApiConfig, normalizeApiPreset } from '../utils/apiConfigNormal
 import { markBackupDone } from '../utils/backupReminder';
 import { normalizeCharacterImpression, normalizeCharacterDefaults } from '../utils/impression';
 import { normalizeModelIds } from '../utils/modelList';
+import { formatImageGenerationRequestLog, getImageGenerationLogMeta, sanitizeImageGenerationLogText } from '../utils/imageGenerationLogging';
 import {
   CONTEXT_RANGE_POLICY_VERSION,
   DEFAULT_MANUAL_CONTEXT_LIMIT,
@@ -46,6 +47,8 @@ import { evaluateEmotionBackground } from '../hooks/useChatAI';
 import { CHAT_GEN_EVENTS, setChatViewSnapshot } from '../utils/chatGenEvents';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
 import { ChatPrompts } from '../utils/chatPrompts';
+import { normalizeAssistantActionFormatting } from '../utils/assistantActionFormat';
+import { resolveEmojiByModelReference } from '../utils/emojiResolver';
 import { extractHtmlBlocks } from '../utils/htmlPrompt';
 import { mergePalaceFragmentsIntoMemories } from '../utils/memoryPalace/pipeline';
 import {
@@ -78,15 +81,19 @@ import { exportMcdLocal } from '../utils/mcdMcpClient';
 import { exportMcpLocal } from '../utils/mcpClient';
 import { exportDesktopSkinLocal } from '../utils/desktopSkinBackup';
 import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
+import { exportImageGenerationConfig, importImageGenerationConfig } from '../utils/imageGenerationConfig';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
+import { resolveCharacterChatApiConfig } from '../utils/formalNpcRegistry';
+import { runPrivateNpcLeakCleanupV1 } from '../utils/privateNpcLeakCleanup';
+import { isPublicBuiltinCharacterId } from '../utils/publicBuiltinCharacters';
 
 interface ProactiveQueueEntry {
   charId: string;
 }
 
 const normalizeProactiveAiContent = (raw: string): string => {
-  let cleaned = raw;
+  let cleaned = normalizeAssistantActionFormatting(raw);
   cleaned = cleaned.replace(/\[(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*(.*?)\]/g, '[[SEND_EMOJI: $1]]');
   cleaned = cleaned.replace(
     /(^|\n)\s*(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*([^\n]+?)(?=\s*(?:\n|$))/g,
@@ -557,6 +564,7 @@ const defaultTheme: OSTheme = {
   ...DEFAULT_PAPER_APPEARANCE,
   wallpaper: DEFAULT_WALLPAPER,
   darkMode: false,
+  bootAnimationEnabled: false,
   preserveCustomIconOutlines: false,
   nowPlayingWidgetLight: true,
 };
@@ -598,6 +606,7 @@ const resolveLockWallpaperStoredValue = async (w: string | undefined): Promise<s
 const defaultApiConfig: APIConfig = {
   baseUrl: '',
   apiKey: '',
+  apiFormat: 'openai-compatible',
   visionApi: {
     enabled: false,
     baseUrl: '',
@@ -1159,28 +1168,36 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               if (!response.ok) {
                   // Only log if it's likely an API call (contains chat/completions or models)
-                  if (urlStr.includes('/chat/completions') || urlStr.includes('/models')) {
+                  const imageLogMeta = getImageGenerationLogMeta(sendArgs[1] as RequestInit | undefined);
+                  if (urlStr.includes('/chat/completions') || urlStr.includes('/models') || imageLogMeta) {
                       try {
                           const clone = response.clone();
                           const text = await clone.text();
                           // 把发出去的请求体摘要也记上 —— 排查"只有点单(带工具)报错"必须看到 model/参数/tools/消息结构
                           let reqSummary = '';
-                          try {
-                              const b = (sendArgs[1] as any)?.body;
-                              if (typeof b === 'string') {
-                                  const j = JSON.parse(b);
-                                  const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
-                                  const roles = Array.isArray(j.messages) ? j.messages.map((m: any) => m.role + (m.tool_calls ? '(tool_calls)' : '')).join(',') : '';
-                                  reqSummary = `\n--- Request ---\nmodel: ${j.model}\ntemperature: ${j.temperature} | top_p: ${j.top_p} | reasoning_effort: ${j.reasoning_effort} | thinking: ${j.thinking ? 'on' : 'off'}\ntools(${toolNames.length}): ${toolNames.join(', ')}\nmessages(${(j.messages || []).length}) roles: ${roles}`;
-                              }
-                          } catch { /* 解析不了就算了 */ }
+                          if (imageLogMeta) {
+                              reqSummary = formatImageGenerationRequestLog(imageLogMeta);
+                          } else {
+                              try {
+                                  const b = (sendArgs[1] as any)?.body;
+                                  if (typeof b === 'string') {
+                                      const j = JSON.parse(b);
+                                      const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
+                                      const roles = Array.isArray(j.messages) ? j.messages.map((m: any) => m.role + (m.tool_calls ? '(tool_calls)' : '')).join(',') : '';
+                                      reqSummary = `\n--- Request ---\nmodel: ${j.model}\ntemperature: ${j.temperature} | top_p: ${j.top_p} | reasoning_effort: ${j.reasoning_effort} | thinking: ${j.thinking ? 'on' : 'off'}\ntools(${toolNames.length}): ${toolNames.join(', ')}\nmessages(${(j.messages || []).length}) roles: ${roles}`;
+                                  }
+                              } catch { /* 解析不了就算了 */ }
+                          }
+                          const responseDetail = imageLogMeta
+                              ? sanitizeImageGenerationLogText(text, sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)
+                              : text.substring(0, 500);
                           setSystemLogs(prev => [{
                               id: `log-${Date.now()}`,
                               timestamp: Date.now(),
                               type: 'network',
-                              source: 'API Request',
-                              message: `HTTP ${response.status} Error`,
-                              detail: `URL: ${urlStr}\nResponse: ${text.substring(0, 500)}${reqSummary}`
+                              source: imageLogMeta ? 'Image API' : 'API Request',
+                              message: imageLogMeta && response.status === 429 ? '当前模型线路繁忙' : `HTTP ${response.status} Error`,
+                              detail: `URL: ${urlStr}\nResponse: ${responseDetail}${reqSummary}`
                           }, ...prev.slice(0, 49)]); // Keep last 50
                       } catch (e) {
                           setSystemLogs(prev => [{
@@ -1217,13 +1234,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       durationMs: Date.now() - fetchStartedAt,
                       error: err,
                   }, { startedAt: fetchStartedAtPerf });
+                  const imageLogMeta = getImageGenerationLogMeta(sendArgs[1] as RequestInit | undefined);
+                  const safeDetail = imageLogMeta
+                      ? `${sanitizeImageGenerationLogText(baseDetail, sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)}${formatImageGenerationRequestLog(imageLogMeta)}`
+                      : baseDetail;
                   setSystemLogs(prev => [{
                       id: logId,
                       timestamp: Date.now(),
                       type: 'network',
-                      source: 'Network',
-                      message: err.message || 'Fetch Failed',
-                      detail: baseDetail,
+                      source: imageLogMeta ? 'Image API' : 'Network',
+                      message: imageLogMeta
+                          ? sanitizeImageGenerationLogText(err.message || 'Fetch Failed', sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)
+                          : err.message || 'Fetch Failed',
+                      detail: safeDetail,
                   }, ...prev.slice(0, 49)]);
 
                   // 复检走 originalFetch，否则它自己失败会再写一条日志滚雪球。
@@ -1516,7 +1539,23 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         ]);
 
         let finalChars = dbChars;
+        try {
+          const cleanup = await runPrivateNpcLeakCleanupV1(dbChars);
+          finalChars = cleanup.characters;
+          if (cleanup.deletedIds.length > 0 || cleanup.preservedIds.length > 0) {
+            console.info('[privateNpcLeakCleanupV1] completed', {
+              deleted: cleanup.deletedIds.length,
+              preserved: cleanup.preservedIds.length,
+            });
+          }
+        } catch (error) {
+          // Fail closed: keep every profile and leave the marker unset so a future startup retries.
+          console.error('[privateNpcLeakCleanupV1] dependency scan failed; all candidate records were preserved', error);
+        }
 
+        if (!isPublicBuiltinCharacterId(sullyV2.id)) {
+            throw new Error(`Refusing to seed a character outside the public built-in allowlist: ${sullyV2.id}`);
+        }
         if (!finalChars.some(c => c.id === sullyV2.id)) {
             await DB.saveCharacter(sullyV2);
             finalChars = [...finalChars, sullyV2];
@@ -1862,8 +1901,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       let awayActiveMsgCount = 0;
 
       const handler = (e: Event) => {
-          const { charId, charName, body } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string };
+          const { charId, charName, body, suppressUnread } = (e as CustomEvent).detail as {
+              charId: string;
+              charName: string;
+              body?: string;
+              suppressUnread?: boolean;
+          };
           setLastMsgTimestamp(Date.now());
+          if (suppressUnread) return;
 
           const isChattingWithThisChar = activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId;
           if (!isChattingWithThisChar) {
@@ -2138,9 +2183,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
 
           // Determine which API to use
+          const inheritedCharacterApi = resolveCharacterChatApiConfig(currentApiConfig, char);
           const pCfg = char.proactiveConfig;
           const useSecondary = pCfg?.useSecondaryApi && pCfg.secondaryApi?.baseUrl;
-          const api = useSecondary ? pCfg!.secondaryApi! : currentApiConfig;
+          const api = useSecondary ? pCfg!.secondaryApi! : inheritedCharacterApi;
           if (!api.baseUrl) {
               drainQueuedProactive();
               return;
@@ -2346,24 +2392,33 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // 把每对原文/译文落成一条 text 消息,内容用 `\n%%BILINGUAL%%\n` 串联供渲染端识别。
                   const hasTranslationTags = /<翻译>\s*<原文>[\s\S]*?<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/.test(aiContent);
 
+                  const sendEmojiBubble = async (rawName: string): Promise<boolean> => {
+                      const resolution = resolveEmojiByModelReference(rawName, emojis);
+                      if (!resolution.emoji?.url) {
+                          console.warn('[emoji] 主动消息无法安全匹配模型表情引用，已跳过', {
+                              rawName,
+                              reason: resolution.emoji ? 'missing-url' : resolution.reason,
+                              charId,
+                          });
+                          return false;
+                      }
+                      const meta = consumeThinkingMeta();
+                      await DB.saveMessage({
+                          charId,
+                          role: 'assistant',
+                          type: 'emoji',
+                          content: resolution.emoji.url,
+                          timestamp: baseTimestamp + offset,
+                          ...(meta ? { metadata: meta } : {}),
+                      });
+                      offset += 1;
+                      return true;
+                  };
+
                   if (hasTranslationTags) {
                       // 表情包按模型写的位置原地插发（与 applyAssistantPostProcessing 双语分支同款修复）。
                       // 旧实现先把所有 [[SEND_EMOJI:]] 抽走、正文发完后统一追加到最后（还去了重），
                       // 表现为「翻译模式下角色永远最后才发表情包」。
-                      const sendEmojiBubble = async (name: string): Promise<void> => {
-                          const foundEmoji = emojis.find(e => e.name === name);
-                          if (!foundEmoji?.url) return;
-                          const meta = consumeThinkingMeta();
-                          await DB.saveMessage({
-                              charId,
-                              role: 'assistant',
-                              type: 'emoji',
-                              content: foundEmoji.url,
-                              timestamp: baseTimestamp + offset,
-                              ...(meta ? { metadata: meta } : {}),
-                          });
-                          offset += 1;
-                      };
                       // 翻译标签之外的普通文本段：splitResponse 按出现顺序拆出文字 / 表情逐条发
                       const renderPlainSegment = async (segment: string): Promise<void> => {
                           for (const part of ChatParser.splitResponse(segment)) {
@@ -2431,31 +2486,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
                       for (const part of responseParts) {
                           if (part.type === 'emoji') {
-                              const foundEmoji = emojis.find(e => e.name === part.content);
-                              if (foundEmoji?.url) {
-                                  const meta = consumeThinkingMeta();
-                                  await DB.saveMessage({
-                                      charId,
-                                      role: 'assistant',
-                                      type: 'emoji',
-                                      content: foundEmoji.url,
-                                      timestamp: baseTimestamp + offset,
-                                      ...(meta ? { metadata: meta } : {}),
-                                  });
-                              } else {
-                                  const fallbackText = `发送了表情包：${part.content}`;
-                                  const meta = consumeThinkingMeta();
-                                  await DB.saveMessage({
-                                      charId,
-                                      role: 'assistant',
-                                      type: 'text',
-                                      content: fallbackText,
-                                      timestamp: baseTimestamp + offset,
-                                      ...(meta ? { metadata: meta } : {}),
-                                  });
-                                  savedPreviewChunks.push(fallbackText);
-                              }
-                              offset += 1;
+                              await sendEmojiBubble(part.content);
                               continue;
                           }
 
@@ -3742,6 +3773,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // （worldHomeLocal 本机配置也已随导出带走），但这两个 store 之前漏在清单外，
               // 导致导出的备份不含家园数据。
               'worlds', 'world_episodes',
+              // Living World 被动基础层：state + append-only event ledger，无媒体。
+              'living_world',
+              // 礼物记录（Phase 6）：imageRef 是 blobref 令牌，媒体/全量导出走与 messages 同款
+              // 的 resolveBlobRefsDeep（见下方 store 循环）→ data: → zip assets 抽取 + 全局去重。
+              'gift_records',
               // 生活记录（档案 App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions）
               // 导入端 importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录。
               'life_records', 'med_plans', 'life_record_settings'
@@ -3772,6 +3808,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               timestamp: Date.now(),
               version: 3,
               apiConfig: (mode === 'text_only' || mode === 'full') ? apiConfig : undefined,
+              imageGenerationConfig: (mode === 'text_only' || mode === 'full') ? exportImageGenerationConfig() : undefined,
               apiPresets: (mode === 'text_only' || mode === 'full') ? apiPresets : undefined,
               availableModels: (mode === 'text_only' || mode === 'full') ? availableModels : undefined,
               realtimeConfig: (mode === 'text_only' || mode === 'full') ? realtimeConfig : undefined,
@@ -3999,6 +4036,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'bank_transactions', 'scheduled_messages', 'memory_batches', 'hotnews_snapshots',
               'character_groups',
               'story_theaters', 'story_theater_presets',
+              'living_world',
               'life_records', 'med_plans', 'life_record_settings'
           ]);
 
@@ -4073,6 +4111,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               vr_presets: 'vrPresets',
               worlds: 'worlds',
               world_episodes: 'worldEpisodes',
+              living_world: 'livingWorld',
               life_records: 'lifeRecords',
               med_plans: 'medPlans',
               life_record_settings: 'lifeRecordSettings',
@@ -4153,8 +4192,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               //  · characters：小屋 roomConfig.wallImage/floorImage/items[].image、sprites.chibi
               //    （media_only 的 roomItems/backgrounds 提取也依赖已还原成 data:）
               //  · cc_custom_parts：捏人器自定义部件的 src / shadowSrc
-              //  · messages：视频通话每轮快照的 metadata.cameraSnapshotRef
-              if ((storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages') && mode !== 'text_only' && Array.isArray(rawData)) {
+               //  - messages camera snapshot / gift_records imageRef (blobref -> data: -> zip assets)
+               if ((storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages' || storeName === 'gift_records') && mode !== 'text_only' && Array.isArray(rawData)) {
                   for (const c of rawData) await resolveBlobRefsDeep(c);
               }
 
@@ -4306,6 +4345,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // 家园 —— 键名须与 importFullData 读取的字段（data.worlds / data.worldEpisodes）对齐
                   case 'worlds': backupData.worlds = processedData; break;
                   case 'world_episodes': backupData.worldEpisodes = processedData; break;
+                  case 'living_world': backupData.livingWorld = processedData; break;
+            // 礼物 —— 键名须与 importFullData 读取的字段（data.gifts）对齐
+            case 'gift_records': backupData.gifts = processedData; break;
               }
 
               await new Promise(resolve => setTimeout(resolve, 10));
@@ -4607,6 +4649,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               await updateTheme(data.theme);
           }
           if (data.apiConfig) updateApiConfig(data.apiConfig);
+          if (data.imageGenerationConfig !== undefined) importImageGenerationConfig(data.imageGenerationConfig);
           if (data.availableModels) saveModels(data.availableModels);
           if (data.apiPresets) savePresets(data.apiPresets);
           if (data.realtimeConfig) updateRealtimeConfig(data.realtimeConfig); // 恢复实时感知配置

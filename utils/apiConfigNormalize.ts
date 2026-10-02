@@ -1,4 +1,4 @@
-import type { APIConfig, ApiPreset } from '../types';
+import type { APIConfig, ApiPreset, ChatApiFormat } from '../types';
 
 // Clipboard contents can carry zero-width characters that String.trim() does not
 // remove. They are never valid at the edges of an API URL, token, or model id.
@@ -16,6 +16,9 @@ export const normalizeApiCredential = (value: unknown): string =>
 export const normalizeApiModel = (value: unknown): string =>
   cleanEdgeCharacters(value);
 
+export const normalizeChatApiFormat = (value: unknown): ChatApiFormat =>
+  value === 'gemini-native' ? 'gemini-native' : 'openai-compatible';
+
 export function normalizeApiConfig(config: APIConfig): APIConfig {
   const visionApi = config.visionApi;
   return {
@@ -23,6 +26,7 @@ export function normalizeApiConfig(config: APIConfig): APIConfig {
     baseUrl: normalizeApiBaseUrl(config.baseUrl),
     apiKey: normalizeApiCredential(config.apiKey),
     model: normalizeApiModel(config.model),
+    apiFormat: normalizeChatApiFormat(config.apiFormat),
     ...(visionApi ? {
       visionApi: {
         enabled: visionApi.enabled === true,

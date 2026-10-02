@@ -4,6 +4,7 @@ import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
 import { processImage } from '../utils/file';
+import { retryChatPhotoMessage } from '../utils/chatPhotoGeneration';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
@@ -49,7 +50,8 @@ import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
 import { synthesizeSpeechDetailed, characterHasVoice } from '../utils/ttsRouter';
 import { shouldAutoGenerateVoice, shouldAutoPlayGeneratedVoice } from '../utils/voicePlayback';
-import { fetchBlobForShare, shareOrDownloadBlob } from '../utils/shareExport';
+import { fetchBlobForShare, shareOrDownloadBlob, shareOrDownloadFile } from '../utils/shareExport';
+import { buildEmojiRuntimeDiagnostic } from '../utils/emojiRuntimeDiagnostic';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { resolveFishAudioApiKey, stripFishMarkupForDisplay, cleanTextForTtsFish } from '../utils/fishAudioTts';
 import { resolveTtsProvider } from '../utils/ttsProvider';
@@ -72,6 +74,8 @@ import {
     resolveContextRangeMode,
     type ContextRangeMode,
 } from '../utils/chatContextRange';
+import { formatMessageDateSeparator, isSameLocalMessageDay, shouldShowMessageDateSeparator } from '../utils/messageDateSeparator';
+import { resolveCharacterChatApiConfig } from '../utils/formalNpcRegistry';
 
 const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
 /** 即时对话那一轮回复「推送陆续到齐」的宽限时间，也就是自动合成的补扫窗口有多长（见下面的 auto-TTS effect）。 */
@@ -123,6 +127,26 @@ const Chat: React.FC = () => {
     const [activeCategory, setActiveCategory] = useState<string>('default');
     const [newCategoryName, setNewCategoryName] = useState('');
     const [newEmojiName, setNewEmojiName] = useState(''); // 表情包重命名输入框
+
+    const handleExportEmojiDiagnostic = useCallback(async () => {
+        try {
+            const [currentEmojis, currentCategories] = await Promise.all([
+                DB.getEmojis(),
+                DB.getEmojiCategories(),
+            ]);
+            const report = await buildEmojiRuntimeDiagnostic(currentEmojis, currentCategories);
+            await shareOrDownloadFile({
+                content: JSON.stringify(report, null, 2),
+                fileName: 'emoji_runtime_diagnostic.json',
+                mimeType: 'application/json',
+                shareTitle: '导出表情诊断',
+            });
+            addToast(`表情诊断已生成（${currentEmojis.length} 条）`, 'success');
+        } catch (error: any) {
+            console.error('[emoji] runtime diagnostic failed', error);
+            addToast(error?.message || '表情诊断导出失败', 'error');
+        }
+    }, [addToast]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastMsgIdRef = useRef<number | null>(null);
@@ -338,11 +362,16 @@ const Chat: React.FC = () => {
         return () => window.removeEventListener(AMSG_INSTANT_CHAT_PENDING_EVENT, sync);
     }, [activeCharacterId]);
 
+    const characterChatApiConfig = useMemo(
+        () => resolveCharacterChatApiConfig(apiConfig, char),
+        [apiConfig, char?.chatApiOverride],
+    );
+
     // --- Initialize Hook ---
     const { isTyping, streamingBubbles, streamingThinking, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
         char,
         userProfile,
-        apiConfig,
+        apiConfig: characterChatApiConfig,
         groups,
         emojis: aiVisibleEmojis,
         categories: visibleCategories,
@@ -381,6 +410,9 @@ const Chat: React.FC = () => {
     // 消息会被反复重试、每次再弹一个「语音生成失败」。只挡自动那条路：用户自己点「转换语音」
     // 照样能重试（换了网络/补了 key 之后就该能成）。换角色时清空。
     const voiceFailedRef = useRef<Set<number>>(new Set());
+    // React state 更新不是同步的；用 ref 立即占位，避免即时推送扫描窗在下一次 render 前
+    // 对同一条语音重复发起 TTS。
+    const voiceInFlightRef = useRef<Set<number>>(new Set());
     // Track blob: URLs we created so we can revoke them on character switch / unmount.
     const voiceBlobUrlsRef = useRef<Set<string>>(new Set());
     // We warn the user at most once (per character) that MiniMax voice isn't configured —
@@ -479,7 +511,7 @@ const Chat: React.FC = () => {
     };
 
     const handleManualTts = async (msg: Message, autoTriggered = false) => {
-        if (voiceLoading.has(msg.id)) return;
+        if (voiceInFlightRef.current.has(msg.id) || voiceLoading.has(msg.id)) return;
         if (voiceDataMap[msg.id]) {
             if (autoTriggered) return;
             // 手动点「转换语音」= 用户要求重新生成（典型场景：编辑了消息内容后）。
@@ -517,6 +549,7 @@ const Chat: React.FC = () => {
             return;
         }
 
+        voiceInFlightRef.current.add(msg.id);
         setVoiceLoading(prev => new Set(prev).add(msg.id));
         try {
             let spokenText: string;
@@ -605,6 +638,7 @@ const Chat: React.FC = () => {
             voiceFailedRef.current.add(msg.id);
             addToast(`语音生成失败: ${err?.message || '未知错误'}`, 'error');
         } finally {
+            voiceInFlightRef.current.delete(msg.id);
             setVoiceLoading(prev => { const next = new Set(prev); next.delete(msg.id); return next; });
         }
     };
@@ -669,21 +703,21 @@ const Chat: React.FC = () => {
         const typingJustEnded = wasTyping && !isTyping;
         const inInstantWindow = Date.now() < instantVoiceScanUntilRef.current;
         if (!typingJustEnded && !inInstantWindow) return;
-        if (!char.chatVoiceEnabled) return;
-        // 关着「收到就自动播放」就别提前合成（理由见 shouldAutoGenerateVoice）：
-        // 空语音条照常出现，用户点了才合成、合成完直接播。
-        if (!shouldAutoGenerateVoice({ autoPlayEnabled: char.chatVoiceAutoPlay })) return;
-        if (!characterHasVoice(char, apiConfig)) return;
         // Scan recent assistant messages for unprocessed <语音> tags
         for (let i = messages.length - 1; i >= 0; i--) {
             const msg = messages[i];
             // Stop scanning once we hit a non-assistant message (end of current AI response batch)
             if (msg.role !== 'assistant') break;
             if (msg.type !== 'text') continue;
-            if (voiceDataMap[msg.id] || voiceLoading.has(msg.id)) continue;
-            // 合成失败过就别再自动重试了：扫描窗里每来一条消息都重扫一遍，
-            // 同一条会一路重试到窗口关闭，还每次弹一个失败提示。用户手点不受影响。
-            if (voiceFailedRef.current.has(msg.id)) continue;
+            const parsedVoice = parseVoiceOutput(msg.content);
+            if (!shouldAutoGenerateVoice({
+                voiceEnabled: char.chatVoiceEnabled,
+                hasVoiceTag: parsedVoice.hasVoiceTag && parsedVoice.speech.length >= 2,
+                ttsReady: isMinimaxReady(),
+                hasVoiceData: !!voiceDataMap[msg.id],
+                loading: voiceLoading.has(msg.id) || voiceInFlightRef.current.has(msg.id),
+                failed: voiceFailedRef.current.has(msg.id),
+            })) continue;
             handleManualTts(msg, true);
         }
     }, [isTyping, instantChatPending, messages]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1336,6 +1370,17 @@ const Chat: React.FC = () => {
             triggerAI(messages, undefined, () => setInstantSendingActive(false));
         }
     };
+
+    // 聊天拍照（Phase 2A）：照片生成失败 / 中断后玩家在气泡上点「重试」。
+    // 手动重试不受「一轮一次」claim 限制，但也只按点击次数执行——没有任何自动重试。
+    const handleRetryChatPhoto = useCallback(async (messageId: number) => {
+        if (!char) return;
+        try {
+            await retryChatPhotoMessage(char, messageId, addToast);
+        } finally {
+            await reloadMessages(visibleCountRef.current);
+        }
+    }, [char, addToast, reloadMessages]);
 
     // 用户点开「收到的转账」卡（角色发来、待处理）选择接收 / 退回：
     // 标记原转账状态 + 补一张回执小卡（role=user，角色侧 prompt 会看到 [[记录:TRANSFER|to=user|...|status=已收下/已退回]]）。
@@ -3176,6 +3221,7 @@ const Chat: React.FC = () => {
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
+                onExportEmojiDiagnostic={handleExportEmojiDiagnostic}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}
                 onToggleTranslation={() => { const next = !translationEnabled; setTranslationEnabled(next); localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next)); if (next) { trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' }); } if (!next) { setShowingTargetIds(new Set()); } }}
@@ -3425,13 +3471,17 @@ const Chat: React.FC = () => {
                 {displayMessages.map((m, i) => {
                     const prevMessage = i > 0 ? displayMessages[i - 1] : null;
                     const nextMessage = i < displayMessages.length - 1 ? displayMessages[i + 1] : null;
+                    const showDateSeparator = shouldShowMessageDateSeparator(displayMessages, i);
+                    const sameDayAsNext = !!nextMessage && isSameLocalMessageDay(m.timestamp, nextMessage.timestamp);
                     const messageGroupGapMs = 30 * 60 * 1000;
                     const breaksWithPrevious =
                         !prevMessage ||
+                        showDateSeparator ||
                         prevMessage.role !== m.role ||
                         Math.abs(m.timestamp - prevMessage.timestamp) > messageGroupGapMs;
                     const breaksWithNext =
                         !nextMessage ||
+                        !sameDayAsNext ||
                         nextMessage.role !== m.role ||
                         Math.abs(nextMessage.timestamp - m.timestamp) > messageGroupGapMs;
                     const suppressEntranceAnimation = streamPreviewHandoverIdsRef.current.has(m.id);
@@ -3446,8 +3496,13 @@ const Chat: React.FC = () => {
                     const showToolTrace = !!toolTraceText
                         && !(pushMessageId && (nextMessage?.metadata as any)?.activeMsg2?.messageId === pushMessageId);
                     return (
+                        <React.Fragment key={m.id || i}>
+                        {showDateSeparator && <div className='my-5 flex items-center gap-3 px-6' role='separator' aria-label={formatMessageDateSeparator(m.timestamp)}>
+                            <span className='h-px min-w-0 flex-1 bg-slate-300/60' />
+                            <time className='shrink-0 text-[10px] font-medium text-slate-400' dateTime={new Date(m.timestamp).toISOString()}>{formatMessageDateSeparator(m.timestamp)}</time>
+                            <span className='h-px min-w-0 flex-1 bg-slate-300/60' />
+                        </div>}
                         <div
-                            key={m.id || i}
                             id={`chat-msg-${m.id}`}
                             className={[
                                 flashMsgId === m.id ? 'ring-2 ring-yellow-300 bg-yellow-50/40 rounded-2xl mx-2' : '',
@@ -3497,6 +3552,7 @@ const Chat: React.FC = () => {
                             onMcdCandidate={handleMcdCandidate}
                             onResolveTransfer={handleResolveTransfer}
                             onResolveLifeRecord={handleResolveLifeRecord}
+                            onRetryChatPhoto={handleRetryChatPhoto}
                             thinkingChainOptions={thinkingChainOptions}
                         />
                         {showToolTrace && (
@@ -3507,6 +3563,7 @@ const Chat: React.FC = () => {
                             </div>
                         )}
                         </div>
+                        </React.Fragment>
                     );
                 })}
                 

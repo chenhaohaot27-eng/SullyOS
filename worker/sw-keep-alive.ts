@@ -68,8 +68,10 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *            并往 ActiveMsg 库 kv store 写「订阅已变化」标记（主线程据此把新订阅逐条
  *            写回已排程的远端任务，见 utils/activeMsgRuntime.ts）。onupgradeneeded 补建
  *            kv store（SW-first 安装时主线程 schema 还没建过）。
+ *  - 1.17.0: iOS Home Screen App Shell 更新。导航请求固定 network-first/no-store，
+ *            新 worker 激活后重载已打开的旧页面。不读写/清理 IndexedDB 或 Cache Storage。
  */
-const SW_VERSION = '1.16.0';
+const SW_VERSION = '1.17.0';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;
@@ -787,5 +789,23 @@ sw.addEventListener('install', () => {
 });
 
 sw.addEventListener('activate', (event: ExtendableEvent) => {
-  event.waitUntil(sw.clients.claim());
+  event.waitUntil((async () => {
+    await sw.clients.claim();
+    // 旧主屏幕 App 可能正恢复一个 Safari 冻结的旧 React 页面。
+    // 新 worker 每次激活只导航一次，让该页面立即经过下方 no-store 入口。
+    const clients = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    await Promise.allSettled(clients.map(client => (
+      'navigate' in client ? (client as WindowClient).navigate(client.url) : Promise.resolve()
+    )));
+  })());
+});
+
+sw.addEventListener('fetch', (event: FetchEvent) => {
+  const request = event.request;
+  // 只管 HTML 导航；Vite 内容哈希的 JS/CSS 和所有 API/素材请求仍原样通过。
+  if (request.method !== 'GET' || request.mode !== 'navigate') return;
+  event.respondWith(
+    fetch(request, { cache: 'no-store' })
+      .catch(() => fetch(request)),
+  );
 });

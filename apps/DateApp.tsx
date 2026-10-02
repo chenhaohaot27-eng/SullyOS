@@ -8,7 +8,8 @@ import { processNewMessagesWithAutoArchive } from '../utils/memoryPalace/autoArc
 import type { PipelineResult } from '../utils/memoryPalace/pipeline';
 import { incrementDigestRound, runCognitiveDigestion } from '../utils/memoryPalace';
 import { getRoomLabel } from '../utils/memoryPalace/types';
-import { safeResponseJson, extractContent } from '../utils/safeApi';
+import { extractContent } from '../utils/safeApi';
+import { completeChat } from '../utils/chatCompletionClient';
 import Modal from '../components/os/Modal';
 import DateSession from '../components/date/DateSession';
 import DateSettings from '../components/date/DateSettings';
@@ -20,6 +21,7 @@ import { trackEvent } from '../utils/analytics';
 import { markAmsgStateDirty } from '../utils/amsgStateSync';
 import StoryTheater from '../components/date/story/StoryTheater';
 import { dateLaunch } from '../utils/dateLaunch';
+import { meetingInviteLaunch, type MeetingLaunchIntent } from '../utils/meetingInvite';
 import { materializeVisionDescriptions } from '../utils/visionApi';
 import { shareOrDownloadFile } from '../utils/shareExport';
 import {
@@ -41,6 +43,10 @@ const DateApp: React.FC = () => {
     // 之后从桌面直接打开的见面会话里。
     const [cameFromChat, setCameFromChat] = useState(false);
     const [meetSurface, setMeetSurface] = useState<'companion' | 'story'>(() => dateLaunch.peek()?.surface ?? 'companion');
+    // 聊天邀请跳转（MeetingInviteCard「去见TA」）：先让玩家选陪伴/剧情，再进入对应见面流程。
+    const [pendingMeetInvite, setPendingMeetInvite] = useState<MeetingLaunchIntent | null>(() => meetingInviteLaunch.consume());
+    // 本场见面的邀请上下文（sceneSeed/contextSummary/参与者）：peek 与整场 session 共用。
+    const [activeMeetingContext, setActiveMeetingContext] = useState<{ sceneSeed: string; contextSummary?: string; participantsText?: string } | null>(null);
 
     // 记忆宫殿（与聊天侧共用同一套上下文：同 charId、同高水位线）
     // 见面流也需要在 AI 回复后跑一次缓冲区检查 + 自动归档，否则只有"读"没有"写"。
@@ -71,7 +77,13 @@ const DateApp: React.FC = () => {
 
         const initialIntent = dateLaunch.peek();
         if (initialIntent) applyLaunchIntent(initialIntent);
-        return dateLaunch.subscribe(applyLaunchIntent);
+        const unsubscribeDate = dateLaunch.subscribe(applyLaunchIntent);
+        // 见面邀请跳转：DateApp 已挂载时（从聊天直接跳）监听后续 launch 事件。
+        const unsubscribeMeet = meetingInviteLaunch.subscribe(intent => setPendingMeetInvite(intent));
+        return () => {
+            unsubscribeDate();
+            unsubscribeMeet();
+        };
     }, []);
 
     // 选择页分页（6 个角色一页，横向翻页）
@@ -211,22 +223,20 @@ const DateApp: React.FC = () => {
 
     // peek / send / reroll 共用的 LLM 调用（提示词构建统一在 utils/datePrompts.ts）
     const callLLM = async (messages: ApiMessage[], temperature: number): Promise<string> => {
-        const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-            body: JSON.stringify({
-                model: apiConfig.model,
-                messages,
-                temperature,
-                // max_tokens 是 Claude 原生 API 的必填字段；缺了它，糯米机/Csy 等
-                // OpenAI→Claude 中转会被上游打回，再包成 502 / bad_response_status_code。
-                // 与私聊 (useChatAI.ts) 对齐，统一带 8000。
-                max_tokens: 8000,
-                stream: apiConfig.stream ?? false,
-            })
-        });
-        if (!response.ok) throw new Error(`API Error ${response.status}`);
-        const data = await safeResponseJson(response);
+        // Phase 2C：见面请求统一走 chatCompletionClient。OpenAI-compatible 仍请求
+        // 原 OpenAI 兼容端点，body 与原 fetch 一致（同样零重试）；apiFormat 为
+        // gemini-native 时自动改走 Gemini 原生流式端点，429/上游错误保留原始 message
+        // 单次抛出，不自动重发。
+        const data = await completeChat(apiConfig, {
+            model: apiConfig.model,
+            messages,
+            temperature,
+            // max_tokens 是 Claude 原生 API 的必填字段；缺了它，糯米机/Csy 等
+            // OpenAI→Claude 中转会被上游打回，再包成 502 / bad_response_status_code。
+            // 与私聊 (useChatAI.ts) 对齐，统一带 8000。
+            max_tokens: 8000,
+            stream: apiConfig.stream ?? false,
+        }, { maxRetries: 0 });
         // 思考型渠道会把正文塞进 reasoning_content、content 留空——直接取 content
         // 会拿到空串且不报错：感知页黑屏卡死（无按钮可退），会话里则落库空消息。
         const content = extractContent(data);
@@ -259,6 +269,49 @@ const DateApp: React.FC = () => {
     const returnToChat = () => {
         setCameFromChat(false);
         openApp(AppID.Chat);
+    };
+
+    // --- 聊天见面邀请：玩家选完陪伴/剧情后进入对应流程 ---
+    // 主见面角色：participants 第一个命中注册表的角色；全部未命中（纯 NPC 场景）兜底来源聊天角色。
+    const resolveMeetPrimaryChar = (intent: MeetingLaunchIntent): CharacterProfile | null => {
+        const ids = intent.invitation.participantIds || [];
+        for (const id of ids) {
+            const hit = characters.find(c => c.id === id);
+            if (hit) return hit;
+        }
+        return characters.find(c => c.id === intent.invitation.sourceCharId) || null;
+    };
+
+    const handleMeetInviteChoice = (surface: 'companion' | 'story') => {
+        if (!pendingMeetInvite) return;
+        const target = resolveMeetPrimaryChar(pendingMeetInvite);
+        const hint = {
+            sceneSeed: pendingMeetInvite.invitation.sceneSeed,
+            contextSummary: pendingMeetInvite.invitation.contextSummary,
+            participantsText: pendingMeetInvite.participantsText,
+        };
+        const current = pendingMeetInvite;
+        setPendingMeetInvite(null);
+        setCameFromChat(true);
+        setMeetSurface(surface);
+        if (!target) {
+            addToast('邀请中的见面角色已不存在，已回到来源角色', 'info');
+        }
+        const c = target || characters.find(ch => ch.id === current.invitation.sourceCharId);
+        if (!c) { addToast('找不到可用的见面角色', 'error'); return; }
+        if (c.savedDateState) {
+            // 有旧存档：沿用既有"继续/新开"流程；上下文待新开时生效（继续旧进度不覆盖旧场景）。
+            setPendingSessionChar(c);
+            setActiveMeetingContext(hint);
+        } else {
+            startPeek(c, hint);
+        }
+        trackEvent('接受见面邀请', { surface });
+    };
+
+    const dismissMeetInviteChoice = () => {
+        setPendingMeetInvite(null);
+        setActiveMeetingContext(null);
     };
 
     const handleResumeSession = () => {
@@ -317,7 +370,10 @@ const DateApp: React.FC = () => {
     };
 
     // --- Peek (Generation) Logic ---
-    const startPeek = async (c: CharacterProfile) => {
+    // meetingHint：应约见面的邀请情境（显式传入，避免依赖异步 state）；无值走原逻辑。
+    const startPeek = async (c: CharacterProfile, meetingHint?: { sceneSeed: string; contextSummary?: string; participantsText?: string } | null) => {
+        const hint = meetingHint ?? activeMeetingContext;
+        if (meetingHint) setActiveMeetingContext(meetingHint);
         setActiveCharacterId(c.id);
         setMode('peek');
         setPeekLoading(true);
@@ -335,6 +391,8 @@ const DateApp: React.FC = () => {
                 allMsgs: preparedMsgs,
                 emojis,
                 useVisionDescriptions: apiConfig.visionApi?.enabled === true,
+                // 应约见面：把邀请情境作为 peek 场景锚点
+                ...(hint ? { sceneHint: hint } : {}),
             });
             const content = await callLLM(messages, apiConfig.temperature ?? 0.85);
             setPeekStatus(content);
@@ -436,6 +494,10 @@ const DateApp: React.FC = () => {
             userText: text,
             variant: 'send',
             useVisionDescriptions: apiConfig.visionApi?.enabled === true,
+            // 应约见面：整场 session 持续注入邀请情境
+            ...(activeMeetingContext
+                ? { meetingContext: `到场：${activeMeetingContext.participantsText || char.name}。场景起点：${activeMeetingContext.sceneSeed}${activeMeetingContext.contextSummary ? `。赴约前背景：${activeMeetingContext.contextSummary}` : ''}` }
+                : {}),
         });
         const content = await callLLM(messages, apiConfig.temperature ?? 0.85);
 
@@ -700,6 +762,43 @@ const DateApp: React.FC = () => {
     };
 
     // --- Render ---
+
+    // 聊天见面邀请的模式选择（陪伴/剧情）：优先级最高的入口层，玩家选完才进入见面流程。
+    if (pendingMeetInvite) {
+        const inv = pendingMeetInvite.invitation;
+        return (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center px-6" style={{ background: 'linear-gradient(180deg,#efe9f7 0%,#f4eff9 55%,#f7f2fb 100%)' }}>
+                <div className="w-full max-w-xs rounded-3xl bg-white/70 backdrop-blur shadow-xl ring-1 ring-violet-100 p-5 text-center">
+                    <div className="text-3xl mb-1">🤝</div>
+                    <div className="text-sm font-bold text-slate-700 mb-0.5">你接受了{inv.initiatorName || 'TA'}的邀请</div>
+                    {pendingMeetInvite.participantsText && (
+                        <div className="text-[11px] text-slate-500 mb-2">将见到：{pendingMeetInvite.participantsText}</div>
+                    )}
+                    <p className="text-xs text-slate-600 leading-relaxed mb-4 px-1 break-words">「{inv.invitationText}」</p>
+                    <div className="text-[11px] font-semibold text-slate-500 mb-2">想以哪种方式赴约？</div>
+                    <div className="grid grid-cols-2 gap-2.5 mb-3">
+                        <button
+                            onClick={() => handleMeetInviteChoice('companion')}
+                            className="rounded-2xl bg-violet-500 text-white py-3 text-sm font-bold shadow-lg shadow-violet-500/30 active:scale-95 transition"
+                        >
+                            陪伴
+                            <div className="text-[9px] font-normal opacity-80 mt-0.5">安静地待在一起</div>
+                        </button>
+                        <button
+                            onClick={() => handleMeetInviteChoice('story')}
+                            className="rounded-2xl bg-white text-violet-600 py-3 text-sm font-bold shadow ring-1 ring-violet-200 active:scale-95 transition"
+                        >
+                            剧情
+                            <div className="text-[9px] font-normal text-slate-400 mt-0.5">推进这段故事</div>
+                        </button>
+                    </div>
+                    <button onClick={dismissMeetInviteChoice} className="text-[11px] text-slate-400 underline underline-offset-2">
+                        先不进去（邀请卡仍保留在聊天里）
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     if (meetSurface === 'story' && mode === 'select' && !cameFromChat) {
         return <StoryTheater onSwitchCompanion={() => setMeetSurface('companion')} onClose={closeApp} />;

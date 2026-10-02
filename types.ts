@@ -1,4 +1,8 @@
 
+// 礼物 GiftRecord（utils/giftTypes.ts，纯类型文件无反向依赖）——完整备份的 gifts 字段直接
+// 引用真相源类型，不复制第二份 schema（BackupGiftRecord 禁止）。
+import type { GiftRecord } from './utils/giftTypes';
+
 export enum AppID {
   Launcher = 'launcher',
   Settings = 'settings',
@@ -38,6 +42,7 @@ export enum AppID {
   VRWorld = 'vrworld', // 彼方 — 角色自主登入的虚拟世界（定时驱动，房间里看小说/听歌/留言，产出活动卡注入聊天+记忆）
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
+  Gift = 'gift', // 礼物 — 玩家与角色互赠礼物的记录（GiftRecord 唯一真相源，utils/giftStore.ts）
 }
 
 export interface SystemLog {
@@ -244,9 +249,34 @@ export interface VisionApiConfig {
   model: string;
 }
 
+/** 全局生图协议。与主对话 API、识图 API 完全独立。 */
+export type ImageGenerationProvider = 'gemini-native' | 'openai-images';
+
+export type ImageGenerationResolution = '1K' | '2K' | '4K';
+
+export type ImageGenerationAspectRatio = '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '16:9' | '9:16';
+
+/** 仅保存在当前设备；文本/完整备份会按项目现有凭据策略原样包含此配置。 */
+export interface ImageGenerationConfig {
+  version: 1;
+  enabled: boolean;
+  provider: ImageGenerationProvider;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  defaultResolution: ImageGenerationResolution;
+  defaultAspectRatio: ImageGenerationAspectRatio;
+  allowReferenceImages: boolean;
+  timeoutMs: number;
+}
+
+/** 主聊天请求协议。缺失或非法值必须按 OpenAI-compatible 处理。 */
+export type ChatApiFormat = 'openai-compatible' | 'gemini-native';
+
 export interface APIConfig {
   baseUrl: string;
   apiKey: string;
+  apiFormat?: ChatApiFormat;
   // 可选识图中转：给不支持 image_url 的主模型补视觉能力。
   visionApi?: VisionApiConfig;
   minimaxApiKey?: string;
@@ -663,6 +693,8 @@ export interface DateStyleConfig {
   pov?: 'third-name' | 'third-you' | 'first-you';
   /** 细节深挖引导：教模型从任意输入里挖素材 + 每轮轮换聚焦线索，对冲"没话找话"式的模型八股；缺省 = 开启 */
   digDeeper?: boolean;
+  /** 识别玩家输入的中英文括号为非台词叙事；缺省 = 开启 */
+  recognizeParentheticalNarration?: boolean;
   /** 自定义补充文风要求，原样追加进风格块 */
   extra?: string;
 }
@@ -1634,6 +1666,45 @@ export interface WorldCardMeta {
     phoneGroup?: string[];
 }
 
+// ============================================================
+// Living World passive foundation
+// ============================================================
+
+export type LivingWorldComputeTier = 'core' | 'standard' | 'ambient';
+
+export interface LivingWorldAgentState {
+    charId: string;
+    worldId: string;
+    currentGoal?: string;
+    pendingIntent?: string;
+    currentContext?: string;
+    focusEntityIds?: string[];
+    computeTier?: LivingWorldComputeTier;
+    updatedAt: number;
+}
+
+export interface LivingWorldState {
+    schemaVersion: number;
+    worldId: string;
+    createdAt: number;
+    updatedAt: number;
+    lastTickAt?: number;
+    agents: LivingWorldAgentState[];
+}
+
+export interface LivingWorldEvent {
+    id: string;
+    worldId: string;
+    timestamp: number;
+    type: string;
+    actorIds: string[];
+    targetIds?: string[];
+    source: 'foreground' | 'manual' | 'cloud' | string;
+    importance?: number;
+    summary: string;
+    refs?: { kind: string; id: string }[];
+}
+
 /** 邮局：一封信收到的回复（留档用）。 */
 export interface VRLetterReply {
     pen: string;
@@ -2540,6 +2611,18 @@ export interface CharacterProfile {
   id: string;
   name: string;
   avatar: string;
+  /** Names accepted for identity resolution (meeting participants, imports, etc.). */
+  aliases?: string[];
+  /** Stable relationship context kept separately from mutable chat memories. */
+  relationshipNotes?: {
+      player: string;
+      qiyu: string;
+  };
+  /**
+   * Optional character-level chat override. Missing fields inherit the global chat API/model
+   * configuration. It is intentionally absent on built-ins and stripped from shared cards.
+   */
+  chatApiOverride?: Partial<Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'stream' | 'temperature' | 'apiFormat'>>;
   /**
    * 视频通话使用的本地 VRM / Live2D 形象。模型二进制包保存在 IndexedDB
    * blob_assets，角色资料只保存轻量索引，避免把数 MB 的模型塞进
@@ -3673,7 +3756,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'gift_card' | 'meet_card';
 
 export interface Message {
     id: number;
@@ -3709,6 +3792,7 @@ export interface FullBackupData {
     version: number;
     theme?: OSTheme;
     apiConfig?: APIConfig;
+    imageGenerationConfig?: ImageGenerationConfig;
     instantPushConfig?: InstantPushConfig;
     pushVapid?: { vapidPublicKey: string; vapidPrivateKey: string; vapidEmail?: string; updatedAt?: number; };
     /**
@@ -3761,6 +3845,8 @@ export interface FullBackupData {
     vrSettings?: any[];                        // 彼方设置（独立 API + 调用记录）
     worlds?: WorldProfile[];                   // 家园·世界定义
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
+    livingWorld?: any[];                       // Living World 被动基础层（state + append-only event ledger）
+    gifts?: GiftRecord[];                      // 礼物记录（gift_records store；旧备份缺失 → 导入端按空处理）
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）

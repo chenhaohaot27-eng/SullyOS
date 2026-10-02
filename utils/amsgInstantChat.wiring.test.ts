@@ -58,6 +58,7 @@ const branchSrc = () => sliceSrc(chatAiSrc, '即时对话分支', INSTANT_CHAT_B
 
 /** Chat 里自动合成语音那个 effect 的源码（含它的依赖数组）。 */
 const autoTtsSrc = () => sliceSrc(chatSrc, '语音自动合成', '// --- Auto-TTS: when chatVoiceEnabled', 'const canReroll =');
+const playVoiceSrc = () => sliceSrc(chatSrc, '语音条点击播放', 'const handlePlayVoice =', '// 稳定的播放回调');
 
 describe('useChatAI 的分流接缝', () => {
   it('MCP 本身不在排除名单里（worker 会跑后台 MCP；整片排掉 = 配了 MCP 的人永远静默走本地）', () => {
@@ -287,6 +288,22 @@ describe('Chat 界面的语音自动合成', () => {
     // 甲还欠着回复时切到乙，指示灯会跟着乙的记录灭——那不是「乙的回复到了」，
     // 拿它开窗就会把乙的历史消息整批合成一遍。
     expect(autoTtsSrc()).toContain('instantVoiceScanCharRef');
+  });
+
+  it('生成不再依赖 auto play，并用同步 in-flight 标记防重复请求', () => {
+    const source = autoTtsSrc();
+    expect(source).toContain('shouldAutoGenerateVoice({');
+    expect(source).toContain('voiceEnabled: char.chatVoiceEnabled');
+    expect(source).toContain('ttsReady: isMinimaxReady()');
+    expect(source).not.toMatch(/shouldAutoGenerateVoice\(\{[^}]*autoPlayEnabled/);
+    expect(source).toContain('voiceInFlightRef.current.has(msg.id)');
+  });
+
+  it('音频已预生成时第一次点击直接播放，不再触发 TTS', () => {
+    const source = playVoiceSrc();
+    const readyBranch = source.slice(source.indexOf("if (!chatAudioRef.current)"));
+    expect(readyBranch).toContain('audio.play()');
+    expect(readyBranch).not.toContain('handleManualTts');
   });
 });
 

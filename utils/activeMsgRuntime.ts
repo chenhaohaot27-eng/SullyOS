@@ -1,6 +1,9 @@
-import { ActiveMsg2InboxMessage, ActiveMsg2TaskRecord, APIConfig, RealtimeConfig, UserProfile } from '../types';
+import { ActiveMsg2InboxMessage, ActiveMsg2TaskRecord, APIConfig, Emoji, RealtimeConfig, UserProfile } from '../types';
 import { DB } from './db';
+import { ChatParser } from './chatParser';
 import { ChatPrompts } from './chatPrompts';
+import { normalizeAssistantActionFormatting } from './assistantActionFormat';
+import { resolveEmojiByModelReference } from './emojiResolver';
 import { ActiveMsgStore } from './activeMsgStore';
 import { ActiveMsgClient, type AmsgOutboxEntry, type RemoteTaskStatus } from './activeMsgClient';
 import { AMSG_CHAT_FAIL_KEY, AMSG_SELF_LOG_KEY, amsgStateNamespace, parseChatFailRecord, parseSelfLog } from './amsgFirePack';
@@ -531,7 +534,7 @@ const processInboxMessageWithPostProcessing = async (
   // 由 flushInboxToChat 按 resolveInboxPersistTimestamp 算好: 离线补收 = sentAt,
   // 在线送达 = undefined (落库走 DB.saveMessage 默认的写库当刻)。
   persistTimestamp?: number,
-): Promise<void> => {
+): Promise<{ suppressUnread: boolean }> => {
   // 这一趟从云端旁路存储取回来的东西，等整条消息处理成功了再去删（见 OffloadedCleanup）。
   const offloadedCleanups: OffloadedCleanup[] = [];
   const characters = await DB.getAllCharacters();
@@ -550,7 +553,7 @@ const processInboxMessageWithPostProcessing = async (
 
   const userProfile: UserProfile = (await DB.getUserProfile())
     ?? { name: 'User', avatar: '', bio: '' };
-  // 按角色可见性过滤表情包：后处理落库时靠 emojis.find(e => e.name === name) 反查 URL，
+  // 按角色可见性过滤表情包：后处理落库时会用共享 resolver 反查 URL，
   // 若传全量表情，名字冲突时会把 A 的 [[SEND_EMOJI: x]] 匹配到 B 名下的同名表情，导致
   // A 发出绑定给 B 的表情包。本地聊天路径喂的是 aiVisibleEmojis（已过滤），主动消息路径
   // 之前漏了这步，这里复用同一套过滤收口（与 activeMsgClient.buildCompletePrompt 对齐）。
@@ -559,6 +562,9 @@ const processInboxMessageWithPostProcessing = async (
     await DB.getEmojiCategories(),
     message.charId,
   );
+  const directivesForReplay = replayDirectives && isLastChunk(message) ? extractDirectives(message) : [];
+  const suppressUnread = directivesForReplay.length === 0
+    && shouldSuppressUnresolvedEmojiOnlyDelivery(message.body || '', emojis);
   const contextMsgs = await DB.getRecentMessagesByCharId(message.charId, 200);
 
   const apiConfig = loadApiConfigFromLocalStorage();
@@ -729,7 +735,7 @@ const processInboxMessageWithPostProcessing = async (
     // 这里加 isLastChunk 守卫双保险, 防未来 worker bug 在多条 push 都塞 directives.
     // 老 worker (无 messageIndex/totalMessages 字段) ?? 0 fallback, 0===0 也算 last.
     // replayDirectives=false = 这是重试、且上次已经把副作用跑完了（见 prepareInboxRetry）。
-    directives: replayDirectives && isLastChunk(message) ? extractDirectives(message) : [],
+    directives: directivesForReplay,
     reasoningContent,
     // 这条 push 拆出的每条气泡共用一个时间戳 (跟降级存原稿路径同口径), 见
     // resolveInboxPersistTimestampForMessage。
@@ -817,6 +823,17 @@ const processInboxMessageWithPostProcessing = async (
   // 这时候删云端那几份旁路副本才是安全的。不 await：删是让 D1 干净点的收尾动作，
   // 不能让一次网络往返拖住收件箱里后面几条的落库。
   void runOffloadedCleanups(offloadedCleanups);
+  return { suppressUnread };
+};
+
+export const shouldSuppressUnresolvedEmojiOnlyDelivery = (
+  rawContent: string,
+  emojis: readonly Emoji[],
+): boolean => {
+  const parts = ChatParser.splitResponse(normalizeAssistantActionFormatting(rawContent || ''));
+  return parts.length > 0
+    && parts.every(part => part.type === 'emoji')
+    && parts.every(part => !resolveEmojiByModelReference(part.content, emojis).emoji);
 };
 
 /**
@@ -1691,11 +1708,13 @@ const flushInboxToChatImpl = async () => {
         || ASSISTANT_TEXT_TYPES.has(message.messageType);
 
       let routed = false;
+      let suppressUnread = false;
 
       if (looksLikeAssistantText) {
         try {
           await logInstantPushLlmExchange(message);
-          await processInboxMessageWithPostProcessing(message, persistTimestamp);
+          const result = await processInboxMessageWithPostProcessing(message, persistTimestamp);
+          suppressUnread = result.suppressUnread;
           routed = true;
         } catch (postErr) {
           const attempts = (message.processAttempts ?? 0) + 1;
@@ -1821,6 +1840,7 @@ const flushInboxToChatImpl = async () => {
           body: message.previewBody || message.body,
           avatarUrl: message.avatarUrl,
           sentAt: eventSentAt,
+          suppressUnread,
         },
       }));
       activeMsgTrace('runtime-active-msg-received-dispatched', {

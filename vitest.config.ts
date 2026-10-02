@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -5,7 +6,7 @@ export default defineConfig({
     alias: {
       // Workers 运行时自带的虚拟模块，node 上解析不到（不给别名的话，import 到它的
       // 测试文件整个加载失败）。打包侧的对应处理是 build-workers.mjs 里的 external。
-      'cloudflare:workers': new URL('./test/stubs/cloudflare-workers.ts', import.meta.url).pathname,
+      'cloudflare:workers': fileURLToPath(new URL('./test/stubs/cloudflare-workers.ts', import.meta.url)),
     },
   },
   test: {

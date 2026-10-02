@@ -1,9 +1,10 @@
 
 import { useState, useRef, useEffect, MutableRefObject } from 'react';
-import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord } from '../types';
+import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord, ChatApiFormat } from '../types';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { safeFetchJson, safeResponseJson } from '../utils/safeApi';
+import { buildAssistantToolFollowUpMessage, completeChat } from '../utils/chatCompletionClient';
 import { KeepAlive } from '../utils/keepAlive';
 import { ProactiveChat } from '../utils/proactiveChat';
 import { ContextBuilder } from '../utils/context';
@@ -63,6 +64,7 @@ import {
     getMemoryPalaceHighWaterMarkForContext,
     loadCharacterContextRange,
 } from '../utils/chatContextRange';
+import { loadContinuitySnapshot } from '../utils/continuityContext';
 
 // ─── 云端情绪评估的安全网定时器（模块级，按角色）───
 // 为什么不放 hook 里：结论（emotionDone）是全局事件，用户切了角色、离开聊天页之后
@@ -88,6 +90,37 @@ if (typeof window !== 'undefined') {
 
 // ─── 情绪评估（副API，fire & forget）───
 
+/**
+ * Phase 2A：情绪评估历史独立窗口 —— 最近 20 条有效文字消息。
+ * 主聊天的 history/contextLimit 完全不受影响；角色核心设定、关系/当前状态、
+ * 世界书/记忆等仍由 mainSystemPrompt（与主 API 一致）+ 下方 Buff 段完整提供。
+ * 图片在展平时只留 [图片] 占位，不带 data URL/大附件；纯图片/空消息不占窗口名额。
+ */
+export const EMOTION_EVAL_HISTORY_LIMIT = 20;
+
+export function takeEmotionEvalHistory(
+    apiMessages: Array<{ role: string; content: any }>,
+    charName: string,
+): string[] {
+    const lines: string[] = [];
+    for (const m of apiMessages) {
+        const role = m.role === 'user' ? '用户' : (m.role === 'assistant' ? charName : '系统');
+        let text = '';
+        if (typeof m.content === 'string') {
+            text = m.content;
+        } else if (Array.isArray(m.content)) {
+            text = m.content.map((part: any) => {
+                if (part?.type === 'text') return part.text || '';
+                if (part?.type === 'image_url') return '[图片]';
+                return '';
+            }).filter(Boolean).join(' ');
+        }
+        if (!text.trim()) continue;
+        lines.push(`[${role}]: ${text}`);
+    }
+    return lines.slice(-EMOTION_EVAL_HISTORY_LIMIT);
+}
+
 function buildEmotionEvalPrompt(
     char: CharacterProfile,
     userProfile: UserProfile,
@@ -102,22 +135,9 @@ function buildEmotionEvalPrompt(
     // （包含：角色设定、印象档案、世界书、记忆宫殿、实时信息、日程内心旁白、群聊、日记标题等）
     const currentBuffs = char.activeBuffs || [];
 
-    // 将主 API 的消息数组展平成文本（保留时间戳、引用、特殊消息类型等格式）
-    // 不截断：与主 API 完全对齐（contextLimit 条），让情绪 eval 能看到完整的情绪演变轨迹
-    const recentLines = apiMessages.map(m => {
-        const role = m.role === 'user' ? '用户' : (m.role === 'assistant' ? char.name : '系统');
-        let text = '';
-        if (typeof m.content === 'string') {
-            text = m.content;
-        } else if (Array.isArray(m.content)) {
-            text = m.content.map((part: any) => {
-                if (part?.type === 'text') return part.text || '';
-                if (part?.type === 'image_url') return '[图片]';
-                return '';
-            }).filter(Boolean).join(' ');
-        }
-        return `[${role}]: ${text}`;
-    }).join('\n');
+    // Phase 2A 起情绪评估只带最近 20 条有效文字聊天（见 takeEmotionEvalHistory），
+    // 主 API 的完整 system prompt 仍整段保留，确保角色设定/世界书/记忆/实时状态信息不丢。
+    const recentLines = takeEmotionEvalHistory(apiMessages, char.name).join('\n');
 
     const buffStr = currentBuffs.length > 0
         ? JSON.stringify(currentBuffs, null, 2)
@@ -713,7 +733,14 @@ export const useChatAI = ({
 
     const triggerAI = async (
         currentMsgs: Message[],
-        overrideApiConfig?: { baseUrl: string; apiKey: string; model: string },
+        overrideApiConfig?: {
+            baseUrl: string;
+            apiKey: string;
+            model: string;
+            apiFormat?: ChatApiFormat;
+            stream?: boolean;
+            temperature?: number;
+        },
         onInstantPosted?: () => void,
         opts?: { skipEmotionInjection?: boolean },
     ) => {
@@ -776,9 +803,6 @@ export const useChatAI = ({
         };
 
         try {
-            const baseUrl = effectiveApi.baseUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}` };
-
             // ── 分段计时（从用户发送到 API 发出）──
             const perfSendT0 = performance.now();
             const perfStages: Record<string, number> = {};
@@ -812,6 +836,10 @@ export const useChatAI = ({
             if (fullHistory) {
                 console.log(`📊 [Context] Loaded ${fullHistory.length} msgs from DB (React state had ${currentMsgs.length}, mode=${contextRange?.mode}, maxStart=${contextRange?.maxRangeStartMessageId ?? 'none'}, effectiveStart=${contextRange?.effectiveStartMessageId ?? 'none'})`);
             }
+            const continuitySnapshot = await stageT('continuity', loadContinuitySnapshot(charForGen).catch(error => {
+                console.warn('[Continuity] Failed to load cross-app context; continuing without it.', error);
+                return undefined;
+            }));
 
             // 1. 构造完整 chat 请求载荷（memoryPalace 召回 + system prompt + 双语 / HTML / 思考链 / MCD + 历史）
             //    — 主动消息和 emotion eval 走的是同一个 helper，保证三家拿到的"材料"完全一致。
@@ -972,6 +1000,7 @@ export const useChatAI = ({
                 luckinMiniSnap: luckinMiniOpen ? luckinMiniSnap : undefined,
                 luckinChat: luckinChatOn ? luckinChatRef?.current : undefined,
                 timelyByWorker: instantChatRoute,
+                continuitySnapshot,
             }));
             const systemPrompt = payload.systemPrompt;
             const cleanedApiMessages = payload.cleanedApiMessages;
@@ -1132,6 +1161,14 @@ export const useChatAI = ({
                 max_tokens: 8000,
                 stream: userStream,
             };
+            const mainCompletionConfig = {
+                baseUrl: effectiveApi.baseUrl,
+                apiKey: effectiveApi.apiKey || 'sk-none',
+                model: effectiveApi.model,
+                apiFormat: effectiveApi.apiFormat,
+            };
+            // 旧配置/非法值继续走 OpenAI；只有显式选择 Native 才切换协议。
+            const openAiCompatible = effectiveApi.apiFormat !== 'gemini-native';
             // 思考过程展示开启时显式向后端请求 extended thinking。
             // 不同代理认不同入口，全都试一遍，代理不识别的会自动忽略：
             //  - 模型名 -thinking 后缀：packycode / anyrouter 等第三方 Claude 中转的主流约定
@@ -1463,10 +1500,15 @@ export const useChatAI = ({
 
             let data: any;
             try {
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) })
-                }, 2, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' }, streamHooks);
+                data = await completeChat(
+                    mainCompletionConfig,
+                    { ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) },
+                    {
+                        maxRetries: 2,
+                        meta: { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' },
+                        streamHooks,
+                    },
+                );
             } catch (e) {
                 let requestError: unknown = e;
                 const attemptedBody = {
@@ -1478,13 +1520,18 @@ export const useChatAI = ({
                 // 组合在一起却在上游适配层失败。只对这一条高度特征化的 502 降级一次：
                 // tools 和正文完整保留，system 合到开头，thinking 参数让步。普通网络 502、
                 // 非 Claude、没工具的请求一律不重发，避免无依据地重复计费。
-                if (shouldRetryClaudeProxyCompatibility(requestError, attemptedBody)) {
+                if (openAiCompatible && shouldRetryClaudeProxyCompatibility(requestError, attemptedBody)) {
                     console.warn('🧩 [Claude compat] 中转拒绝 thinking + tools 组合，使用兼容请求体重试一次');
                     try {
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify(buildClaudeProxyCompatibilityBody(attemptedBody)),
-                        }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 中转兼容重试' }, streamHooks);
+                        data = await completeChat(
+                            mainCompletionConfig,
+                            buildClaudeProxyCompatibilityBody(attemptedBody),
+                            {
+                                maxRetries: 0,
+                                meta: { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 中转兼容重试' },
+                                streamHooks,
+                            },
+                        );
                         requestError = null;
                     } catch (compatError) {
                         requestError = compatError;
@@ -1499,7 +1546,7 @@ export const useChatAI = ({
                 // 现有正文假调用容错接手。真实鉴权失败会在这次重试中再次抛出原样错误。
                 const mcpOnly = payload.flags.mcpChatActive
                     && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive;
-                if (!mcpOnly || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(requestError)) throw requestError;
+                if (!openAiCompatible || !mcpOnly || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(requestError)) throw requestError;
                 console.warn('🔌 [MCP] 当前中转拒绝 tools 请求，降级为正文工具调用兼容模式');
                 // 这条路把 tools 全删了，角色排不了新任务；排程现状照样要带——它得知道
                 // 自己名下已经有哪些承诺，否则又会在正文里许一遍。
@@ -1507,10 +1554,10 @@ export const useChatAI = ({
                     ...baseReqBody,
                     messages: withAmsg2TaskContext(baseReqBody.messages),
                 });
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify(fallbackBody)
-                }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' });
+                data = await completeChat(mainCompletionConfig, fallbackBody, {
+                    maxRetries: 0,
+                    meta: { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' },
+                });
                 }
             }
             console.log(`⏱ [API call] ${Math.round(performance.now() - apiT0)}ms`);
@@ -1548,12 +1595,7 @@ export const useChatAI = ({
                 for (let it = 0; it < MAX_PROPOSE_LOOPS; it++) {
                     const toolCalls = data.choices?.[0]?.message?.tool_calls;
                     if (!toolCalls || !toolCalls.length) break;
-                    loopMessages.push({
-                        role: 'assistant',
-                        // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
-                        content: data.choices[0].message.content || '(调用工具中)',
-                        tool_calls: toolCalls,
-                    } as any);
+                    loopMessages.push(buildAssistantToolFollowUpMessage(data.choices[0].message, toolCalls) as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
                         let args: any = {};
@@ -1641,10 +1683,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `mcd-propose-${it + 1}`);
                     // 第二轮跳过 (我们已经禁用了 tools)
                     if (!data.choices?.[0]?.message?.tool_calls?.length) break;
@@ -1658,12 +1697,7 @@ export const useChatAI = ({
                 for (let it = 0; it < MAX_PROPOSE_LOOPS; it++) {
                     const toolCalls = data.choices?.[0]?.message?.tool_calls;
                     if (!toolCalls || !toolCalls.length) break;
-                    loopMessages.push({
-                        role: 'assistant',
-                        // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
-                        content: data.choices[0].message.content || '(调用工具中)',
-                        tool_calls: toolCalls,
-                    } as any);
+                    loopMessages.push(buildAssistantToolFollowUpMessage(data.choices[0].message, toolCalls) as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
                         let args: any = {};
@@ -1744,10 +1778,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `luckin-propose-${it + 1}`);
                     if (!data.choices?.[0]?.message?.tool_calls?.length) break;
                 }
@@ -1772,12 +1803,7 @@ export const useChatAI = ({
                     if (mcpToolResolve && toolCalls.some((tc: any) => mcpToolResolve?.has(tc.function?.name || ''))) {
                         await persistMcpLeadIn(data.choices?.[0]?.message?.content || '');
                     }
-                    loopMessages.push({
-                        role: 'assistant',
-                        // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
-                        content: data.choices[0].message.content || '(调用工具中)',
-                        tool_calls: toolCalls,
-                    } as any);
+                    loopMessages.push(buildAssistantToolFollowUpMessage(data.choices[0].message, toolCalls) as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
                         let args: any = {};
@@ -1857,10 +1883,7 @@ export const useChatAI = ({
                     // 排程现状现算一次贴上：本轮刚排的任务这时才进得了清单，角色下一轮
                     // 看到的是自己名下真实的排程，不会对着排程前的空清单再排一条。
                     const followBody = { ...baseReqBody, messages: withAmsg2TaskContext(loopMessages) };
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : 'mcp-chat'}-${it + 1}`);
                 }
                 if (mcpToolResolve) setSearchStatus('');
@@ -1902,10 +1925,7 @@ export const useChatAI = ({
                     });
                     setSearchStatus('正在整理 MCP 工具结果...');
                     const followBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
-                        body: JSON.stringify(followBody)
-                    });
+                    data = await completeChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `mcp-text-${it + 1}`);
                 }
                 setSearchStatus('');
@@ -1983,8 +2003,11 @@ export const useChatAI = ({
                 mcdInheritMeta,
                 xhsCaches,
                 api: {
-                    baseUrl,
-                    headers,
+                    baseUrl: effectiveApi.baseUrl.replace(/\/+$/, ''),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}`,
+                    },
                     effectiveApi,
                 },
                 hooks: {

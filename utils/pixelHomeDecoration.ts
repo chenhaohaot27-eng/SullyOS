@@ -6,10 +6,9 @@
  */
 
 import type { DecorationDiff, DecorationAction, PixelRoomLayout } from '../apps/pixelHome/types';
-import type { MemoryRoom } from './memoryPalace/types';
 import type { DigestResult } from './memoryPalace/digestion';
-import { PixelLayoutDB } from '../apps/pixelHome/pixelHomeDb';
-import { ROOM_META, ALL_ROOMS } from '../apps/pixelHome/roomTemplates';
+import { PixelLayoutDB, PixelRoomDB } from '../apps/pixelHome/pixelHomeDb';
+import { displayPixelRoomName } from '../apps/pixelHome/roomTemplates';
 import { safeFetchJson } from './safeApi';
 
 interface LLMConfig {
@@ -33,10 +32,15 @@ export async function generateDecoration(
     // 获取当前所有房间布局
     const layouts = await PixelLayoutDB.getAllForChar(charId);
     if (layouts.length === 0) return null;
+    const roomMetadata = await PixelRoomDB.getAllForChar(charId) ?? [];
+    const roomMetadataById = new Map(roomMetadata.map(room => [room.id, room]));
+    const availableRoomIds = new Set(layouts.map(layout => layout.roomId));
 
     const layoutSummary = layouts.map(l => ({
       room: l.roomId,
-      name: ROOM_META[l.roomId].name,
+      name: roomMetadataById.has(l.roomId)
+        ? displayPixelRoomName(roomMetadataById.get(l.roomId)!, userName)
+        : l.roomId,
       wall: l.wallColor,
       floor: l.floorColor,
       furniture: l.furniture.map(f => ({
@@ -63,7 +67,7 @@ export async function generateDecoration(
     const systemPrompt = `你是${charName}，正在整理自己的像素小屋。
 ${persona ? `你的人设：${persona.slice(0, 500)}` : ''}
 
-你有7个房间，每个房间有5个固定家具槽位。你可以：
+你可以整理下方列出的房间与其中已有的家具。你可以：
 1. 移动家具位置 (move)：调整 x,y 坐标（0-100 的百分比）
 2. 换色 (recolor)：给家具换个颜色覆盖
 3. 调大小 (rescale)：调整家具的缩放比例（0.3-3.0）
@@ -122,7 +126,7 @@ ${JSON.stringify(layoutSummary, null, 2)}
 
     const parsed = JSON.parse(jsonMatch[0]);
     const actions: DecorationAction[] = (parsed.actions || []).filter((a: any) =>
-      a.type && a.roomId && ALL_ROOMS.includes(a.roomId)
+      a.type && typeof a.roomId === 'string' && availableRoomIds.has(a.roomId)
     );
 
     if (actions.length === 0) {

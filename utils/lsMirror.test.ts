@@ -13,13 +13,14 @@ describe('localStorage IndexedDB 镜像 (lsMirror)', () => {
     it('快照 → localStorage 被清 → 回填恢复', async () => {
         localStorage.setItem('os_theme', '{"hue":300}');
         localStorage.setItem('os_api_config', '{"baseUrl":"https://x","apiKey":"sk-1","model":"m"}');
+        localStorage.setItem('os_image_generation_config_v1', '{"version":1,"apiKey":"image-key"}');
         localStorage.setItem('os_dream_collection', '{"sweet":{"firstAt":1,"count":2}}');
         await snapshotLocalStorageMirror();
 
         localStorage.clear(); // 模拟浏览器驱逐
 
         const restored = await healLocalStorageMirror();
-        expect(restored.sort()).toEqual(['os_api_config', 'os_dream_collection', 'os_theme']);
+        expect(restored.sort()).toEqual(['os_api_config', 'os_dream_collection', 'os_image_generation_config_v1', 'os_theme']);
         expect(localStorage.getItem('os_theme')).toBe('{"hue":300}');
         expect(localStorage.getItem('os_dream_collection')).toBe('{"sweet":{"firstAt":1,"count":2}}');
     });
@@ -66,7 +67,7 @@ describe('localStorage IndexedDB 镜像 (lsMirror)', () => {
 
     it('镜像键名单不含大体积键（data URI 类必须走 assets）', () => {
         for (const k of MIRRORED_KEYS) {
-            expect(k).not.toMatch(/wallpaper|font|sprite|image|blob/i);
+            expect(k).not.toMatch(/wallpaper|font|sprite|blob/i);
         }
     });
 });

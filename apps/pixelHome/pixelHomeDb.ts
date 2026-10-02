@@ -6,11 +6,23 @@
  *   pixel_home_layouts — 每个角色的每个房间布局
  */
 
-import type { PixelAsset, PixelRoomLayout, PixelHomeState } from './types';
-import type { MemoryRoom } from '../../utils/memoryPalace/types';
-import { ROOM_SLOTS, DEFAULT_ROOM_COLORS, ALL_ROOMS } from './roomTemplates';
-import type { PlacedFurniture } from './types';
+import type {
+  PixelAsset,
+  PixelHomeMapLayout,
+  PixelRoomLayout,
+  PixelHomeState,
+  PixelRoomMetadata,
+  PixelRoomPreset,
+} from './types';
+import {
+  ROOM_SLOTS,
+  DEFAULT_ROOM_COLORS,
+  DEFAULT_PIXEL_ROOM_METADATA,
+  defaultPixelRoomMetadata,
+  isLegacyPixelRoomId,
+} from './roomTemplates';
 import { openDB } from '../../utils/db';
+import { normalizePixelHomeMapLayout, pixelHomeMapLayoutMatchesRooms } from './mapLayout';
 
 // ─── DB 常量 ─────────────────────────────────────────
 // pixel_home_* 两个 store 由 utils/db.ts 的 AetherOS_Data upgradeneeded 统一创建,
@@ -19,6 +31,90 @@ import { openDB } from '../../utils/db';
 
 const STORE_ASSETS = 'pixel_home_assets';
 const STORE_LAYOUTS = 'pixel_home_layouts';
+const ROOM_METADATA_ID = '__pixel_home_room_metadata__';
+
+interface PixelRoomMetadataRecord {
+  charId: string;
+  roomId: typeof ROOM_METADATA_ID;
+  recordType: 'room-metadata';
+  rooms: PixelRoomMetadata[];
+  mapLayout?: PixelHomeMapLayout;
+  lastUpdatedAt: number;
+}
+
+const clampDimension = (value: unknown, fallback: number): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? Math.max(2, Math.min(20, Math.round(parsed))) : fallback;
+};
+
+const normalizeRoomMetadata = (rooms: PixelRoomMetadata[]): PixelRoomMetadata[] => {
+  const seen = new Set<string>();
+  return rooms
+    .filter(room => room && typeof room.id === 'string' && room.id.trim() && room.id !== ROOM_METADATA_ID)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .filter(room => {
+      if (seen.has(room.id)) return false;
+      seen.add(room.id);
+      return true;
+    })
+    .map((room, order) => ({
+      id: room.id,
+      name: typeof room.name === 'string' && room.name.trim() ? room.name.trim() : room.id,
+      order,
+      width: clampDimension(room.width, 6),
+      height: clampDimension(room.height, 5),
+    }));
+};
+
+const readRoomMetadataRecord = async (charId: string): Promise<PixelRoomMetadataRecord | undefined> => {
+  const db = await openDB();
+  const tx = db.transaction(STORE_LAYOUTS, 'readonly');
+  const req = tx.objectStore(STORE_LAYOUTS).get([charId, ROOM_METADATA_ID]);
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => {
+      const record = req.result as PixelRoomMetadataRecord | undefined;
+      resolve(record?.recordType === 'room-metadata' ? record : undefined);
+    };
+    req.onerror = () => reject(req.error);
+  });
+};
+
+const createEmptyLayout = (charId: string, room: PixelRoomMetadata): PixelRoomLayout => {
+  if (isLegacyPixelRoomId(room.id)) {
+    const slots = ROOM_SLOTS[room.id];
+    const colors = DEFAULT_ROOM_COLORS[room.id];
+    return {
+      roomId: room.id,
+      charId,
+      furniture: slots.map(slot => ({
+        slotId: slot.id,
+        assetId: null,
+        x: slot.defaultX,
+        y: slot.defaultY,
+        scale: slot.defaultScale,
+        rotation: 0,
+        placedBy: 'character' as const,
+        isDefault: true,
+      })),
+      wallColor: colors.wall,
+      floorColor: colors.floor,
+      ambiance: '',
+      lastUpdatedAt: Date.now(),
+      lastDecoratedBy: 'character',
+    };
+  }
+
+  return {
+    roomId: room.id,
+    charId,
+    furniture: [],
+    wallColor: '#f1e4d0',
+    floorColor: '#b69b78',
+    ambiance: '',
+    lastUpdatedAt: Date.now(),
+    lastDecoratedBy: 'character',
+  };
+};
 
 // ─── 资产 CRUD ──────────────────────────────────────
 
@@ -88,12 +184,12 @@ export const PixelLayoutDB = {
     });
   },
 
-  async get(charId: string, roomId: MemoryRoom): Promise<PixelRoomLayout | undefined> {
+  async get(charId: string, roomId: string): Promise<PixelRoomLayout | undefined> {
     const db = await openDB();
     const tx = db.transaction(STORE_LAYOUTS, 'readonly');
     const req = tx.objectStore(STORE_LAYOUTS).get([charId, roomId]);
     return new Promise((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => resolve(req.result?.recordType === 'room-metadata' ? undefined : req.result);
       req.onerror = () => reject(req.error);
     });
   },
@@ -104,7 +200,7 @@ export const PixelLayoutDB = {
     const idx = tx.objectStore(STORE_LAYOUTS).index('charId');
     const req = idx.getAll(charId);
     return new Promise((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result || []);
+      req.onsuccess = () => resolve((req.result || []).filter((record: any) => record?.recordType !== 'room-metadata'));
       req.onerror = () => reject(req.error);
     });
   },
@@ -118,6 +214,146 @@ export const PixelLayoutDB = {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  },
+
+  async delete(charId: string, roomId: string): Promise<void> {
+    const db = await openDB();
+    const tx = db.transaction(STORE_LAYOUTS, 'readwrite');
+    tx.objectStore(STORE_LAYOUTS).delete([charId, roomId]);
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+};
+
+// ─── 每角色房间目录 CRUD（复用 pixel_home_layouts，不新增 store） ───
+
+export const PixelRoomDB = {
+  async getAllForChar(charId: string): Promise<PixelRoomMetadata[] | null> {
+    const record = await readRoomMetadataRecord(charId);
+    return Array.isArray(record?.rooms) ? normalizeRoomMetadata(record.rooms) : null;
+  },
+
+  async saveAllForChar(charId: string, rooms: PixelRoomMetadata[]): Promise<PixelRoomMetadata[]> {
+    const normalized = normalizeRoomMetadata(rooms);
+    const previous = await readRoomMetadataRecord(charId);
+    const record: PixelRoomMetadataRecord = {
+      charId,
+      roomId: ROOM_METADATA_ID,
+      recordType: 'room-metadata',
+      rooms: normalized,
+      mapLayout: previous?.mapLayout,
+      lastUpdatedAt: Date.now(),
+    };
+    const db = await openDB();
+    const tx = db.transaction(STORE_LAYOUTS, 'readwrite');
+    tx.objectStore(STORE_LAYOUTS).put(record);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return normalized;
+  },
+
+  async getMapLayoutForChar(charId: string): Promise<PixelHomeMapLayout | undefined> {
+    const record = await readRoomMetadataRecord(charId);
+    return normalizePixelHomeMapLayout(record?.mapLayout);
+  },
+
+  async saveMapLayoutForChar(charId: string, input: unknown): Promise<PixelHomeMapLayout | undefined> {
+    const mapLayout = normalizePixelHomeMapLayout(input);
+    const previous = await readRoomMetadataRecord(charId);
+    if (!mapLayout || !previous || !Array.isArray(previous.rooms)) return undefined;
+    const rooms = normalizeRoomMetadata(previous.rooms);
+    if (!pixelHomeMapLayoutMatchesRooms(mapLayout, rooms)) return undefined;
+
+    const record: PixelRoomMetadataRecord = {
+      ...previous,
+      rooms,
+      mapLayout,
+      lastUpdatedAt: Date.now(),
+    };
+    const db = await openDB();
+    const tx = db.transaction(STORE_LAYOUTS, 'readwrite');
+    tx.objectStore(STORE_LAYOUTS).put(record);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    return mapLayout;
+  },
+
+  async addRoom(
+    charId: string,
+    input: { id?: string; name: string; width?: number; height?: number },
+  ): Promise<PixelRoomMetadata> {
+    const current = await this.getAllForChar(charId) ?? DEFAULT_PIXEL_ROOM_METADATA.map(room => ({ ...room }));
+    const id = input.id?.trim() || `room_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    if (id === ROOM_METADATA_ID || current.some(room => room.id === id)) throw new Error('房间 ID 已存在');
+    const room: PixelRoomMetadata = {
+      id,
+      name: input.name.trim() || '新房间',
+      order: current.length,
+      width: clampDimension(input.width, 6),
+      height: clampDimension(input.height, 5),
+    };
+    await this.saveAllForChar(charId, [...current, room]);
+    await PixelLayoutDB.save(createEmptyLayout(charId, room));
+    return room;
+  },
+
+  async renameRoom(charId: string, roomId: string, name: string): Promise<boolean> {
+    const current = await this.getAllForChar(charId);
+    const cleanName = name.trim();
+    if (!current || !cleanName || !current.some(room => room.id === roomId)) return false;
+    await this.saveAllForChar(charId, current.map(room => room.id === roomId ? { ...room, name: cleanName } : room));
+    return true;
+  },
+
+  async deleteRoom(charId: string, roomId: string): Promise<boolean> {
+    const current = await this.getAllForChar(charId);
+    if (!current || current.length <= 1 || !current.some(room => room.id === roomId)) return false;
+    await this.saveAllForChar(charId, current.filter(room => room.id !== roomId));
+    await PixelLayoutDB.delete(charId, roomId);
+    return true;
+  },
+
+  async reorderRooms(charId: string, orderedIds: string[]): Promise<boolean> {
+    const current = await this.getAllForChar(charId);
+    if (!current || orderedIds.length !== current.length || new Set(orderedIds).size !== current.length) return false;
+    const byId = new Map(current.map(room => [room.id, room]));
+    if (orderedIds.some(id => !byId.has(id))) return false;
+    await this.saveAllForChar(charId, orderedIds.map((id, order) => ({ ...byId.get(id)!, order })));
+    return true;
+  },
+
+  async mergePresetRooms(
+    charId: string,
+    rooms: PixelRoomPreset[],
+    replaceExisting = false,
+  ): Promise<PixelRoomMetadata[]> {
+    const existing = await this.getAllForChar(charId);
+    const presetHasMetadata = rooms.some(room => (
+      room.name != null || room.order != null || room.width != null || room.height != null
+    ));
+    const base = replaceExisting
+      ? []
+      : existing ?? (presetHasMetadata ? [] : DEFAULT_PIXEL_ROOM_METADATA.map(room => ({ ...room })));
+    const byId = new Map(base.map(room => [room.id, room]));
+    for (const presetRoom of rooms) {
+      if (!presetRoom || typeof presetRoom.roomId !== 'string' || !presetRoom.roomId.trim() || presetRoom.roomId === ROOM_METADATA_ID) continue;
+      const current = byId.get(presetRoom.roomId);
+      const fallback = current ?? defaultPixelRoomMetadata(presetRoom.roomId, byId.size);
+      byId.set(presetRoom.roomId, {
+        id: presetRoom.roomId,
+        name: presetRoom.name?.trim() || fallback.name,
+        order: typeof presetRoom.order === 'number' ? presetRoom.order : fallback.order,
+        width: clampDimension(presetRoom.width, fallback.width),
+        height: clampDimension(presetRoom.height, fallback.height),
+      });
+    }
+    return this.saveAllForChar(charId, Array.from(byId.values()));
   },
 };
 
@@ -145,7 +381,7 @@ async function trySeedDefaultHome(charId: string): Promise<boolean> {
   let preset: any = null;
   for (const url of candidates) {
     try {
-      const resp = await fetch(url, { cache: 'force-cache' });
+      const resp = await fetch(url, { cache: 'no-store' });
       if (!resp.ok) continue;
       preset = await resp.json();
       if (preset && Array.isArray(preset.rooms) && preset.rooms.length > 0) break;
@@ -189,8 +425,33 @@ async function trySeedDefaultHome(charId: string): Promise<boolean> {
     lastDecoratedBy: 'character' as const,
   }));
   if (layouts.length === 0) return false;
+  await PixelRoomDB.mergePresetRooms(charId, preset.rooms);
+  if (preset.mapLayout) await PixelRoomDB.saveMapLayoutForChar(charId, preset.mapLayout);
   await PixelLayoutDB.saveBatch(layouts);
   return true;
+}
+
+/**
+ * 旧版 importer 已导入房间、但当时还不认识 mapLayout 时，从现有的
+ * per-character 内置 preset 补读总图。只在房间 ID 完整匹配时写回，
+ * 不会覆盖房间、家具或其他角色数据。
+ */
+async function tryLoadBundledMapLayout(
+  charId: string,
+  rooms: PixelRoomMetadata[],
+): Promise<PixelHomeMapLayout | undefined> {
+  if (typeof fetch !== 'function') return undefined;
+  const base = (import.meta as any).env?.BASE_URL ?? '/';
+  try {
+    const response = await fetch(`${base}pixel-presets/${encodeURIComponent(charId)}.json`, { cache: 'no-store' });
+    if (!response.ok) return undefined;
+    const preset = await response.json();
+    const mapLayout = normalizePixelHomeMapLayout(preset?.mapLayout);
+    if (!pixelHomeMapLayoutMatchesRooms(mapLayout, rooms)) return undefined;
+    return await PixelRoomDB.saveMapLayoutForChar(charId, mapLayout);
+  } catch {
+    return undefined;
+  }
 }
 
 // ─── 家园状态整合 ────────────────────────────────────
@@ -213,64 +474,52 @@ function layoutsLookUntouched(layouts: PixelRoomLayout[]): boolean {
 /** 获取角色的完整家园状态，不存在则初始化默认 */
 export async function getOrCreateHomeState(charId: string): Promise<PixelHomeState> {
   let existing = await PixelLayoutDB.getAllForChar(charId);
+  let roomMetadata = await PixelRoomDB.getAllForChar(charId);
+  let mapLayout = await PixelRoomDB.getMapLayoutForChar(charId);
 
   // 首次进入、或之前只存了空壳（没家具/没用户放置）：尝试加载内置默认家园预设
-  if (layoutsLookUntouched(existing)) {
+  if (!roomMetadata && layoutsLookUntouched(existing)) {
     try {
       const seeded = await trySeedDefaultHome(charId);
-      if (seeded) existing = await PixelLayoutDB.getAllForChar(charId);
+      if (seeded) {
+        existing = await PixelLayoutDB.getAllForChar(charId);
+        roomMetadata = await PixelRoomDB.getAllForChar(charId);
+        mapLayout = await PixelRoomDB.getMapLayoutForChar(charId);
+      }
     } catch (e) {
       console.warn('[pixelHome] seed default home failed:', e);
     }
   }
 
-  if (existing.length === ALL_ROOMS.length) {
-    return {
+  // 无 metadata = 旧版角色。首次读取时把原七室目录持久化；旧布局和家具不动。
+  if (!roomMetadata) {
+    roomMetadata = await PixelRoomDB.saveAllForChar(
       charId,
-      rooms: existing,
-      lastLLMDecoration: 0,
-    };
+      DEFAULT_PIXEL_ROOM_METADATA.map(room => ({ ...room })),
+    );
   }
 
-  // 补齐缺失的房间
+  if (!mapLayout) {
+    mapLayout = await tryLoadBundledMapLayout(charId, roomMetadata);
+  }
+
+  // 只补 metadata 中声明但尚无布局的房间；已有布局原样保留。
   const existingMap = new Map(existing.map(r => [r.roomId, r]));
-  const allRooms: PixelRoomLayout[] = ALL_ROOMS.map(roomId => {
-    if (existingMap.has(roomId)) return existingMap.get(roomId)!;
-
-    const slots = ROOM_SLOTS[roomId];
-    const colors = DEFAULT_ROOM_COLORS[roomId];
-    const furniture: PlacedFurniture[] = slots.map(slot => ({
-      slotId: slot.id,
-      assetId: null,
-      x: slot.defaultX,
-      y: slot.defaultY,
-      scale: slot.defaultScale,
-      rotation: 0,
-      placedBy: 'character' as const,
-      isDefault: true,
-    }));
-
-    return {
-      roomId,
-      charId,
-      furniture,
-      wallColor: colors.wall,
-      floorColor: colors.floor,
-      ambiance: '',
-      lastUpdatedAt: Date.now(),
-      lastDecoratedBy: 'character' as const,
-    };
-  });
+  const allRooms: PixelRoomLayout[] = roomMetadata.map(room => (
+    existingMap.get(room.id) ?? createEmptyLayout(charId, room)
+  ));
 
   // 保存新建的房间
-  const newRooms = allRooms.filter(r => !existingMap.has(r.roomId));
+  const newRooms = allRooms.filter(room => !existingMap.has(room.roomId));
   if (newRooms.length > 0) {
     await PixelLayoutDB.saveBatch(newRooms);
   }
 
   return {
     charId,
+    roomMetadata,
     rooms: allRooms,
     lastLLMDecoration: 0,
+    mapLayout,
   };
 }

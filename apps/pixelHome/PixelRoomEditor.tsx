@@ -7,11 +7,10 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import type { PixelRoomLayout, PlacedFurniture, PixelAsset } from './types';
+import type { PixelRoomLayout, PixelRoomMetadata, PlacedFurniture, PixelAsset } from './types';
 import { decodeColorField } from './types';
-import type { MemoryRoom } from '../../utils/memoryPalace/types';
 import type { MemoryNode } from '../../utils/memoryPalace/types';
-import { ROOM_SLOTS, ROOM_META, ROOM_SIZES } from './roomTemplates';
+import { ROOM_SLOTS, ROOM_META, displayPixelRoomName, isLegacyPixelRoomId } from './roomTemplates';
 import { PixelLayoutDB } from './pixelHomeDb';
 import { MemoryNodeDB } from '../../utils/memoryPalace/db';
 import { processImage } from '../../utils/file';
@@ -23,7 +22,8 @@ interface Props {
   charName: string;
   charSprite?: string;
   userName: string;
-  roomId: MemoryRoom;
+  roomId: string;
+  roomMetadata: PixelRoomMetadata;
   layout: PixelRoomLayout;
   assets: PixelAsset[];
   onUpdate: () => void;
@@ -79,7 +79,7 @@ function isRugAsset(f: PlacedFurniture, assets: PixelAsset[]): boolean {
   return !!asset?.tags?.includes('rug');
 }
 
-const PixelRoomEditor: React.FC<Props> = ({ charId, charName, charSprite, userName, roomId, layout, assets, onUpdate, onOpenLibrary }) => {
+const PixelRoomEditor: React.FC<Props> = ({ charId, charName, charSprite, userName, roomId, roomMetadata, layout, assets, onUpdate, onOpenLibrary }) => {
   const [furniture, setFurniture] = useState<PlacedFurniture[]>(layout.furniture);
   const [wallColor, setWallColor] = useState(layout.wallColor);
   const [floorColor, setFloorColor] = useState(layout.floorColor);
@@ -144,10 +144,11 @@ const PixelRoomEditor: React.FC<Props> = ({ charId, charName, charSprite, userNa
   const collisionMasksRef = useRef<Map<string, ImageData>>(new Map());
   const collisionBlockedRef = useRef<Set<string>>(new Set());
 
-  const meta = ROOM_META[roomId];
-  const slotDefs = ROOM_SLOTS[roomId];
-  const floorStyle = FLOOR_STYLES[roomId] || FLOOR_STYLES.living_room;
-  const roomSize = ROOM_SIZES[roomId];
+  const legacyRoomId = isLegacyPixelRoomId(roomId) ? roomId : null;
+  const meta = legacyRoomId ? ROOM_META[legacyRoomId] : { name: roomMetadata.name, color: '#f59e0b' };
+  const slotDefs = legacyRoomId ? ROOM_SLOTS[legacyRoomId] : [];
+  const floorStyle = legacyRoomId ? FLOOR_STYLES[legacyRoomId] : FLOOR_STYLES.living_room;
+  const roomSize = { w: roomMetadata.width, h: roomMetadata.height };
   const GRID_COLS = roomSize.w;
   const GRID_ROWS = roomSize.h;
   const GRID_STEP_X = 100 / GRID_COLS;
@@ -598,16 +599,20 @@ const PixelRoomEditor: React.FC<Props> = ({ charId, charName, charSprite, userNa
 
   // 加载记忆
   const loadMemories = useCallback(async () => {
+    if (!legacyRoomId) {
+      setMemories([]);
+      return;
+    }
     setMemoryLoading(true);
     try {
-      const nodes = await MemoryNodeDB.getByRoom(charId, roomId);
+      const nodes = await MemoryNodeDB.getByRoom(charId, legacyRoomId);
       nodes.sort((a, b) => b.importance - a.importance);
       setMemories(nodes.slice(0, 30));
     } catch (err) {
       console.error('Load memories failed:', err);
     }
     setMemoryLoading(false);
-  }, [charId, roomId]);
+  }, [charId, legacyRoomId]);
 
   useEffect(() => { if (showMemory) loadMemories(); }, [showMemory, loadMemories]);
 
@@ -615,7 +620,7 @@ const PixelRoomEditor: React.FC<Props> = ({ charId, charName, charSprite, userNa
   const selectedSlotDef = selectedSlot ? slotDefs.find(s => s.id === selectedSlot) : null;
   const roomPxW = GRID_COLS * TILE * EDITOR_SCALE;
   const roomPxH = GRID_ROWS * TILE * EDITOR_SCALE;
-  const roomDisplayName = roomId === 'user_room' ? `${userName}的房` : meta.name;
+  const roomDisplayName = displayPixelRoomName(roomMetadata, userName);
 
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ backgroundColor: '#1a1410' }}>
@@ -848,7 +853,7 @@ const PixelRoomEditor: React.FC<Props> = ({ charId, charName, charSprite, userNa
           <div className="flex gap-1">
             <ModeBtn label="浏览" active={mode === 'view'} onClick={() => { setMode('view'); setSelectedSlot(null); trackEvent('切换像素房间装修模式', { mode: 'view' }); }} />
             <ModeBtn label="编辑" active={mode === 'edit'} onClick={() => { setMode('edit'); trackEvent('切换像素房间装修模式', { mode: 'edit' }); }} />
-            <ModeBtn label="记忆" active={showMemory} onClick={() => setShowMemory(!showMemory)} />
+            {legacyRoomId && <ModeBtn label="记忆" active={showMemory} onClick={() => setShowMemory(!showMemory)} />}
           </div>
           <div className="flex gap-1 flex-wrap justify-end items-center">
             <ToolBtn label="放家具" color="bg-green-700" onClick={() => onOpenLibrary('__add__')} />

@@ -3,9 +3,16 @@ import {
   normalizeApiBaseUrl,
   normalizeApiConfig,
   normalizeApiCredential,
+  normalizeChatApiFormat,
 } from './apiConfigNormalize';
 
 describe('API config normalization', () => {
+  it('defaults missing or invalid chat formats to OpenAI-compatible', () => {
+    expect(normalizeChatApiFormat(undefined)).toBe('openai-compatible');
+    expect(normalizeChatApiFormat('unexpected')).toBe('openai-compatible');
+    expect(normalizeChatApiFormat('gemini-native')).toBe('gemini-native');
+  });
+
   it('removes pasted whitespace and invisible edge characters from credentials', () => {
     expect(normalizeApiCredential(' \n\u200Bsk-example\u2060\r ')).toBe('sk-example');
   });
@@ -31,6 +38,7 @@ describe('API config normalization', () => {
     })).toEqual({
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-test',
+      apiFormat: 'openai-compatible',
       model: 'gpt-test',
       stream: true,
       temperature: 0.7,
@@ -42,5 +50,18 @@ describe('API config normalization', () => {
         model: 'vision-model',
       },
     });
+  });
+
+  it('preserves Gemini Native through storage round-trip while old storage defaults to OpenAI', () => {
+    const nativeSaved = JSON.stringify({
+      baseUrl: 'https://api.relayrouter.ai',
+      apiKey: 'test-key',
+      model: 'gemini-2.5-pro',
+      apiFormat: 'gemini-native',
+    });
+    expect(normalizeApiConfig(JSON.parse(nativeSaved)).apiFormat).toBe('gemini-native');
+
+    const legacySaved = JSON.stringify({ baseUrl: 'https://legacy.example/v1', apiKey: 'k', model: 'm' });
+    expect(normalizeApiConfig(JSON.parse(legacySaved)).apiFormat).toBe('openai-compatible');
   });
 });

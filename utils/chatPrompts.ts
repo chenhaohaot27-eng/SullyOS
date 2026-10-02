@@ -21,6 +21,12 @@ import { getCharNameById } from './charNameRegistry';
 import { getLocalDateKey } from './localDate';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { formatRelativeAge } from './groupChat/relativeTime';
+import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
+import { buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent';
+import { buildGiftSendTagGuide, isGiftSendTagEnabled } from './giftIntent';
+import { buildMeetInviteGuide, buildPlayerInviteReplyGuide } from './meetingInvite';
+import { buildFoodOrderTagGuide } from './foodIntent';
+import { buildProactiveActionGuide, isProactiveActionEnabled } from './proactiveAction';
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声则注入鱼声版（去掉 MiniMax 专属标记，改用标点 / 省略号控制停顿）。
@@ -62,6 +68,9 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'trpg_card': return `[TRPG游戏片段${meta.trpg?.gameTitle ? '：《' + meta.trpg.gameTitle + '》' : ''}]`;
         case 'novel_card': return `[笔友会小说章节${meta.novel?.bookTitle ? '：《' + meta.novel.bookTitle + '》' : ''}]`;
         case 'world_card': return `[家园生活记录${meta.worldName ? '：' + meta.worldName : ''}]`;
+        case 'gift_card': return `[礼物${meta.gift?.name ? '：' + meta.gift.name : ''}]`;
+        case 'meet_card': return `[见面邀请${meta.meet?.initiatorName ? '：' + meta.meet.initiatorName : ''}]`;
+        case 'food_order_card': return `[外卖订单${meta.foodOrder?.merchantName ? '：' + meta.foodOrder.merchantName : ''}]`;
         case 'sim_card': return `[一段回忆${meta.simCard?.theme ? '：' + meta.simCard.theme : ''}]`;
         case 'phone_card': return `[手机内容${meta.phoneCard?.title ? '：' + meta.phoneCard.title : ''}]`;
         case 'group_topic_card': return `[群聊公共话题盒${meta.groupTopicBox?.title ? '：' + meta.groupTopicBox.title : ''}] ${meta.groupTopicBox?.summary || m.content || ''}`;
@@ -623,6 +632,18 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
         const scheduleMessageTagEnabled = !forFirePack
             && !(timelyByWorker && isAmsg2EnabledForChar(char));
 
+        // 聊天拍照（Phase 2A）：只在本地聊天路径教 SEND_PHOTO 标签——fire_pack 是给主动消息
+        // worker 打包的模板，worker 够不到生图配置也不该在无人请求时拍图，先不教（后续阶段
+        // 要扩展到主动消息时去掉 forFirePack 限制即可，协议本身不带路径假设）。
+        // 生图配置未启用也不教：教了角色只会输出降级文字/表情包，正是要修的旧问题。
+        const chatPhotoTagEnabled = !forFirePack && isChatPhotoTagEnabled();
+        // GIFT_SEND（Phase 4 角色送礼）：独立生图配置启用才教——关着时教了只会得到 failed 礼物。
+        const giftSendTagEnabled = !forFirePack && isGiftSendTagEnabled();
+        // FOOD_ORDER 只教给前台正常 Chat；worker / Instant Push 不执行 Food action。
+        const foodOrderTagEnabled = !forFirePack;
+        // PROACTIVE_ACTION（Phase 1 主动行为）：生图配置启用才教——目前只有 PHOTO，未来扩展其他行为类型时需独立判断。
+        const proactiveActionEnabled = !forFirePack && isProactiveActionEnabled();
+
         baseSystemPrompt += `### 聊天 App 行为规范 (Chat App Rules)
 **TOP 1｜ChatApp 格式（本节最高优先级）**：你是发消息的真实存在，以自然短句、短气泡为主；一个气泡一行，气泡间直接另起一行（实际换行，不要输出“\\n”字样）。
             **严格注意，你正在手机聊天，无论之前是什么模式，哪怕上一句话你们还面对面在一起，当前，你都是已经处于线上聊天状态了，请不要输出你的行为**
@@ -643,7 +664,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - 每行渲染为一个气泡；空格和标点不会拆泡。
    - 【严禁】在输出中包含时间戳、名字前缀或"[角色名]:"。
    - **【严禁】模仿历史记录中的系统日志格式（如"[你 发送了...]"）。**
-   - **发送表情包**: 必须且只能使用命令: \`[[SEND_EMOJI: 表情名称]]\`。
+   - **发送表情包**: 必须且只能使用命令: \`[[SEND_EMOJI: 表情名称]]\`。只能从当前可用表情库选择，并原样复制其名称；禁止描述图片内容或自造名称。没有合适表情时就正常说话。
    - **可用表情库 (按分类)**:
      ${emojiContextStr}
    - **理解对方发的表情包**: 你看到的 \`[发送了表情包: xx]\` 只是图的名字。表情包是从有限图库里挑的，名字描述的是**图上画了什么**，不是**ta在做什么**，也不是"ta有这层意思"。按这个顺序读：
@@ -662,7 +683,8 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
    - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
-${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
+${chatPhotoTagEnabled ? buildChatPhotoTagGuide() : ''}${giftSendTagEnabled ? buildGiftSendTagGuide() : ''}${foodOrderTagEnabled ? buildFoodOrderTagGuide() : ''}${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}${buildMeetInviteGuide()}
+${proactiveActionEnabled ? buildProactiveActionGuide() : ''}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `
    - **翻阅日记(飞书)**: 同上——回忆优先靠记忆和 \`[[RECALL]]\`，只有你自己想重温那天日记的内容时才用: \`[[FS_READ_DIARY: 日期]]\`。支持格式同上。` : ''}${notionNotesEnabled ? `
    - **翻阅用户笔记**: 当你想看${userProfile.name}写的某篇笔记的详细内容时，使用: \`[[READ_NOTE: 标题关键词]]\`。系统会搜索匹配的笔记并返回内容给你。` : ''}
@@ -964,21 +986,24 @@ ${xhsEnabled ? `${[notionEnabled, feishuEnabled, notionNotesEnabled].filter(Bool
 <语音> 里是真正被朗读的${langLabel}，<字幕> 里是同一段话的中文——语音条的「转文字」面板会直接用它当对照翻译，用户对着中文听${langLabel}。
 
 规则：
-1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）
+1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加；默认保持你本人自然沉稳的日常语气，可用 calm）
 2. \`<字幕>\` 里写这条语音的中文版，内容和${langLabel}一致、逐段对齐（${langLabel}分几段中文就分几段）。**<字幕> 必须紧跟在 </语音> 后面，永远成对出现，不能单独用**
 3. 标签外可以照常发普通中文短消息（正常闲聊打字），它们显示成普通气泡，和语音内容互相独立、不要复读
+4. 发送真实语音的唯一合法方式是 \`<语音>...</语音>\`。严禁输出 \`【语音消息 · 11s】\`、\`[语音消息 · 11s]\`、\`语音消息：……\` 等模拟 UI 的占位文字
+5. 时长由实际 TTS 和界面计算；你不得自行编写 11s、38s 或任何语音时长
+6. \`<语音>\` 的内容不得在同一轮再作为普通文字复读；不想发语音时就正常发文字
 
 示例：
-你说真的假的？
+你先别动，我戴上耳机。
 <语音 emotion="surprised">Wait... are you serious?</语音>
 <字幕>等等……你是认真的？</字幕>
 
-<语音 emotion="sad">I don't wanna move anymore... (sighs)</语音>
+<语音 emotion="sad">I don't wanna move anymore...</语音>
 <字幕>啊不想动了……（叹气）</字幕>
 
 要求：
 - <语音> 里的${langLabel}要自然口语化，符合你的性格，不要机翻味
-- <语音> 里想要笑、叹气等真实语气用官方英文标签 (laughs)/(sighs)/(chuckle)/(gasps) 等，**不要写中文（轻笑）这类舞台指示**（中文括号会被直接删掉、不朗读）
+- <语音> 里想要笑、叹气等语气就写进措辞本身；不要写 (laughs)/(sighs)/(chuckle)/(gasps) 等英文标签（会被直接删掉），**也不要写中文（轻笑）这类舞台指示**——动作神态写在标签外的中文文字里
 - 每条消息最多一个 <语音> + <字幕> 组合
 - 不是每条消息都要发语音！像真人一样，有时候打字，有时候发语音，自然切换
 - 比较适合发语音的场景：撒娇、吐槽、语气很重的话、懒得打字的时候
@@ -992,17 +1017,20 @@ ${voiceActingGuide()}`;
 
 **你可以发送语音消息！** 就像真人用微信一样，你可以选择打字或者发语音。
 用 \`<语音>要说的话</语音>\` 标签来发送语音。标签里的内容会被转成真正的语音条显示给用户。
-可选地用 emotion 属性设定整条语音的情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）。
+可选地用 emotion 属性设定整条语音的情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加；默认保持你本人自然沉稳的日常语气，可用 calm）。
 
 示例：
 <语音 emotion="happy">哎你今天干嘛去了啊？</语音>
 
 我看到一个好搞笑的视频
-<语音>你快去看！就那个什么……(chuckle)啊我忘了叫什么了，反正超搞笑的</语音>
+<语音>你快去看！就那个什么……啊我忘了叫什么了，反正超搞笑的</语音>
 
 要求：
-- <语音> 里只写会被朗读的文字，不要写中文舞台指示/括号动作；想要笑、叹气等真实语气，用官方英文标签 (laughs)/(sighs)/(chuckle)/(gasps) 等（中文括号会被直接删掉、不朗读）
+- <语音> 里只写会被朗读的文字，不要写中文舞台指示/括号动作，也不要写 (laughs)/(sighs)/(chuckle)/(gasps) 等英文标签（都会被直接删掉、不朗读）——想让对方听出笑意或叹气，靠措辞本身
 - 每条消息最多一个 <语音> 标签
+- 发送真实语音的唯一合法方式是 <语音>...</语音>；严禁输出【语音消息 · 11s】、[语音消息 · 11s]、"语音消息：……"等模拟 UI 占位文字
+- 时长由实际 TTS 和界面计算，严禁自行编写 11s、38s 或任何语音时长
+- <语音> 的内容不得在同一轮再作为普通文字复读；不想发语音时就正常发文字
 - 不是每条消息都要发语音！像真人一样，有时候打字，有时候发语音，自然切换
 - 比较适合发语音的场景：撒娇、吐槽、语气很重的话、懒得打字的时候、想让对方听到你语气的时候
 - 比较适合打字的场景：发链接、正经讨论、很短的回复如"嗯"、"好"
@@ -1071,7 +1099,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         userProfile: UserProfile,
         emojis: Emoji[],
         processedExcludeIds?: Set<number>,
-        options?: { useVisionDescriptions?: boolean },
+        options?: { useVisionDescriptions?: boolean; includeTimeGapHint?: boolean },
     ) => {
         // Filter Logic
         // 新版上下文范围由 chatContextRange 先按「自适应/拉杆最大范围」取窗；
@@ -1088,7 +1116,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         const charTz = resolveCharTimeZone(char);
 
         let timeGapHint = "";
-        if (historySlice.length >= 2) {
+        if (options?.includeTimeGapHint !== false && historySlice.length >= 2) {
             const currentMsg = historySlice[historySlice.length - 1];
             // Skip proactive hint messages when computing time gap — find last REAL message
             let lastRealMsg: Message | undefined;
@@ -1105,7 +1133,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
 
         return {
             apiMessages: historySlice.map((m, index) => {
-                let content: any = m.content;
+                let content: any = formatLegacyVoiceHistoryForPrompt(m) ?? m.content;
                 const timeStr = `[${ChatPrompts.formatDate(m.timestamp, charTz)}]`;
                 const sourceTag = (() => {
                     const source = m.metadata?.source;
@@ -1140,6 +1168,15 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 }
                 
                 if (m.type === 'image') {
+                     // 聊天拍照（Phase 2A）消息：content 是 blobref 令牌（或失败时空串），绝不能
+                     // 把令牌当 URL 发给 API；也不是"用户发的图"。渲染成角色自己发过一张照片
+                     // 的事实记录，caption 一并给，让下一轮能接上「刚才那张照片」。
+                     const chatPhoto = m.metadata?.chatPhoto;
+                     if (chatPhoto && typeof chatPhoto === 'object') {
+                         const cap = typeof chatPhoto.caption === 'string' && chatPhoto.caption.trim() ? `：${chatPhoto.caption.trim().slice(0, 60)}` : '';
+                         const ok = chatPhoto.status === 'ready';
+                         return { role: m.role, content: `${timeStr} [${ok ? '你发给了对方一张真实照片' : '你想拍一张照片给对方，但没能成功拍出来'}${cap}]` };
+                     }
                      const visionDescription = options?.useVisionDescriptions
                          && typeof m.metadata?.visionDescription === 'string'
                          ? m.metadata.visionDescription.trim()
@@ -1165,7 +1202,78 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 
                 // TODO(记录形态): 戳一戳 / 时间间隔提示等其他系统事件, 等转账的 [[记录:TRANSFER]]
                 // 观察一段时间后再迁 (transferFormat.ts 头注) —— 防线已按整个记录命名空间就位。
-                if (m.type === 'interaction') content = `${timeStr} [系统: 用户戳了你一下]`;
+                // 礼物卡（Phase 3）：GiftRecord 的聊天投影。历史里渲染成紧凑 [礼物记录]，
+                // 模型知道礼物是已发生事件；视觉信息只给快照里的识别结果，缺失时明示「不可用」，
+                // 绝不内联 blobref 令牌或图片数据。
+                if ((m.type as string) === 'gift_card') {
+                    const g = (m.metadata?.gift || {}) as { name?: string; description?: string; note?: string; visualSummary?: string; direction?: string; status?: string };
+                    const giftLines = [`${timeStr} [礼物记录] ${g.direction === 'character_to_user' ? '你送给' : '用户送给你'}：${g.name || '一份礼物'}`];
+                    if (g.description) giftLines.push(`描述：${g.description}`);
+                    if (g.note) giftLines.push(`留言：${g.note}`);
+                    // 角色送的图有生成状态；玩家送的快照无 status 字段，不输出状态行。
+                    if (g.status) {
+                        giftLines.push(`状态：${g.status === 'ready' || g.status === 'delivered' ? '已送达' : g.status === 'failed' ? '礼物图片生成失败' : '正在准备'}`);
+                    } else if (g.direction === 'user_to_character') {
+                        giftLines.push(`图片识别：${typeof g.visualSummary === 'string' && g.visualSummary.trim() ? g.visualSummary.trim() : '不可用'}`);
+                    }
+                    content = giftLines.join('\n');
+                }
+                // 外卖订单卡：只给模型已发生事实与极简快照，不暴露 orderId/eventKey/timeline。
+                else if ((m.type as string) === 'food_order_card') {
+                    const food = (m.metadata?.foodOrder || {}) as {
+                        ordererType?: 'user' | 'character'; ordererName?: string;
+                        recipientType?: 'user' | 'character'; source?: 'catalog_imported' | 'simulated';
+                        status?: string;
+                        recipientName?: string; merchantName?: string;
+                        items?: Array<{ name?: string; quantity?: number; note?: string }>;
+                        total?: number;
+                    };
+                    const items = Array.isArray(food.items)
+                        ? food.items.map(item => `${item.name || '商品'} ×${item.quantity || 1}${item.note ? `（${item.note}）` : ''}`).join('；')
+                        : '商品信息不可用';
+                    const foodLines = [
+                        `${timeStr} [外卖订单] ${food.ordererType === 'character'
+                            ? food.recipientType === 'character' ? '你给自己点了外卖。' : '你给用户点了外卖。'
+                            : '用户给你点了外卖。'}这是 Lemuria 中已发生的订单，这不是假设。`,
+                        `收餐人：${food.recipientName || char.name}`,
+                        `商家：${food.merchantName || '未记录'}`,
+                        `商品：${items}`,
+                        `状态：${food.status === 'preparing' ? '商家备餐中' : food.status === 'picked_up' ? '骑手已取餐' : food.status === 'delivering' ? '配送中' : food.status === 'delivered' ? '已送达' : food.status === 'cancelled' ? '已取消' : '已下单'}`,
+                        `商品来源：${food.source === 'simulated' ? 'Lemuria 模拟' : '用户此前导入'}`,
+                    ];
+                    if (typeof food.total === 'number') foodLines.push(`总价：¥${food.total}`);
+                    content = foodLines.join('\n');
+                }
+                // 见面邀请卡（MEET_INVITE）：模型需要记得自己发过邀请、玩家是否接受——
+                // 避免重复邀请 / 与已接受但未赴约的状态冲突。不暴露 invitation.id 等内部字段。
+                // 双向协议：direction=user_to_character 是玩家发出的邀请，角色用
+                // [[MEET_REPLY: accepted|declined|deferred]] 回应（guide 随 pending 卡注入）。
+                else if ((m.type as string) === 'meet_card') {
+                    const meet = (m.metadata?.meet || {}) as {
+                        initiatorName?: string; participantNames?: string[]; direction?: string;
+                        invitationText?: string; locationText?: string; timeText?: string; status?: string;
+                    };
+                    const participants = Array.isArray(meet.participantNames) && meet.participantNames.length > 0
+                        ? meet.participantNames.join('、') : '用户';
+                    if (meet.direction === 'user_to_character') {
+                        // 玩家→角色：压成短文本 + 待回应时的回应协议（不塞 UI JSON）
+                        const replyLines = [`${timeStr} [见面邀请] 用户邀请${participants}见面${meet.invitationText ? `：「${meet.invitationText}」` : ''}`];
+                        if (meet.status === 'pending') {
+                            replyLines.push(buildPlayerInviteReplyGuide());
+                        } else {
+                            replyLines.push(`[见面邀请结果] ${participants}${meet.status === 'accepted' ? '接受了邀请' : meet.status === 'deferred' ? '暂缓了邀请（可以继续商量时间）' : meet.status === 'cancelled' ? '（用户已取消这次邀请）' : '婉拒了这次邀请'}。`);
+                        }
+                        content = replyLines.join('\n');
+                    } else {
+                        const meetLines = [`${timeStr} [邀请记录] ${meet.initiatorName || '某人'}向用户发出了见面邀请（见面对象：${participants}）`];
+                        if (meet.invitationText) meetLines.push(`邀请内容：「${meet.invitationText}」`);
+                        if (meet.locationText) meetLines.push(`地点：${meet.locationText}`);
+                        if (meet.timeText) meetLines.push(`时间：${meet.timeText}`);
+                        meetLines.push(`玩家回应：${meet.status === 'accepted' ? '已接受' : meet.status === 'deferred' ? '暂缓（稍后见）' : meet.status === 'declined' ? '已婉拒' : '尚未回应'}`);
+                        content = meetLines.join('\n');
+                    }
+                }
+                else if (m.type === 'interaction') content = `${timeStr} [系统: 用户戳了你一下]`;
                 else if (m.type === 'transfer') {
                     // 统一记录形态 [[记录:TRANSFER|to=|amount=|status=]] —— 跟输出语法
                     // [[ACTION:TRANSFER|to=|amount=]] 共用词汇表 (见 transferFormat.ts 头注)。

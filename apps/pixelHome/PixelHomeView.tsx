@@ -8,12 +8,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useOS } from '../../context/OSContext';
 import type { PixelHomeState, PixelHomeViewMode, PixelAsset, PlacedFurniture } from './types';
-import type { MemoryRoom } from '../../utils/memoryPalace/types';
 import { getOrCreateHomeState, PixelLayoutDB, PixelAssetDB } from './pixelHomeDb';
-import { ROOM_META } from './roomTemplates';
+import { displayPixelRoomName } from './roomTemplates';
 import { downloadPreset, importPreset, readFileAsText } from './presetManager';
 import PixelHomeMap from './PixelHomeMap';
 import PixelRoomEditor from './PixelRoomEditor';
+import PixelRoomManager from './PixelRoomManager';
 import PixelAssetGenerator from './PixelAssetGenerator';
 import AssetLibrary from './AssetLibrary';
 import PixelCharEditor from './PixelCharEditor';
@@ -44,7 +44,7 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
   const [viewMode, setViewMode] = useState<PixelHomeViewMode>('map');
   const [homeState, setHomeState] = useState<PixelHomeState | null>(null);
   const [assets, setAssets] = useState<PixelAsset[]>([]);
-  const [selectedRoom, setSelectedRoom] = useState<MemoryRoom>('living_room');
+  const [selectedRoom, setSelectedRoom] = useState<string>('living_room');
   const [loading, setLoading] = useState(true);
 
   // 资产操作上下文：
@@ -82,6 +82,9 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
             try { state.theme = JSON.parse(savedTheme); } catch {}
           }
           setHomeState(state);
+          if (!state.roomMetadata.some(room => room.id === selectedRoom)) {
+            setSelectedRoom(state.roomMetadata[0]?.id || 'living_room');
+          }
           setAssets(allAssets);
           if (savedChar) {
             const cfg = JSON.parse(savedChar) as PixelCharConfig;
@@ -164,14 +167,18 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
     }
   }, [addToast]);
 
-  const handleEnterRoom = useCallback((roomId: MemoryRoom) => {
+  const handleEnterRoom = useCallback((roomId: string) => {
     setSelectedRoom(roomId); setViewMode('room');
     trackEvent('进入像素家园房间', { room: roomId });
   }, []);
 
   const handleRoomUpdate = useCallback(async () => {
-    setHomeState(await getOrCreateHomeState(charId));
-  }, [charId]);
+    const next = await getOrCreateHomeState(charId);
+    setHomeState(next);
+    if (!next.roomMetadata.some(room => room.id === selectedRoom)) {
+      setSelectedRoom(next.roomMetadata[0]?.id || 'living_room');
+    }
+  }, [charId, selectedRoom]);
 
   // 导出预设
   const handleExport = useCallback(async () => {
@@ -265,8 +272,12 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
   }
   if (!homeState) return null;
 
-  const getRoomDisplayName = (roomId: MemoryRoom) =>
-    roomId === 'user_room' ? `${userName}的房` : ROOM_META[roomId].name;
+  const selectedRoomMetadata = homeState.roomMetadata.find(room => room.id === selectedRoom);
+  const selectedRoomLayout = homeState.rooms.find(room => room.roomId === selectedRoom);
+  const getRoomDisplayName = (roomId: string) => {
+    const room = homeState.roomMetadata.find(item => item.id === roomId);
+    return room ? displayPixelRoomName(room, userName) : roomId;
+  };
 
   return (
     <div className="h-full w-full flex flex-col bg-slate-900 overflow-hidden">
@@ -295,6 +306,7 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
         <span className="font-bold text-slate-200 text-sm tracking-wide">
           {viewMode === 'map' && `${charName}的家`}
           {viewMode === 'room' && getRoomDisplayName(selectedRoom)}
+          {viewMode === 'rooms' && '房间管理'}
           {viewMode === 'generator' && '像素工坊'}
           {viewMode === 'library' && (pendingSlotRef.current === '__add__' ? '选择要放置的家具' : pendingSlotRef.current ? '选择替换素材' : '仓库 / 工坊')}
           {viewMode === 'charEditor' && (editorTarget === 'user' ? '捏我自己' : `捏${charName}`)}
@@ -312,11 +324,15 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
               try { await DB.saveAsset(`pixel_home_theme_${charId}`, JSON.stringify(theme)); } catch {}
             }} />
         )}
-        {viewMode === 'room' && (
+        {viewMode === 'room' && selectedRoomMetadata && selectedRoomLayout && (
           <PixelRoomEditor charId={charId} charName={charName}
             charSprite={pixelCharSprite || charAvatar} userName={userName}
-            roomId={selectedRoom} layout={homeState.rooms.find(r => r.roomId === selectedRoom)!}
+            roomId={selectedRoom} roomMetadata={selectedRoomMetadata} layout={selectedRoomLayout}
             assets={assets} onUpdate={handleRoomUpdate} onOpenLibrary={handleOpenLibrary} />
+        )}
+        {viewMode === 'rooms' && (
+          <PixelRoomManager charId={charId} rooms={homeState.roomMetadata}
+            onChanged={handleRoomUpdate} onEnterRoom={handleEnterRoom} addToast={addToast} />
         )}
         {viewMode === 'charEditor' && (
           <PixelCharEditor
@@ -354,14 +370,17 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
       {/* 底部工具栏 */}
       {viewMode === 'map' && (
         <div className="shrink-0 bg-slate-800/90 backdrop-blur-sm border-t border-slate-700/50" style={{ paddingBottom: 'var(--safe-bottom, 0px)' }}>
-          <div className="flex items-center justify-around px-4 py-2">
-            <BottomTab label="家园" active onClick={() => setViewMode('map')} />
-            <BottomTab label="🌀潜行" onClick={handleEnterDive} />
-            <BottomTab label="仓库/工坊" onClick={() => { pendingSlotRef.current = null; setViewMode('library'); trackEvent('打开像素资产仓库'); }} />
-            <BottomTab label="导出" onClick={handleExport} />
-            <BottomTab label="捏TA" onClick={() => { setEditorTarget('char'); setViewMode('charEditor'); trackEvent('打开像素捏人器', { target: 'char' }); }} />
-            <BottomTab label="捏我" onClick={() => { setEditorTarget('user'); setViewMode('charEditor'); trackEvent('打开像素捏人器', { target: 'user' }); }} />
-            <BottomTab label="导入" onClick={() => importInputRef.current?.click()} />
+          <div className="overflow-x-auto no-scrollbar">
+            <div className="flex min-w-max items-center gap-1 px-2 py-2">
+              <BottomTab label="家园" active onClick={() => setViewMode('map')} />
+              <BottomTab label="房间" onClick={() => setViewMode('rooms')} />
+              <BottomTab label="🌀潜行" onClick={handleEnterDive} />
+              <BottomTab label="仓库/工坊" onClick={() => { pendingSlotRef.current = null; setViewMode('library'); trackEvent('打开像素资产仓库'); }} />
+              <BottomTab label="导出" onClick={handleExport} />
+              <BottomTab label="捏TA" onClick={() => { setEditorTarget('char'); setViewMode('charEditor'); trackEvent('打开像素捏人器', { target: 'char' }); }} />
+              <BottomTab label="捏我" onClick={() => { setEditorTarget('user'); setViewMode('charEditor'); trackEvent('打开像素捏人器', { target: 'user' }); }} />
+              <BottomTab label="导入" onClick={() => importInputRef.current?.click()} />
+            </div>
           </div>
           <input ref={importInputRef} type="file" accept=".json" className="hidden"
             onChange={e => { if (e.target.files?.[0]) { handleImportFile(e.target.files[0]); e.target.value = ''; } }} />
@@ -372,7 +391,7 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
 };
 
 const BottomTab: React.FC<{ label: string; active?: boolean; onClick: () => void }> = ({ label, active, onClick }) => (
-  <button onClick={onClick} className={`px-3 py-2 rounded-xl text-[10px] font-bold transition-all active:scale-90 ${active ? 'text-amber-400 bg-amber-500/10' : 'text-slate-400 hover:text-slate-200'}`}>
+  <button onClick={onClick} className={`shrink-0 px-3 py-2 rounded-xl text-[10px] font-bold transition-all active:scale-90 ${active ? 'text-amber-400 bg-amber-500/10' : 'text-slate-400 hover:text-slate-200'}`}>
     {label}
   </button>
 );

@@ -26,9 +26,10 @@ export const normalizeAssistantActionFormatting = (raw: string): string => {
         /(^|[^\[])\[\s*SEND_EMOJI\s*[:：]\s*([^\]\r\n]+?)\s*\](?!\])/gim,
         (_all, prefix: string, name: string) => `${prefix}[[SEND_EMOJI: ${name.trim()}]]`,
     );
+    // 人类可读的单括号摘要只有独立成行时才算表情意图，避免误伤自然语言。
     content = content.replace(
-        /(^|[^\[])\[\s*(?:表情|表情包)\s*[:：]\s*([^\]\r\n]+?)\s*\](?!\])/gm,
-        (_all, prefix: string, name: string) => `${prefix}[[SEND_EMOJI: ${name.trim()}]]`,
+        /^[ \t]*\[\s*(?:表情|表情包)\s*[:：]\s*([^\]\r\n]+?)\s*\][ \t]*$/gm,
+        (_all, name: string) => `[[SEND_EMOJI: ${name.trim()}]]`,
     );
 
     // 转账：只修明确的 ACTION token；口语版 [转账 520] 仍由 transferFormat 的

@@ -5,12 +5,14 @@
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "dev": "vite",
-    "build": "pnpm run build:workers && vite build",
+    "prebuild": "pnpm run guard:private-npc",
+    "build": "pnpm run build:workers && vite build && pnpm run guard:private-npc",
     "build:capacitor": "powershell -ExecutionPolicy Bypass -File scripts/sync-tiao-capacitor.ps1",
     "preview": "vite preview",
     "cap:sync": "cap sync",
     "cap:android": "cap open android",
     "build:workers": "node scripts/build-workers.mjs",
+    "guard:private-npc": "node scripts/check-private-npc-leak.mjs",
     "test": "vitest",
     "test:run": "vitest run"
   },
