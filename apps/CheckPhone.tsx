@@ -5,6 +5,7 @@ import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSim
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import { safeResponseJson, extractContent, extractJson } from '../utils/safeApi';
+import { completeChat } from '../utils/chatCompletionClient';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
     runRealConversation, runNpcConversation, upsertContact, matchRealChar,
@@ -743,18 +744,11 @@ ${realCharRule}
 
             const fullPrompt = `${context}\n\n### [你和用户「${userProfile.name}」的最近聊天（仅背景参考）]\n${recentMsgs}\n\n${perspectiveLock}\n\n### [Task]\n${promptInstruction}\n请结合上面的「当前时间 / 距离上次联系」和人设调整生成内容的时间戳和情绪。如果很久没联系，记录可能是近期的独处状态；如果刚聊过，记录可能与聊天内容相关。`;
 
-            const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-                body: JSON.stringify({
-                    model: apiConfig.model,
-                    messages: [{ role: "user", content: fullPrompt }],
-                    temperature: 0.8
-                })
-            });
-
-            if (!response.ok) throw new Error('API Error');
-            const data = await safeResponseJson(response);
+            const data = await completeChat(apiConfig, {
+                model: apiConfig.model,
+                messages: [{ role: "user", content: fullPrompt }],
+                temperature: 0.8
+            }, { maxRetries: 2 });
             // extractContent + extractJson：兼容 Claude 返回格式（正文在 reasoning_content、
             // 包 ```json 代码块、夹散文、尾逗号、内层未转义引号…），裸 JSON.parse 解不出来会丢空。
             const content = extractContent(data);
@@ -882,13 +876,11 @@ ${realCharRule}
 
     // 裸 LLM 调用（智能体生成 / 互动续写共用）
     const callLLM = async (prompt: string, temperature = 0.85): Promise<string> => {
-        const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-            body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }], temperature }),
-        });
-        if (!response.ok) throw new Error('API Error');
-        const data = await safeResponseJson(response);
+        const data = await completeChat(apiConfig, {
+            model: apiConfig.model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature
+        }, { maxRetries: 2 });
         // 用 extractContent 而非裸读 message.content：兼容 Claude/思考类模型把正文放在
         // reasoning_content、或正文里夹 <think> 块的情况，否则前端拿到空串（"后台出字前端没内容"）。
         return extractContent(data);
