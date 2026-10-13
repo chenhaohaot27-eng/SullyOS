@@ -21,7 +21,21 @@ export interface GiftPartySnapshot {
 
 export type GiftSource =
     | 'gift_app'
-    | 'chat_action';
+    | 'chat_action'
+    | 'phone_order'
+    | 'meeting'
+    | 'story';
+
+/**
+ * 礼物事件的来源反链（giftEventHub Phase 1 起，可选）：指向产生这份礼物的持久化实体，
+ * 供 UI 跳转 / 防重复桥接 / 审计。旧记录缺省 = undefined，IndexedDB 无 schema 校验，天然兼容。
+ */
+export interface GiftOriginRef {
+    /** 来源实体类型：聊天触发消息 / 淘宝订单记录 / 剧情会话 / 见面会话。 */
+    kind: 'chat' | 'order-record' | 'story-session' | 'date-session';
+    /** 来源实体的稳定 id（PhoneEvidence.id / story sessionId / date sessionId / 触发消息 id）。 */
+    refId: string;
+}
 
 export type GiftImageOrigin =
     | 'camera'
@@ -124,6 +138,9 @@ export interface GiftRecord {
 
     /** Hotfix Phase1：显式请求 or 自主机会触发（cooldown 推导；旧记录缺省=既有行为）。 */
     triggerSource?: 'explicit' | 'autonomous';
+
+    /** 事件来源反链（giftEventHub Phase 1 起写入；旧记录无此字段，查询侧需容忍 undefined）。 */
+    origin?: GiftOriginRef;
 
     gift: {
         name: string;

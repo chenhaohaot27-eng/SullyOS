@@ -6,6 +6,7 @@ import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import { safeResponseJson, extractContent, extractJson } from '../utils/safeApi';
 import { completeChat } from '../utils/chatCompletionClient';
+import { bridgePhoneOrderGift } from '../utils/phoneOrderGiftAdapter';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
     runRealConversation, runNpcConversation, upsertContact, matchRealChar,
@@ -852,6 +853,22 @@ ${realCharRule}
                     ...(isContactBearing ? { contacts: contactsAcc } : {}),
                 }
             }));
+
+            // ─── Phase 2A：淘宝订单 → Gift Event 桥接（订单已保存成功后执行）───
+            // 只在 type==='order' 时尝试；bridgePhoneOrderGift 内部永不 throw，
+            // 这里再包一层 try/catch 双保险——礼物桥接失败绝不阻断淘宝刷新主流程。
+            if (type === 'order') {
+                for (const rec of newRecordsToAdd) {
+                    try {
+                        await bridgePhoneOrderGift({
+                            record: rec,
+                            charId: targetChar.id,
+                            charName: targetChar.name,
+                            userName: userProfile.name,
+                        });
+                    } catch { /* 静默：桥接异常不影响订单刷新 */ }
+                }
+            }
 
             if (type === 'contacts') {
                 addToast(`已扫描 ${contactsAcc.length} 位联系人`, 'success');
