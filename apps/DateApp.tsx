@@ -134,7 +134,7 @@ const DateApp: React.FC = () => {
     // History long-press context menu
     const [historyMenuMsg, setHistoryMenuMsg] = useState<Message | null>(null);
     const [historyMenuPos, setHistoryMenuPos] = useState<{x: number, y: number}>({x: 0, y: 0});
-    const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // （历史长按定时器已拆除：iOS 原生文字选区优先，消息管理改走每条消息的「···」按钮。）
     // History edit modal
     const [historyEditMsg, setHistoryEditMsg] = useState<Message | null>(null);
     const [historyEditContent, setHistoryEditContent] = useState('');
@@ -706,8 +706,14 @@ const DateApp: React.FC = () => {
         if (!char) { addToast('收藏操作失败，请重试', 'error'); return; }
         try {
             const favorite = buildTextFragmentFavorite({ msg, char, selectedText, occurrence });
-            const saved = await DB.saveMessageFavorite(favorite);
-            addToast(saved.favoritedAt === favorite.favoritedAt ? '已收进留音海螺 🐚' : '这段已收藏过', 'success');
+            await DB.saveMessageFavorite(favorite);
+            // 精确回读验证：事务 oncomplete 后按 id 查得到才算成功，绝不静默
+            const verify = await DB.getMessageFavoriteById(favorite.id);
+            if (!verify || verify.contentSnapshot !== favorite.contentSnapshot || verify.charId !== char.id) {
+                addToast('收藏未能保存，请重试', 'error');
+                return;
+            }
+            addToast(verify.favoritedAt === favorite.favoritedAt ? '已收进留音海螺 🐚' : '这段已收藏过', 'success');
             trackEvent('收藏见面文字片段');
         } catch {
             addToast('收藏操作失败，请重试', 'error');
@@ -732,24 +738,8 @@ const DateApp: React.FC = () => {
         else addToast('收藏操作失败，请重试', 'error');
     };
 
-    // --- History Long Press ---
-    const handleHistoryLongPressStart = useCallback((msg: Message, e: React.TouchEvent | React.MouseEvent) => {
-        const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-        const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-        longPressTimer.current = setTimeout(() => {
-            // 原生文字选区优先：iOS 长按选字时不再弹自定义菜单（避免抢触）
-            try { if (window.getSelection()?.toString()) return; } catch { /* ignore */ }
-            setHistoryMenuMsg(msg);
-            setHistoryMenuPos({ x: clientX, y: clientY });
-        }, 550);
-    }, []);
-
-    const handleHistoryLongPressEnd = useCallback(() => {
-        if (longPressTimer.current) {
-            clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-        }
-    }, []);
+    // （历史长按定时器已拆除：iOS 原生文字选区优先，消息管理改走每条消息的「···」按钮；
+    //   桌面保留右键菜单作为第二入口。）
 
     const handleHistoryDelete = async (msg: Message) => {
         await DB.deleteMessage(msg.id);
@@ -1167,15 +1157,15 @@ const DateApp: React.FC = () => {
                                         <div
                                             key={m.id}
                                             data-frag-msg={m.id}
-                                            className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'} select-text`}
-                                            onTouchStart={(e) => handleHistoryLongPressStart(m, e)}
-                                            onTouchEnd={handleHistoryLongPressEnd}
-                                            onTouchMove={handleHistoryLongPressEnd}
-                                            onMouseDown={(e) => handleHistoryLongPressStart(m, e)}
-                                            onMouseUp={handleHistoryLongPressEnd}
-                                            onMouseLeave={handleHistoryLongPressEnd}
+                                            className={`relative flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'} select-text`}
                                             onContextMenu={(e) => { e.preventDefault(); setHistoryMenuMsg(m); setHistoryMenuPos({ x: e.clientX, y: e.clientY }); }}
                                         >
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); setHistoryMenuMsg(m); setHistoryMenuPos({ x: e.clientX, y: e.clientY }); }}
+                                                title="消息管理（语音原声 / 编辑 / 删除）"
+                                                aria-label="消息管理"
+                                                className="absolute -top-2 right-0 w-6 h-6 rounded-full flex items-center justify-center text-[13px] leading-none text-slate-300 select-none active:scale-90 transition-transform hover:bg-slate-100"
+                                            >···</button>
                                             <div className={`max-w-[90%] text-sm leading-relaxed whitespace-pre-wrap ${m.role === 'user' ? 'text-slate-500 text-right italic' : 'text-slate-800'}`}>
                                                 {m.role === 'user' ? <span className="bg-slate-100 px-3 py-2 rounded-xl rounded-tr-none inline-block">{text}</span> : <span>{text || '(无内容)'}</span>}
                                             </div>
@@ -1284,6 +1274,7 @@ const DateApp: React.FC = () => {
                 <SelectionFavoriteAffix
                     resolveMessage={(msgId) => historyMessages.find(m => m.id === msgId)}
                     onFavoriteText={(msg, selectedText, occurrence) => { void handleHistoryFavoriteText(msg, selectedText, occurrence); }}
+                    onError={(reason) => addToast(reason === 'no_selection' ? '请先长按选中要收藏的文字' : '找不到选中文字所属的消息', 'error')}
                 />
             </div>
         );

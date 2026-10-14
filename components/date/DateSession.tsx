@@ -191,8 +191,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
     const [isBatchSelectMode, setIsBatchSelectMode] = useState(false);
     const [selectedMsgIds, setSelectedMsgIds] = useState<Set<number>>(new Set());
-    const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const touchStartRef = useRef<{x: number, y: number} | null>(null);
+    // （长按定时器已拆除：iOS 原生选区优先，消息管理走「···」按钮）
     const novelScrollRef = useRef<HTMLDivElement>(null);
 
     // Voice TTS — single shared cache keyed by dialogue text, used by both GAL & novel mode
@@ -372,13 +371,19 @@ const DateSession: React.FC<DateSessionProps> = ({
     const galLinePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const novelLinePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    /** 文字选区收藏（SelectionFavoriteAffix 回调）：只存选中的字。 */
+    /** 文字选区收藏（SelectionFavoriteAffix 快照回调）：只存选中的字；落库后按 id 精确回读验证。 */
     const handleFavoriteSelectedText = async (msg: Message, selectedText: string, occurrence: number) => {
         try {
             const { DB } = await import('../../utils/db');
             const favorite = buildTextFragmentFavorite({ msg, char, selectedText, occurrence });
-            const saved = await DB.saveMessageFavorite(favorite);
-            addToast(saved.favoritedAt === favorite.favoritedAt ? '已收进留音海螺 🐚' : '这段已收藏过', 'success');
+            await DB.saveMessageFavorite(favorite);
+            // 精确回读验证：事务 oncomplete 后按 id 查得到才算成功，绝不静默
+            const verify = await DB.getMessageFavoriteById(favorite.id);
+            if (!verify || verify.contentSnapshot !== favorite.contentSnapshot || verify.charId !== char.id) {
+                addToast('收藏未能保存，请重试', 'error');
+                return;
+            }
+            addToast(verify.favoritedAt === favorite.favoritedAt ? '已收进留音海螺 🐚' : '这段已收藏过', 'success');
         } catch {
             addToast('收藏操作失败，请重试', 'error');
         }
@@ -778,51 +783,8 @@ const DateSession: React.FC<DateSessionProps> = ({
         };
     }, []);
 
-    // Message Touch Logic (Robust version for scrollable lists)
-    const handleMsgTouchStart = (e: React.TouchEvent | React.MouseEvent, msg: Message) => {
-        if (!isNovelMode) return;
-        // If already in batch select mode, don't start a new long press timer
-        if (isBatchSelectMode) return;
-        // 原生文字选区优先：iOS 长按选字时不再弹自定义消息菜单（避免抢触）
-        try { if (window.getSelection()?.toString()) return; } catch { /* ignore */ }
-        if ('touches' in e) {
-            touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        } else {
-            touchStartRef.current = { x: e.clientX, y: e.clientY };
-        }
-
-        longPressTimer.current = setTimeout(() => {
-                setSelectedMessage(msg);
-            setModalType('options');
-        }, 600);
-    };
-
-    const handleMsgTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
-        if (!longPressTimer.current || !touchStartRef.current) return;
-        
-        let clientX, clientY;
-        if ('touches' in e) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = e.clientX;
-            clientY = e.clientY;
-        }
-
-        const dx = Math.abs(clientX - touchStartRef.current.x);
-        const dy = Math.abs(clientY - touchStartRef.current.y);
-
-        // If moved more than 10px, assume scrolling and cancel long press
-        if (dx > 10 || dy > 10) {
-            if (longPressTimer.current) clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-        }
-    };
-
-    const handleMsgTouchEnd = () => {
-        if (longPressTimer.current) clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-    };
+    // 消息管理入口已改为每条消息的「···」按钮（iOS 原生文字选区优先，
+    // 旧的 600ms 长按弹窗与选区光标冲突，已拆除；桌面保留右键菜单作为第二入口）。
 
     const toggleSelectedMsg = (id: number) => {
         setSelectedMsgIds(prev => {
@@ -1068,15 +1030,16 @@ const DateSession: React.FC<DateSessionProps> = ({
                                         e.stopPropagation();
                                         toggleSelectedMsg(msg.id);
                                     }}
-                                    onTouchStart={(e) => handleMsgTouchStart(e, msg)}
-                                    onTouchEnd={handleMsgTouchEnd}
-                                    onTouchMove={handleMsgTouchMove}
-                                    onMouseDown={(e) => handleMsgTouchStart(e, msg)}
-                                    onMouseUp={handleMsgTouchEnd}
-                                    onMouseMove={handleMsgTouchMove}
-                                    onMouseLeave={handleMsgTouchEnd}
                                     onContextMenu={(e) => { e.preventDefault(); if (!isBatchSelectMode) { setSelectedMessage(msg); setModalType('options'); } }}
                                 >
+                                    {!isBatchSelectMode && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setSelectedMessage(msg); setModalType('options'); }}
+                                            title="消息管理（编辑 / 删除 / 多选）"
+                                            aria-label="消息管理"
+                                            className={`absolute top-1 right-0 w-7 h-7 rounded-full flex items-center justify-center text-sm leading-none select-none active:scale-90 transition-transform ${char.dateLightReading ? 'text-stone-400 hover:bg-stone-200' : 'text-white/30 hover:bg-white/10'}`}
+                                        >···</button>
+                                    )}
                                     {isBatchSelectMode && (
                                         <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedMsgIds.has(msg.id) ? 'bg-primary border-primary' : 'bg-white border-stone-300'}`}>
                                             {selectedMsgIds.has(msg.id) && <span className="text-white text-[10px]">✓</span>}
@@ -1294,6 +1257,7 @@ const DateSession: React.FC<DateSessionProps> = ({
             <SelectionFavoriteAffix
                 resolveMessage={(msgId) => messages.find(m => m.id === msgId)}
                 onFavoriteText={(msg, selectedText, occurrence) => { void handleFavoriteSelectedText(msg, selectedText, occurrence); }}
+                onError={(reason) => addToast(reason === 'no_selection' ? '请先长按选中要收藏的文字' : '找不到选中文字所属的消息', 'error')}
             />
         </div>
     );

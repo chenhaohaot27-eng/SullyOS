@@ -1561,7 +1561,9 @@ export const DB = {
 
   /**
    * 幂等收藏（v79 起按 id 查重）：同 id 只保留一条（已存在时保持原收藏，不覆盖 favoritedAt）。
-   * sourceMessageId 索引已降级为非唯一——同一条 Message 的整条收藏（mfav-<msgId>）与
+   * 写入成功以 IndexedDB 事务 **oncomplete** 为准——put 发出后必须等事务真正提交，
+   * 绝不在 commit 前就报告成功；onerror/onabort 一律 reject。
+   * sourceMessageId 索引非唯一：同一条 Message 的整条收藏（mfav-<msgId>）与
    * 多条片段收藏（mfav-<msgId>-ft/fv-<hash>）并存互不覆盖。
    */
   saveMessageFavorite: async (fav: MessageFavorite): Promise<MessageFavorite> => {
@@ -1569,16 +1571,44 @@ export const DB = {
       return new Promise((resolve, reject) => {
           const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readwrite');
           const store = transaction.objectStore(STORE_MESSAGE_FAVORITES);
+          let existing: MessageFavorite | undefined;
+          let settled = false;
           const getReq = store.get(fav.id);
           getReq.onsuccess = () => {
-              const existing = getReq.result as MessageFavorite | undefined;
-              if (existing) { resolve(existing); return; }
-              store.put(fav);
-              resolve(fav);
+              existing = getReq.result as MessageFavorite | undefined;
+              if (!existing) store.put(fav); // 幂等：已存在则不写，保留原 favoritedAt
           };
-          getReq.onerror = () => reject(getReq.error);
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error('saveMessageFavorite aborted'));
+          getReq.onerror = () => {
+              if (settled) return;
+              settled = true;
+              reject(getReq.error || new Error('saveMessageFavorite get failed'));
+          };
+          transaction.oncomplete = () => {
+              if (settled) return;
+              settled = true;
+              resolve(existing || fav);
+          };
+          transaction.onerror = () => {
+              if (settled) return;
+              settled = true;
+              reject(transaction.error || new Error('saveMessageFavorite transaction failed'));
+          };
+          transaction.onabort = () => {
+              if (settled) return;
+              settled = true;
+              reject(transaction.error || new Error('saveMessageFavorite aborted'));
+          };
+      });
+  },
+
+  /** 按收藏 id 精确回读（落库验证 / 片段级幂等检查用）。 */
+  getMessageFavoriteById: async (id: string): Promise<MessageFavorite | null> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readonly');
+          const request = transaction.objectStore(STORE_MESSAGE_FAVORITES).get(id);
+          request.onsuccess = () => resolve((request.result as MessageFavorite) || null);
+          request.onerror = () => reject(request.error);
       });
   },
 

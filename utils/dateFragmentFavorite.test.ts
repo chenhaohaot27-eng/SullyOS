@@ -183,4 +183,27 @@ describe('dateFragmentFavorite — 单句语音原声收藏', () => {
         expect(voiceFragmentId(42, 1, sameText)).not.toBe(voiceFragmentId(42, 4, sameText));
         expect(voiceFragmentId(42, 1, sameText)).toBe(voiceFragmentId(42, 1, sameText));
     });
+
+    it('Test 14 — saveMessageFavorite 以事务 oncomplete 为准：resolve 后按 id 精确回读必命中', async () => {
+        const fav = buildTextFragmentFavorite({ msg: makeMsg(), char: CHAR, selectedText: '回读验证', occurrence: 0 });
+        await DB.saveMessageFavorite(fav); // 内部等待 transaction.oncomplete
+        const verify = await DB.getMessageFavoriteById(fav.id);
+        expect(verify).not.toBeNull();
+        expect(verify!.id).toBe(fav.id);
+        expect(verify!.favoriteType).toBe('text');
+        expect(verify!.contentSnapshot).toBe('回读验证');
+        expect(verify!.charId).toBe('c1');
+        // 不存在的 id → null（不抛错）
+        expect(await DB.getMessageFavoriteById('mfav-999999-ft-nonexistent')).toBeNull();
+    });
+
+    it('Test 15 — getMessageFavorites 列表同样能看到已提交的片段（海螺列表链路）', async () => {
+        const msg = makeMsg();
+        await DB.saveMessageFavorite(buildTextFragmentFavorite({ msg, char: CHAR, selectedText: '海螺列表', occurrence: 0 }));
+        await DB.saveMessageFavorite(buildTextFragmentFavorite({ msg, char: CHAR, selectedText: '第二段', occurrence: 0 }));
+        const rows = await DB.getMessageFavorites('c1'); // MessageFavoritesApp 同款读取
+        // sort() 按 Unicode 码位：'海'(U+6D77) < '第'(U+7B2C)
+        expect(rows.filter(r => r.favoriteType === 'text').map(r => r.contentSnapshot).sort())
+            .toEqual(['海螺列表', '第二段']);
+    });
 });
