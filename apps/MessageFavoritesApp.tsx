@@ -65,14 +65,13 @@ const useFavoriteAudio = (fav: MessageFavorite | null, lazySynth?: LazySynthDeps
                     setUrl(stored.remoteUrl);
                     return;
                 }
-                // ── 惰性合成回退：无已存音频（见面模式收藏快照只有 spokenText）──
-                // 复用现有 ttsRouter 流程，不新建 TTS 逻辑；合成后 best-effort 写回 assets，
-                // 下次播放走上面的直读分支。
-                const spokenText = typeof fav.metadataSnapshot?.spokenText === 'string'
-                    ? (fav.metadataSnapshot.spokenText as string).trim()
-                    : '';
+                // ── 惰性合成回退（仅限旧版 lazySynth 标记的收藏）──
+                // 新版单句原声收藏（voice_frag_*）绝不允许重新合成：资产在就是原始音频，
+                // 资产丢了就显示失联——重新合成冒充原声是被明确禁止的。
+                const meta = fav.metadataSnapshot as { spokenText?: string; lazySynth?: boolean } | undefined;
+                const spokenText = typeof meta?.spokenText === 'string' ? meta.spokenText.trim() : '';
                 const { char, apiConfig } = lazySynth || {};
-                if (spokenText && char && apiConfig) {
+                if (spokenText && meta?.lazySynth === true && char && apiConfig) {
                     const { synthesizeSpeech, characterHasVoice } = await import('../utils/ttsRouter');
                     if (!alive || !characterHasVoice(char, apiConfig)) return;
                     const synthUrl = await synthesizeSpeech(spokenText, char, apiConfig);
@@ -168,8 +167,13 @@ const MessageFavoritesApp: React.FC = () => {
     ), [favorites, charFilter, typeFilter]);
 
     const handleUnfavorite = useCallback(async (fav: MessageFavorite) => {
-        // 删除收藏只删记录，绝不触碰原聊天消息 / 音频 / 图片资产
+        // 删除收藏只删记录，绝不触碰原聊天消息 / 音频 / 图片资产；
+        // 片段原声资产（voice_frag_*）在无其它收藏引用时顺带清理，防泄漏。
         await DB.deleteMessageFavorite(fav.id);
+        try {
+            const { cleanupFragmentAssetIfOrphaned } = await import('../utils/dateFragmentFavorite');
+            await cleanupFragmentAssetIfOrphaned(fav.mediaRef);
+        } catch { /* 清理失败不影响取消收藏 */ }
         setFavorites(prev => prev.filter(item => item.id !== fav.id));
         setConfirmDelete(null);
         addToast('已取消收藏', 'success');

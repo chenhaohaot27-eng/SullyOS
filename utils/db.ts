@@ -60,8 +60,10 @@ const DB_NAME = 'AetherOS_Data';
 // v75：外卖订单唯一真相源（food_orders；eventKey 唯一索引持久幂等）。
 // v76：玩家统一钱包（money_ledger 流水 eventKey 唯一索引持久幂等 + player_wallet singleton 配置）。
 // v77：留音海螺 message_favorites store（sourceMessageId 唯一索引 + id=`mfav-<sourceMessageId>` 双保险幂等）。
+// v79：留音海螺片段收藏——sourceMessageId 唯一索引降级为非唯一（同一条 Message 可存多条片段收藏：
+//      旧整条 mfav-<msgId> + 新片段 mfav-<msgId>-ft/fv-<hash>）；幂等职责完全移交 id。旧数据零迁移。
 // v78：「和 ta 一起听」正式会话 music_listen_sessions store（charId 非唯一索引；id 由 listenSession.ts 生成）。
-const DB_VERSION = 78;
+const DB_VERSION = 79;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -610,6 +612,23 @@ export const openDB = (): Promise<IDBDatabase> => {
           const mlsStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_MUSIC_LISTEN_SESSIONS);
           if (mlsStore && !mlsStore.indexNames.contains('charId')) {
               try { mlsStore.createIndex('charId', 'charId', { unique: false }); } catch { /* 已存在 */ }
+          }
+      }
+
+      // ─── v79: 留音海螺片段收藏 ───────────────────────────
+      // sourceMessageId 唯一索引 → 非唯一：同一条 Message 可存多条片段收藏
+      // （文字选区 mfav-<msgId>-ft-<hash> / 单句语音 mfav-<msgId>-fv-<lineIdx>-<hash>）。
+      // 只重建该索引，不触碰 store 本体与既有记录；幂等由 id 承担（saveMessageFavorite 按 id 查重）。
+      if (event.oldVersion < 79 && db.objectStoreNames.contains(STORE_MESSAGE_FAVORITES)) {
+          const mfavStoreV79 = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_MESSAGE_FAVORITES);
+          if (mfavStoreV79 && mfavStoreV79.indexNames.contains('sourceMessageId')) {
+              try {
+                  mfavStoreV79.deleteIndex('sourceMessageId');
+                  mfavStoreV79.createIndex('sourceMessageId', 'sourceMessageId', { unique: false });
+              } catch (e) {
+                  // 升级事务内失败不阻断其它 store 升级；index 残留为唯一时片段收藏会被挡（安全降级）
+                  console.warn('[DB v79] message_favorites.sourceMessageId 索引重建失败:', e);
+              }
           }
       }
     };
@@ -1540,20 +1559,24 @@ export const DB = {
 
   // --- Message Favorites (留音海螺) ---
 
-  /** 幂等收藏：同一 sourceMessageId 只保留一条（已存在时保持原收藏，不覆盖 favoritedAt）。 */
+  /**
+   * 幂等收藏（v79 起按 id 查重）：同 id 只保留一条（已存在时保持原收藏，不覆盖 favoritedAt）。
+   * sourceMessageId 索引已降级为非唯一——同一条 Message 的整条收藏（mfav-<msgId>）与
+   * 多条片段收藏（mfav-<msgId>-ft/fv-<hash>）并存互不覆盖。
+   */
   saveMessageFavorite: async (fav: MessageFavorite): Promise<MessageFavorite> => {
       const db = await openDB();
       return new Promise((resolve, reject) => {
           const transaction = db.transaction(STORE_MESSAGE_FAVORITES, 'readwrite');
           const store = transaction.objectStore(STORE_MESSAGE_FAVORITES);
-          const idxReq = store.index('sourceMessageId').get(IDBKeyRange.only(fav.sourceMessageId));
-          idxReq.onsuccess = () => {
-              const existing = idxReq.result as MessageFavorite | undefined;
+          const getReq = store.get(fav.id);
+          getReq.onsuccess = () => {
+              const existing = getReq.result as MessageFavorite | undefined;
               if (existing) { resolve(existing); return; }
               store.put(fav);
               resolve(fav);
           };
-          idxReq.onerror = () => reject(idxReq.error);
+          getReq.onerror = () => reject(getReq.error);
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error || new Error('saveMessageFavorite aborted'));
       });

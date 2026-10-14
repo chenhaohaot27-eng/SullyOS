@@ -9,11 +9,19 @@ import { extractObservation, hasObservation } from '../../utils/datePrompts';
 import { isBlobRef } from '../../utils/blobRef';
 import { clearDateResumeAttempt } from '../../utils/dateSessionRecovery';
 import { cleanTextForTts, VALID_EMOTIONS } from '../../utils/minimaxTts';
-import { synthesizeSpeech, characterHasVoice } from '../../utils/ttsRouter';
+import { synthesizeSpeechDetailed, characterHasVoice } from '../../utils/ttsRouter';
+import { isDialogueLine, extractDialogueText } from '../../utils/dateLineText';
+import SelectionFavoriteAffix from './SelectionFavoriteAffix';
+import {
+    buildTextFragmentFavorite,
+    favoriteVoiceLine,
+    rememberLineAudio,
+    takeLineAudioBlob,
+    voiceLineFragmentKey,
+} from '../../utils/dateFragmentFavorite';
 import { resolveTtsProvider } from '../../utils/ttsProvider';
 import { cleanTextForTtsFish } from '../../utils/fishAudioTts';
 import { planNovelLoadMore } from '../../utils/dateSessionHistory';
-import { toggleMessageFavorite } from '../../utils/messageFavoriteCapture';
 import { getPendingReplyText } from '../../utils/pendingReply';
 import { stripLeadingEmotionTags, readDateTextPresentation, writeDateTextPresentation, type StoryTextPresentation } from '../../utils/storyTextPresentation';
 import ImmersiveStoryText from './story/ImmersiveStoryText';
@@ -52,24 +60,7 @@ const cleanTextForDisplay = (text: string) => {
     return text.replace(/\[.*?\]/g, '').trim();
 };
 
-// Helper: Check if a line is dialogue (starts with quoted speech "...")
-// A dialogue line must BEGIN with a quote character (after trimming).
-// Lines that merely contain incidental quotes (e.g. 把"项圈草图"塞进...) are narration.
-const isDialogueLine = (text: string) => {
-    const clean = cleanTextForDisplay(text);
-    return /^[""\u201C\u300C]/.test(clean);
-};
-
-// Helper: Extract only the dialogue text from a line for TTS
-const extractDialogueText = (text: string): string => {
-    const clean = cleanTextForDisplay(text);
-    const matches = clean.match(/["\u201C]([^"\u201D]*)["\u201D]/g)
-        || clean.match(/[\u300C]([^\u300D]*)[\u300D]/g);
-    if (matches) {
-        return matches.map(m => m.replace(/["\u201C\u201D\u300C\u300D]/g, '')).join(' ');
-    }
-    return clean;
-};
+// 台词行判定/抽取已统一到 utils/dateLineText（GAL/阅读/历史共用，保证片段标识一致）。
 
 const parseDialogue = (fullText: string, initialEmotion: string = 'normal'): DialogueItem[] => {
     if (!fullText) return [];
@@ -209,6 +200,8 @@ const DateSession: React.FC<DateSessionProps> = ({
     const [galVoiceLoading, setGalVoiceLoading] = useState(false);
     const [showVoiceLangPicker, setShowVoiceLangPicker] = useState(false);
     const voiceCacheRef = useRef<Record<string, string>>({});
+    // GAL 当前台词的「消息-行号」定位（单句原声收藏的稳定标识）
+    const [galLineCtx, setGalLineCtx] = useState<{ msgId: number; lineIdx: number } | null>(null);
     const [novelVoiceLoading, setNovelVoiceLoading] = useState<Set<string>>(new Set());
     const [novelPlayingId, setNovelPlayingId] = useState<string | null>(null);
     const [novelVisibleCount, setNovelVisibleCount] = useState(NOVEL_MESSAGE_WINDOW_SIZE);
@@ -223,7 +216,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
     const VOICE_LANG_OPTIONS = [{v:'',l:'默认'},{v:'en',l:'EN'},{v:'ja',l:'JP'},{v:'ko',l:'KR'},{v:'fr',l:'FR'},{v:'es',l:'ES'}];
 
-    const translateAndSpeak = async (text: string, emotion?: string): Promise<string | null> => {
+    const translateAndSpeakDetailed = async (text: string, emotion?: string): Promise<{ url: string; blob: Blob | null } | null> => {
         if (!characterHasVoice(char, apiConfig)) return null;
         try {
             // 鱼声保留 inline cue，用 Fish 专属清洗；MiniMax 走原来的清洗。
@@ -246,7 +239,8 @@ const DateSession: React.FC<DateSessionProps> = ({
                     if (translated) ttsText = translated;
                 } catch { /* use original */ }
             }
-            return await synthesizeSpeech(ttsText, char, apiConfig, {
+            // detailed 版本同时返回原始 Blob —— 单句原声收藏的数据来源
+            return await synthesizeSpeechDetailed(ttsText, char, apiConfig, {
                 languageBoost: voiceLang || undefined,
                 groupId: apiConfig.minimaxGroupId || undefined,
                 emotion,
@@ -274,18 +268,32 @@ const DateSession: React.FC<DateSessionProps> = ({
         let cancelled = false;
         const dialogueText = extractDialogueText(currentText);
         const cacheKey = dialogueText;
+        // 单句原声关联：定位当前台词所属的最新 assistant 消息 + 行号（片段收藏的稳定标识）
+        const latestAssistant = [...messages].reverse().find(m => m.role === 'assistant' && m.type === 'text');
+        let lineCtx: { msgId: number; lineIdx: number } | null = null;
+        if (latestAssistant) {
+            const rawLines = (latestAssistant.content || '').split('\n');
+            const idx = rawLines.findIndex(l => l.trim() === currentText.trim());
+            lineCtx = { msgId: latestAssistant.id, lineIdx: idx >= 0 ? idx : 0 };
+            setGalLineCtx(lineCtx);
+        }
         const play = async () => {
             // Check cache first
             let url = voiceCacheRef.current[cacheKey];
+            let blob: Blob | null = null;
             if (!url) {
                 setGalVoiceLoading(true);
-                url = await translateAndSpeak(dialogueText, currentLineEmotionRef.current) || '';
+                const result = await translateAndSpeakDetailed(dialogueText, currentLineEmotionRef.current);
                 if (cancelled) return;
                 setGalVoiceLoading(false);
-                if (!url) return;
+                if (!result) return;
+                url = result.url;
+                blob = result.blob;
                 voiceCacheRef.current[cacheKey] = url;
             }
             if (cancelled) return;
+            // 记录单句原声（页面级缓存）：收藏时从这里取原始 Blob，绝不重新合成
+            if (lineCtx) rememberLineAudio(voiceLineFragmentKey(lineCtx.msgId, lineCtx.lineIdx, dialogueText), { url, blob, lineText: dialogueText });
             if (!dateAudioRef.current) dateAudioRef.current = new Audio();
             dateAudioRef.current.src = url;
             dateAudioRef.current.onended = () => setDateVoicePlaying(false);
@@ -308,13 +316,17 @@ const DateSession: React.FC<DateSessionProps> = ({
         const dialogueText = extractDialogueText(currentText);
         const cacheKey = dialogueText;
         let url = voiceCacheRef.current[cacheKey];
+        let blob: Blob | null = null;
         if (!url) {
             setGalVoiceLoading(true);
-            url = await translateAndSpeak(dialogueText, currentLineEmotionRef.current) || '';
+            const result = await translateAndSpeakDetailed(dialogueText, currentLineEmotionRef.current);
             setGalVoiceLoading(false);
-            if (!url) { addToast('语音合成失败，请稍后重试', 'error'); return; }
+            if (!result) { addToast('语音合成失败，请稍后重试', 'error'); return; }
+            url = result.url;
+            blob = result.blob;
             voiceCacheRef.current[cacheKey] = url;
         }
+        if (galLineCtx) rememberLineAudio(voiceLineFragmentKey(galLineCtx.msgId, galLineCtx.lineIdx, dialogueText), { url, blob, lineText: dialogueText });
         if (!dateAudioRef.current) dateAudioRef.current = new Audio();
         dateAudioRef.current.src = url;
         dateAudioRef.current.onended = () => setDateVoicePlaying(false);
@@ -326,7 +338,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     // voiceEmotion（[v:xxx]）跟立绘模式保持一致地传给 TTS：这样两种模式合成的音频完全相同，
     // 且命中同一条持久缓存（ttsCache/IndexedDB）——退出见面再进来点旧台词也能从本地缓存秒取，
     // 不必按不同的 key 重新联网合成。
-    const handleNovelLinePlay = async (lineKey: string, dialogueText: string, voiceEmotion?: string) => {
+    const handleNovelLinePlay = async (lineKey: string, msgId: number, lineIdx: number, dialogueText: string, voiceEmotion?: string) => {
         const cachedUrl = voiceCacheRef.current[dialogueText];
         if (cachedUrl) {
             // Already have URL (from GAL or previous novel play), just play/pause
@@ -336,6 +348,7 @@ const DateSession: React.FC<DateSessionProps> = ({
                 setNovelPlayingId(null);
                 return;
             }
+            rememberLineAudio(voiceLineFragmentKey(msgId, lineIdx, dialogueText), { url: cachedUrl, blob: null, lineText: dialogueText });
             dateAudioRef.current.src = cachedUrl;
             dateAudioRef.current.onended = () => setNovelPlayingId(null);
             dateAudioRef.current.play().catch(() => {});
@@ -343,15 +356,46 @@ const DateSession: React.FC<DateSessionProps> = ({
             return;
         }
         setNovelVoiceLoading(prev => new Set(prev).add(lineKey));
-        const url = await translateAndSpeak(dialogueText, voiceEmotion);
+        const result = await translateAndSpeakDetailed(dialogueText, voiceEmotion);
         setNovelVoiceLoading(prev => { const n = new Set(prev); n.delete(lineKey); return n; });
-        if (!url) { addToast('语音合成失败，请稍后重试', 'error'); return; }
-        voiceCacheRef.current[dialogueText] = url;
+        if (!result) { addToast('语音合成失败，请稍后重试', 'error'); return; }
+        voiceCacheRef.current[dialogueText] = result.url;
+        rememberLineAudio(voiceLineFragmentKey(msgId, lineIdx, dialogueText), { url: result.url, blob: result.blob, lineText: dialogueText });
         if (!dateAudioRef.current) dateAudioRef.current = new Audio();
-        dateAudioRef.current.src = url;
+        dateAudioRef.current.src = result.url;
         dateAudioRef.current.onended = () => setNovelPlayingId(null);
         dateAudioRef.current.play().catch(() => {});
         setNovelPlayingId(lineKey);
+    };
+
+    // ─── 留音海螺：文字选区 / 单句语音原声 收藏 ────────────────────────────────
+    const galLinePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const novelLinePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    /** 文字选区收藏（SelectionFavoriteAffix 回调）：只存选中的字。 */
+    const handleFavoriteSelectedText = async (msg: Message, selectedText: string, occurrence: number) => {
+        try {
+            const { DB } = await import('../../utils/db');
+            const favorite = buildTextFragmentFavorite({ msg, char, selectedText, occurrence });
+            const saved = await DB.saveMessageFavorite(favorite);
+            addToast(saved.favoritedAt === favorite.favoritedAt ? '已收进留音海螺 🐚' : '这段已收藏过', 'success');
+        } catch {
+            addToast('收藏操作失败，请重试', 'error');
+        }
+    };
+
+    /**
+     * 单句语音原声收藏：音频只从页面级单句缓存取（blob/objectURL/远程直下），
+     * 取不到 = 原声未保存，明确提示——绝不重新合成、绝不 lazySynth。
+     */
+    const handleFavoriteLineVoice = async (msgId: number, lineIdx: number, lineText: string) => {
+        const msg = messages.find(m => m.id === msgId);
+        if (!msg) { addToast('收藏操作失败，请重试', 'error'); return; }
+        const key = voiceLineFragmentKey(msgId, lineIdx, lineText);
+        const result = await favoriteVoiceLine({ msg, char, lineIdx, lineText }, () => takeLineAudioBlob(key));
+        if (result.ok) addToast(result.created ? '已收进留音海螺 🐚（原声）' : '这句已收藏过', 'success');
+        else if (result.reason === 'audio_unavailable') addToast('原语音未保存，无法收藏原声', 'error');
+        else addToast('收藏操作失败，请重试', 'error');
     };
 
     // Back Handler
@@ -739,6 +783,8 @@ const DateSession: React.FC<DateSessionProps> = ({
         if (!isNovelMode) return;
         // If already in batch select mode, don't start a new long press timer
         if (isBatchSelectMode) return;
+        // 原生文字选区优先：iOS 长按选字时不再弹自定义消息菜单（避免抢触）
+        try { if (window.getSelection()?.toString()) return; } catch { /* ignore */ }
         if ('touches' in e) {
             touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         } else {
@@ -1015,7 +1061,8 @@ const DateSession: React.FC<DateSessionProps> = ({
                             {visibleSessionMessages.map((msg) => (
                                 <div
                                     key={msg.id}
-                                    className={`group relative rounded-xl transition-colors -mx-4 px-4 py-2 ${char.dateLightReading ? 'active:bg-stone-100' : 'active:bg-white/5'}`}
+                                    data-frag-msg={msg.id}
+                                    className={`group relative rounded-xl transition-colors -mx-4 px-4 py-2 select-text ${char.dateLightReading ? 'active:bg-stone-100' : 'active:bg-white/5'}`}
                                     onClick={(e) => {
                                         if (!isBatchSelectMode) return;
                                         e.stopPropagation();
@@ -1073,10 +1120,22 @@ const DateSession: React.FC<DateSessionProps> = ({
                                                         ) : (
                                                             <p className={`flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${char.dateLightReading ? 'text-stone-700 border-l-2 border-stone-200' : 'text-slate-200 drop-shadow-md border-l-2 border-white/10'}`}>{cleanLine}</p>
                                                         )}
-                                                        {/* Voice button: only for dialogue lines, not opening */}
-                                                        {voiceEnabled && lineIsDialogue && !isOpeningMsg && (
+                                                        {/* Voice button: only for dialogue lines, not opening; 长按 = 收藏这句语音原声 */}
+                                                        {voiceEnabled && lineIsDialogue && !isOpeningMsg && (() => {
+                                                            const { voiceEmotion: lineVoiceEmotion, rest: lineRest } = extractVoiceEmotionTag(line);
+                                                            const lineDialogueText = extractDialogueText(lineRest);
+                                                            return (
                                                             <button
-                                                                onClick={(e) => { e.stopPropagation(); const { voiceEmotion: lineVoiceEmotion, rest: lineRest } = extractVoiceEmotionTag(line); handleNovelLinePlay(lineKey, extractDialogueText(lineRest), lineVoiceEmotion); }}
+                                                                onClick={(e) => { e.stopPropagation(); handleNovelLinePlay(lineKey, msg.id, idx, lineDialogueText, lineVoiceEmotion); }}
+                                                                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleFavoriteLineVoice(msg.id, idx, lineDialogueText); }}
+                                                                onTouchStart={(e) => {
+                                                                    e.stopPropagation();
+                                                                    if (novelLinePressTimer.current) clearTimeout(novelLinePressTimer.current);
+                                                                    novelLinePressTimer.current = setTimeout(() => { void handleFavoriteLineVoice(msg.id, idx, lineDialogueText); }, 550);
+                                                                }}
+                                                                onTouchEnd={() => { if (novelLinePressTimer.current) clearTimeout(novelLinePressTimer.current); }}
+                                                                onTouchMove={() => { if (novelLinePressTimer.current) clearTimeout(novelLinePressTimer.current); }}
+                                                                title="长按收藏这句语音原声"
                                                                 className={`shrink-0 mt-2 w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90 select-none ${
                                                                     novelPlayingId === lineKey
                                                                         ? (char.dateLightReading ? 'bg-emerald-100 text-emerald-600' : 'bg-emerald-500/20 text-emerald-300')
@@ -1091,7 +1150,8 @@ const DateSession: React.FC<DateSessionProps> = ({
                                                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.344-5.891a1.5 1.5 0 0 0 0-2.538L6.3 2.841Z" /></svg>
                                                                 )}
                                                             </button>
-                                                        )}
+                                                            );
+                                                        })()}
                                                     </div>
                                                 );
                                             })}
@@ -1119,6 +1179,20 @@ const DateSession: React.FC<DateSessionProps> = ({
                                     {voiceEnabled && !isTextAnimating && !isShowingOpening && isDialogueLine(currentText) && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); handleGalVoiceToggle(); }}
+                                            onContextMenu={(e) => {
+                                                e.preventDefault(); e.stopPropagation();
+                                                if (galLineCtx) handleFavoriteLineVoice(galLineCtx.msgId, galLineCtx.lineIdx, extractDialogueText(currentText));
+                                            }}
+                                            onTouchStart={(e) => {
+                                                e.stopPropagation();
+                                                if (galLinePressTimer.current) clearTimeout(galLinePressTimer.current);
+                                                const msgId = galLineCtx?.msgId, lineIdx = galLineCtx?.lineIdx, text = extractDialogueText(currentText);
+                                                if (msgId == null || lineIdx == null) return;
+                                                galLinePressTimer.current = setTimeout(() => { void handleFavoriteLineVoice(msgId, lineIdx, text); }, 550);
+                                            }}
+                                            onTouchEnd={() => { if (galLinePressTimer.current) clearTimeout(galLinePressTimer.current); }}
+                                            onTouchMove={() => { if (galLinePressTimer.current) clearTimeout(galLinePressTimer.current); }}
+                                            title="长按收藏这句语音原声"
                                             className={`w-6 h-6 rounded-full flex items-center justify-center transition-all active:scale-90 ${dateVoicePlaying ? 'bg-white/30 text-white/90' : 'bg-white/10 text-white/40 hover:bg-white/20'}`}
                                         >
                                             {galVoiceLoading ? (
@@ -1131,7 +1205,10 @@ const DateSession: React.FC<DateSessionProps> = ({
                                         </button>
                                     )}
                                 </div>
-                                <p className="text-white/90 text-[16px] leading-relaxed font-light tracking-wide drop-shadow-md mt-2">{displayedText}{isTextAnimating && <span className="inline-block w-2 h-4 bg-white/70 ml-1 animate-pulse align-middle"></span>}</p>
+                                <p
+                                    className="text-white/90 text-[16px] leading-relaxed font-light tracking-wide drop-shadow-md mt-2 select-text"
+                                    {...(galLineCtx ? { 'data-frag-msg': String(galLineCtx.msgId) } : {})}
+                                >{displayedText}{isTextAnimating && <span className="inline-block w-2 h-4 bg-white/70 ml-1 animate-pulse align-middle"></span>}</p>
                                 {!isTextAnimating && dialogueQueue.length > 0 && <div className="absolute bottom-3 right-4 animate-bounce opacity-70"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 text-white"><path fillRule="evenodd" d="M12.53 16.28a.75.75 0 0 1-1.06 0l-7.5-7.5a.75.75 0 0 1 1.06-1.06L12 14.69l6.97-6.97a.75.75 0 1 1 1.06 1.06l-7.5 7.5Z" clipRule="evenodd" /></svg></div>}
                                 {!isTextAnimating && dialogueQueue.length === 0 && dialogueBatch.length > 0 && <div className="absolute bottom-3 right-4 opacity-50 text-[10px] text-white flex items-center gap-1 animate-pulse"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>Loop</div>}
                             </div>
@@ -1199,17 +1276,6 @@ const DateSession: React.FC<DateSessionProps> = ({
                         }
                         setModalType('none');
                     }} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl">复制文本</button>
-                    <button onClick={() => {
-                        const msg = selectedMessage;
-                        setModalType('none');
-                        if (!msg) return;
-                        // 留音海螺：与 Chat/见面历史同一收藏入口（幂等 + 可取消）。
-                        // 见面中角色开口即有 TTS（播放时即时合成），已配音色 → 按语音收藏（spokenText 快照 + lazySynth 回放）。
-                        const forceVoice = msg.role === 'assistant' && characterHasVoice(char, apiConfig);
-                        toggleMessageFavorite({ msg, char, forceVoice })
-                            .then(({ added }) => addToast(added ? '已收进留音海螺 🐚' : '已取消收藏', 'success'))
-                            .catch(() => addToast('收藏操作失败，请重试', 'error'));
-                    }} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl">🐚 收进留音海螺</button>
                     <button onClick={() => { onEditMessage(selectedMessage!); setModalType('none'); }} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl">编辑内容</button>
                     <button onClick={() => { onDeleteMessage(selectedMessage!); setModalType('none'); }} className="w-full py-3 bg-red-50 text-red-500 font-medium rounded-2xl">删除记录</button>
                 </div>
@@ -1222,6 +1288,12 @@ const DateSession: React.FC<DateSessionProps> = ({
                 contextSource="companion"
                 character={char}
                 getSceneContext={() => buildCompanionSceneContext(messages, char.name)}
+            />
+
+            {/* 留音海螺：原生文字选区 → 浮动「收藏选中文字」按钮（GAL 台词区 + 阅读模式消息区） */}
+            <SelectionFavoriteAffix
+                resolveMessage={(msgId) => messages.find(m => m.id === msgId)}
+                onFavoriteText={(msg, selectedText, occurrence) => { void handleFavoriteSelectedText(msg, selectedText, occurrence); }}
             />
         </div>
     );

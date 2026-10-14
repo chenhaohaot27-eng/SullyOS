@@ -18,8 +18,13 @@ import { BookOpen, Sparkle, CaretLeft, GearSix } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { trimHistoryThrough } from '../utils/dateSessionHistory';
 import { trackEvent } from '../utils/analytics';
-import { toggleMessageFavorite } from '../utils/messageFavoriteCapture';
-import { characterHasVoice } from '../utils/ttsRouter';
+import SelectionFavoriteAffix from '../components/date/SelectionFavoriteAffix';
+import {
+    buildTextFragmentFavorite,
+    cachedVoiceLinesForMessage,
+    favoriteVoiceLine,
+    takeLineAudioBlob,
+} from '../utils/dateFragmentFavorite';
 import { markAmsgStateDirty } from '../utils/amsgStateSync';
 import StoryTheater from '../components/date/story/StoryTheater';
 import { dateLaunch } from '../utils/dateLaunch';
@@ -695,14 +700,48 @@ const DateApp: React.FC = () => {
         setRenameGroupTarget(null);
     };
 
+    // --- 留音海螺：陪伴历史精准收藏（文字选区 / 单句语音原声） ---
+    const handleHistoryFavoriteText = async (msg: Message, selectedText: string, occurrence: number) => {
+        const char = characters.find(c => c.id === msg.charId);
+        if (!char) { addToast('收藏操作失败，请重试', 'error'); return; }
+        try {
+            const favorite = buildTextFragmentFavorite({ msg, char, selectedText, occurrence });
+            const saved = await DB.saveMessageFavorite(favorite);
+            addToast(saved.favoritedAt === favorite.favoritedAt ? '已收进留音海螺 🐚' : '这段已收藏过', 'success');
+            trackEvent('收藏见面文字片段');
+        } catch {
+            addToast('收藏操作失败，请重试', 'error');
+        }
+    };
+
+    // 语音原声选择器：只列出本页面播放过、原声仍可取的句子；一句都没有 = 原声未保存
+    const [voicePickMsg, setVoicePickMsg] = useState<Message | null>(null);
+    const handleHistoryPickVoice = (m: Message) => {
+        const lines = cachedVoiceLinesForMessage(m.id);
+        if (lines.length === 0) { addToast('原语音未保存，无法收藏原声', 'error'); return; }
+        setVoicePickMsg(m);
+    };
+
+    const handleHistoryFavoriteVoiceLine = async (m: Message, lineIdx: number, lineText: string, key: string) => {
+        const char = characters.find(c => c.id === m.charId);
+        setVoicePickMsg(null);
+        if (!char) { addToast('收藏操作失败，请重试', 'error'); return; }
+        const result = await favoriteVoiceLine({ msg: m, char, lineIdx, lineText }, () => takeLineAudioBlob(key));
+        if (result.ok) { addToast(result.created ? '已收进留音海螺 🐚（原声）' : '这句已收藏过', 'success'); if (result.created) trackEvent('收藏见面语音原声'); }
+        else if (result.reason === 'audio_unavailable') addToast('原语音未保存，无法收藏原声', 'error');
+        else addToast('收藏操作失败，请重试', 'error');
+    };
+
     // --- History Long Press ---
     const handleHistoryLongPressStart = useCallback((msg: Message, e: React.TouchEvent | React.MouseEvent) => {
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
         const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
         longPressTimer.current = setTimeout(() => {
+            // 原生文字选区优先：iOS 长按选字时不再弹自定义菜单（避免抢触）
+            try { if (window.getSelection()?.toString()) return; } catch { /* ignore */ }
             setHistoryMenuMsg(msg);
             setHistoryMenuPos({ x: clientX, y: clientY });
-        }, 500);
+        }, 550);
     }, []);
 
     const handleHistoryLongPressEnd = useCallback(() => {
@@ -719,27 +758,6 @@ const DateApp: React.FC = () => {
         setHistoryMenuMsg(null);
         addToast('已删除', 'success');
         trackEvent('删除见面记录里的一条消息');
-    };
-
-    // --- 留音海螺：见面消息收藏（与 Chat 共享 toggleMessageFavorite） ---
-    const handleHistoryToggleFavorite = async (msg: Message) => {
-        try {
-            const char = characters.find(c => c.id === msg.charId);
-            if (!char) {
-                addToast('找不到消息所属角色', 'error');
-                setHistoryMenuMsg(null);
-                return;
-            }
-            // 见面中角色开口即有 TTS 语音（播放时即时合成、不持久化）：
-            // 角色已配音色时按语音收藏（存 spokenText 快照，海螺里惰性合成回放）；玩家消息按文字。
-            const forceVoice = msg.role === 'assistant' && characterHasVoice(char, apiConfig);
-            const { added } = await toggleMessageFavorite({ msg, char, forceVoice });
-            addToast(added ? '已收进留音海螺 🐚' : '已取消收藏', 'success');
-            if (added) trackEvent('收藏一条见面消息到留音海螺');
-        } catch {
-            addToast('收藏操作失败，请重试', 'error');
-        }
-        setHistoryMenuMsg(null);
     };
 
     const handleHistoryEditOpen = (msg: Message) => {
@@ -1148,7 +1166,8 @@ const DateApp: React.FC = () => {
                                     return (
                                         <div
                                             key={m.id}
-                                            className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'} select-none`}
+                                            data-frag-msg={m.id}
+                                            className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'} select-text`}
                                             onTouchStart={(e) => handleHistoryLongPressStart(m, e)}
                                             onTouchEnd={handleHistoryLongPressEnd}
                                             onTouchMove={handleHistoryLongPressEnd}
@@ -1188,11 +1207,11 @@ const DateApp: React.FC = () => {
                         onClick={(e) => e.stopPropagation()}
                     >
                         <button
-                            onClick={() => handleHistoryToggleFavorite(historyMenuMsg)}
+                            onClick={() => { const m = historyMenuMsg; setHistoryMenuMsg(null); if (m) handleHistoryPickVoice(m); }}
                             className="w-full px-5 py-3 text-sm text-left text-slate-700 hover:bg-slate-50 active:bg-slate-100 flex items-center gap-2"
                         >
                             <span className="text-base leading-none">🐚</span>
-                            收进留音海螺
+                            收藏语音原声
                         </button>
                         <div className="border-t border-slate-100" />
                         <button
@@ -1243,6 +1262,29 @@ const DateApp: React.FC = () => {
                     />
                     <p className="text-[11px] text-slate-400 mt-2">默认命名形如「2026年10月14日 · 晚间陪伴」，保存在这次见面的开场记录里。</p>
                 </Modal>
+
+                {/* 语音原声选择器：只列本页面播放过、原声仍可取的句子；每句独立收藏 */}
+                <Modal isOpen={!!voicePickMsg} title="收藏哪一句的原声？" onClose={() => setVoicePickMsg(null)}>
+                    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
+                        {voicePickMsg && cachedVoiceLinesForMessage(voicePickMsg.id).map(({ lineIdx, lineText, key }) => (
+                            <button
+                                key={key}
+                                onClick={() => { void handleHistoryFavoriteVoiceLine(voicePickMsg, lineIdx, lineText || '(无台词文字)', key); }}
+                                className="text-left p-3 rounded-xl border border-slate-200 hover:bg-slate-50 active:bg-slate-100 text-sm text-slate-700 leading-relaxed"
+                            >
+                                <span className="text-[10px] text-slate-400 mr-2">第 {lineIdx + 1} 句</span>
+                                {(lineText || '(无台词文字)').slice(0, 80)}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-3">列表只包含本次打开页面后播放过的台词；其余原声未保存，无法收藏。</p>
+                </Modal>
+
+                {/* 留音海螺：历史消息原生选区 → 浮动「收藏选中文字」按钮 */}
+                <SelectionFavoriteAffix
+                    resolveMessage={(msgId) => historyMessages.find(m => m.id === msgId)}
+                    onFavoriteText={(msg, selectedText, occurrence) => { void handleHistoryFavoriteText(msg, selectedText, occurrence); }}
+                />
             </div>
         );
     }
