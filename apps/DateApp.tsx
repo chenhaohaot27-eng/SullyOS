@@ -18,6 +18,8 @@ import { BookOpen, Sparkle, CaretLeft, GearSix } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { trimHistoryThrough } from '../utils/dateSessionHistory';
 import { trackEvent } from '../utils/analytics';
+import { toggleMessageFavorite } from '../utils/messageFavoriteCapture';
+import { characterHasVoice } from '../utils/ttsRouter';
 import { markAmsgStateDirty } from '../utils/amsgStateSync';
 import StoryTheater from '../components/date/story/StoryTheater';
 import { dateLaunch } from '../utils/dateLaunch';
@@ -678,6 +680,27 @@ const DateApp: React.FC = () => {
         trackEvent('删除见面记录里的一条消息');
     };
 
+    // --- 留音海螺：见面消息收藏（与 Chat 共享 toggleMessageFavorite） ---
+    const handleHistoryToggleFavorite = async (msg: Message) => {
+        try {
+            const char = characters.find(c => c.id === msg.charId);
+            if (!char) {
+                addToast('找不到消息所属角色', 'error');
+                setHistoryMenuMsg(null);
+                return;
+            }
+            // 见面中角色开口即有 TTS 语音（播放时即时合成、不持久化）：
+            // 角色已配音色时按语音收藏（存 spokenText 快照，海螺里惰性合成回放）；玩家消息按文字。
+            const forceVoice = msg.role === 'assistant' && characterHasVoice(char, apiConfig);
+            const { added } = await toggleMessageFavorite({ msg, char, forceVoice });
+            addToast(added ? '已收进留音海螺 🐚' : '已取消收藏', 'success');
+            if (added) trackEvent('收藏一条见面消息到留音海螺');
+        } catch {
+            addToast('收藏操作失败，请重试', 'error');
+        }
+        setHistoryMenuMsg(null);
+    };
+
     const handleHistoryEditOpen = (msg: Message) => {
         setHistoryEditMsg(msg);
         setHistoryEditContent(msg.content);
@@ -1100,6 +1123,14 @@ const DateApp: React.FC = () => {
                         style={{ top: Math.min(historyMenuPos.y, window.innerHeight - 120), left: Math.min(historyMenuPos.x, window.innerWidth - 140) }}
                         onClick={(e) => e.stopPropagation()}
                     >
+                        <button
+                            onClick={() => handleHistoryToggleFavorite(historyMenuMsg)}
+                            className="w-full px-5 py-3 text-sm text-left text-slate-700 hover:bg-slate-50 active:bg-slate-100 flex items-center gap-2"
+                        >
+                            <span className="text-base leading-none">🐚</span>
+                            收进留音海螺
+                        </button>
+                        <div className="border-t border-slate-100" />
                         <button
                             onClick={() => handleHistoryEditOpen(historyMenuMsg)}
                             className="w-full px-5 py-3 text-sm text-left text-slate-700 hover:bg-slate-50 active:bg-slate-100 flex items-center gap-2"

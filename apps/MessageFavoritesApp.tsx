@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import type { MessageFavorite } from '../types';
+import type { APIConfig, CharacterProfile, MessageFavorite } from '../types';
 import { useBlobRefUrl } from '../utils/blobRef';
 import { GROUP_FILTER_ALL, GroupFilterChips } from '../components/character/CharacterGroupFilter';
 import { trackEvent } from '../utils/analytics';
@@ -33,29 +33,57 @@ const formatFavoriteTime = (ts: number) => {
     return sameYear ? `${date} ${time}` : `${d.getFullYear()}年${date} ${time}`;
 };
 
-/** 语音回放：从 assets store 恢复音频（Blob → objectURL；remoteUrl 直接用）。 */
-const useFavoriteAudio = (fav: MessageFavorite | null) => {
+/** 惰性合成依赖：voice 收藏无已存音频时（如见面模式收藏），用现有 TTS 流程现场重新生成。 */
+interface LazySynthDeps {
+    char?: CharacterProfile;
+    apiConfig?: APIConfig;
+}
+
+/** 语音回放：assets store 有音频直接放；没有且可惰性合成（spokenText + 角色 + TTS 配置）→ 现场合成。 */
+const useFavoriteAudio = (fav: MessageFavorite | null, lazySynth?: LazySynthDeps) => {
     const [url, setUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const objUrlRef = useRef<string | null>(null);
 
     useEffect(() => {
         setUrl(null);
-        if (!fav || fav.favoriteType !== 'voice' || !fav.mediaRef) return;
+        const mediaRef = fav?.mediaRef;
+        if (!fav || fav.favoriteType !== 'voice' || !mediaRef) return;
         let alive = true;
         setLoading(true);
         (async () => {
             try {
-                const stored = await DB.getAssetRaw(fav.mediaRef) as { blob?: Blob; remoteUrl?: string } | null;
+                const stored = await DB.getAssetRaw(mediaRef) as { blob?: Blob; remoteUrl?: string } | null;
                 if (!alive) return;
                 if (stored?.blob instanceof Blob) {
                     const objUrl = URL.createObjectURL(stored.blob);
                     objUrlRef.current = objUrl;
                     setUrl(objUrl);
-                } else if (stored?.remoteUrl) {
-                    setUrl(stored.remoteUrl);
+                    return;
                 }
-            } catch { /* 音频已失联 → 只显示文字 */ }
+                if (stored?.remoteUrl) {
+                    setUrl(stored.remoteUrl);
+                    return;
+                }
+                // ── 惰性合成回退：无已存音频（见面模式收藏快照只有 spokenText）──
+                // 复用现有 ttsRouter 流程，不新建 TTS 逻辑；合成后 best-effort 写回 assets，
+                // 下次播放走上面的直读分支。
+                const spokenText = typeof fav.metadataSnapshot?.spokenText === 'string'
+                    ? (fav.metadataSnapshot.spokenText as string).trim()
+                    : '';
+                const { char, apiConfig } = lazySynth || {};
+                if (spokenText && char && apiConfig) {
+                    const { synthesizeSpeech, characterHasVoice } = await import('../utils/ttsRouter');
+                    if (!alive || !characterHasVoice(char, apiConfig)) return;
+                    const synthUrl = await synthesizeSpeech(spokenText, char, apiConfig);
+                    if (!alive || !synthUrl) return;
+                    setUrl(synthUrl);
+                    try {
+                        const blob = await (await fetch(synthUrl)).blob();
+                        await DB.saveAssetRaw(mediaRef, { blob });
+                    } catch { /* 写回失败不影响本次播放 */ }
+                }
+            } catch { /* 音频已失联且合成不可用 → 只显示文字 */ }
             finally { if (alive) setLoading(false); }
         })();
         return () => {
@@ -65,13 +93,13 @@ const useFavoriteAudio = (fav: MessageFavorite | null) => {
                 objUrlRef.current = null;
             }
         };
-    }, [fav?.id, fav?.mediaRef, fav?.favoriteType]);
+    }, [fav?.id, fav?.mediaRef, fav?.favoriteType, lazySynth?.char?.id, lazySynth?.apiConfig?.baseUrl, lazySynth?.apiConfig?.apiKey]);
 
     return { url, loading };
 };
 
-const FavoriteVoicePlayer: React.FC<{ fav: MessageFavorite }> = ({ fav }) => {
-    const { url, loading } = useFavoriteAudio(fav);
+const FavoriteVoicePlayer: React.FC<{ fav: MessageFavorite; lazySynth?: LazySynthDeps }> = ({ fav, lazySynth }) => {
+    const { url, loading } = useFavoriteAudio(fav, lazySynth);
     if (loading) return <div className="text-[10px] text-slate-400">正在取回音频…</div>;
     if (!url) return <div className="text-[10px] text-amber-500/80">音频已失联，只留下文字回响</div>;
     return <audio controls preload="none" src={url} className="w-full max-w-[260px] h-9" />;
@@ -97,7 +125,7 @@ const FavoriteImage: React.FC<{ mediaRef?: string }> = ({ mediaRef }) => {
 };
 
 const MessageFavoritesApp: React.FC = () => {
-    const { characters, addToast, closeApp } = useOS();
+    const { characters, apiConfig, addToast, closeApp } = useOS();
     const [favorites, setFavorites] = useState<MessageFavorite[]>([]);
     const [charFilter, setCharFilter] = useState<string>(GROUP_FILTER_ALL);
     const [typeFilter, setTypeFilter] = useState<'all' | 'text' | 'voice' | 'image'>('all');
@@ -235,7 +263,7 @@ const MessageFavoritesApp: React.FC = () => {
                                     ) : fav.favoriteType === 'voice' ? (
                                         <div className="flex flex-col gap-2">
                                             {fav.contentSnapshot && <p className="text-[13px] leading-relaxed text-white/85 whitespace-pre-wrap break-words select-text">{fav.contentSnapshot}</p>}
-                                            <FavoriteVoicePlayer fav={fav} />
+                                            <FavoriteVoicePlayer fav={fav} lazySynth={{ char: characters.find(c => c.id === fav.charId), apiConfig }} />
                                         </div>
                                     ) : (
                                         <p className="text-[13px] leading-relaxed text-white/85 whitespace-pre-wrap break-words select-text">{fav.contentSnapshot || '（无文字内容）'}</p>

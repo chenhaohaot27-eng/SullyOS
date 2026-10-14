@@ -23,24 +23,43 @@ export interface VoiceSnapshotLite {
     lang?: string;
 }
 
-/** 收藏展示分类：图片 / 语音 / 文字。 */
-export const resolveFavoriteType = (msg: Pick<Message, 'type' | 'content' | 'role'>, voiceData?: VoiceSnapshotLite | null): MessageFavorite['favoriteType'] => {
+/** 收藏展示分类：图片 / 语音 / 文字。forceVoice：date 场景显式按语音收藏（惰性合成回放）。 */
+export const resolveFavoriteType = (
+    msg: Pick<Message, 'type' | 'content' | 'role'>,
+    voiceData?: VoiceSnapshotLite | null,
+    forceVoice?: boolean,
+): MessageFavorite['favoriteType'] => {
     if (msg.type === 'image') return 'image';
-    if (voiceData?.url || VOICE_TAG_RE.test(msg.content || '')) return 'voice';
+    if (voiceData?.url || forceVoice || VOICE_TAG_RE.test(msg.content || '')) return 'voice';
     return 'text';
 };
 
 export const MESSAGE_FAVORITE_ID_PREFIX = 'mfav-';
 
-export const buildMessageFavorite = (args: {
+/** 见面场景的 TTS 正文：剥掉 [v:xxx] 情绪标记与 <语音> 标签，剩下的就是可朗读文本。 */
+export const stripVoiceMarkersForSpeech = (content: string): string =>
+    (content || '')
+        .replace(/\[v:[^\]]*\]/gi, '')
+        .replace(/<[语語]音[^>]*>/g, '')
+        .trim();
+
+export interface BuildMessageFavoriteArgs {
     msg: Message;
     char: CharacterProfile;
     voiceData?: VoiceSnapshotLite | null;
+    /**
+     * 见面模式：见面对话中角色开口即有 TTS 语音（播放时即时合成、不持久化），
+     * 传 true 强制按 voice 收藏——只存 spokenText 快照，回放时惰性合成（不现场生成）。
+     */
+    forceVoice?: boolean;
     now?: number;
-}): MessageFavorite => {
-    const { msg, char, voiceData, now = Date.now() } = args;
-    const favoriteType = resolveFavoriteType(msg, voiceData);
+}
+
+export const buildMessageFavorite = (args: BuildMessageFavoriteArgs): MessageFavorite => {
+    const { msg, char, voiceData, forceVoice, now = Date.now() } = args;
+    const favoriteType = resolveFavoriteType(msg, voiceData, forceVoice);
     const content = typeof msg.content === 'string' ? msg.content : '';
+    const lazyVoice = favoriteType === 'voice' && !voiceData?.url;
     return {
         id: `${MESSAGE_FAVORITE_ID_PREFIX}${msg.id}`,
         sourceMessageId: msg.id,
@@ -56,9 +75,56 @@ export const buildMessageFavorite = (args: {
                 ? voiceAssetKeyForMessage(msg.id)
                 : undefined,
         metadataSnapshot: favoriteType === 'voice'
-            ? { spokenText: voiceData?.spokenText, lang: voiceData?.lang }
+            ? {
+                // 惰性语音（date 收藏）：无已存音频，回放时用现有 TTS 流程重新合成
+                spokenText: voiceData?.spokenText || (lazyVoice ? stripVoiceMarkersForSpeech(content) : undefined),
+                lang: voiceData?.lang,
+                ...(lazyVoice ? { lazySynth: true } : {}),
+            }
             : undefined,
         favoritedAt: now,
         originalTimestamp: msg.timestamp || now,
     };
 };
+
+// ─── 共享收藏开关（Chat / DateApp 共用，保持幂等与取消收藏） ──────────────────
+
+export interface ToggleMessageFavoriteArgs extends BuildMessageFavoriteArgs {
+    /**
+     * 调用方已知收藏状态时传入，跳过一次 DB 查询（Chat 维护 favoritedMsgIds 集合）；
+     * 缺省时自动查当前角色的收藏列表判断。
+     */
+    wasFavorited?: boolean;
+}
+
+export interface ToggleMessageFavoriteResult {
+    /** true = 本次收藏；false = 本次取消收藏。 */
+    added: boolean;
+    favorite?: MessageFavorite;
+}
+
+/**
+ * 收藏 / 取消收藏一条消息（幂等：id = mfav-<msgId>；重复收藏不产生第二条）。
+ * 取消收藏只删收藏记录，绝不触碰原消息与音频/图片资产。
+ */
+export async function toggleMessageFavorite(args: ToggleMessageFavoriteArgs): Promise<ToggleMessageFavoriteResult> {
+    const { DB } = await import('./db');
+    const { msg, char, wasFavorited } = args;
+    const existingKey = `${MESSAGE_FAVORITE_ID_PREFIX}${msg.id}`;
+    let favorited = wasFavorited;
+    if (favorited === undefined) {
+        try {
+            const rows = await DB.getMessageFavorites(char.id);
+            favorited = rows.some(r => r.sourceMessageId === msg.id);
+        } catch {
+            favorited = false; // 读取失败按未收藏处理（与 Chat 现行为一致）
+        }
+    }
+    if (favorited) {
+        await DB.deleteMessageFavorite(existingKey);
+        return { added: false };
+    }
+    const favorite = buildMessageFavorite(args);
+    await DB.saveMessageFavorite(favorite);
+    return { added: true, favorite };
+}
