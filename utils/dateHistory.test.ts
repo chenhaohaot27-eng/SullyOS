@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Message } from '../types';
 import {
     buildDateHistoryGroups,
+    defaultEncounterTitle,
     formatDateHistoryExport,
     groupDateMessagesByDate,
     makeDateHistoryFileName,
@@ -13,7 +14,7 @@ const at = (day: number, hour: number, minute = 0) => new Date(2026, 7, day, hou
 const message = (
     id: number,
     timestamp: number,
-    options: { opening?: boolean; role?: Message['role']; content?: string; type?: Message['type'] } = {},
+    options: { opening?: boolean; role?: Message['role']; content?: string; type?: Message['type']; title?: string } = {},
 ): Message => ({
     id,
     charId: 'char-1',
@@ -21,7 +22,11 @@ const message = (
     type: options.type || 'text',
     content: options.content || `消息${id}`,
     timestamp,
-    metadata: { source: 'date', ...(options.opening ? { isOpening: true } : {}) },
+    metadata: {
+        source: 'date',
+        ...(options.opening ? { isOpening: true } : {}),
+        ...(options.title !== undefined ? { encounterTitle: options.title } : {}),
+    },
 });
 
 describe('splitDateEncounters', () => {
@@ -57,6 +62,51 @@ describe('splitDateEncounters', () => {
 
         expect(groups.map(group => group.messages.map(item => item.id))).toEqual([[1, 2], [3]]);
         expect(groups.every(group => !group.hasOpeningAnchor)).toBe(true);
+    });
+
+    it('自定义标题：开场消息 metadata.encounterTitle 被读进组 title', () => {
+        const groups = splitDateEncounters([
+            message(1, at(9, 20), { opening: true, title: '和小鱼第一次夜晚散步' }),
+            message(2, at(9, 21)),
+        ]);
+        expect(groups[0].title).toBe('和小鱼第一次夜晚散步');
+    });
+
+    it('老历史兼容：无标题的锚点组 title 为 undefined（UI 走默认命名），旧记录组同样 undefined', () => {
+        const groups = splitDateEncounters([
+            message(1, at(9, 9)),                                    // legacy 组（无锚点）
+            message(2, at(9, 20), { opening: true }),                // 锚点组但未命名
+            message(3, at(9, 21)),
+        ]);
+        expect(groups[0].title).toBeUndefined();
+        expect(groups[1].title).toBeUndefined();
+    });
+
+    it('空串 / 超长标题归一：空串视为未命名，超长截断到 60 字', () => {
+        const long = '长'.repeat(80);
+        const groups = splitDateEncounters([
+            message(1, at(9, 20), { opening: true, title: '   ' }),
+            message(2, at(10, 20), { opening: true, title: long }),
+        ]);
+        expect(groups[0].title).toBeUndefined();
+        expect(groups[1].title).toHaveLength(60);
+    });
+
+    it('按日期分组保持既有行为，不携带自定义标题（避免一天多次见面误标）', () => {
+        const groups = groupDateMessagesByDate([
+            message(1, at(9, 20), { opening: true, title: '夜晚散步' }),
+            message(2, at(9, 21)),
+        ]);
+        expect(groups[0].title).toBeUndefined();
+        expect(groups[0].encounterCount).toBe(1);
+    });
+});
+
+describe('defaultEncounterTitle — 默认目录命名', () => {
+    it('按开场时间给时段前缀，格式「2026年8月9日 · 晚间陪伴」', () => {
+        expect(defaultEncounterTitle(at(9, 21))).toBe('2026年8月9日 · 晚间陪伴');
+        expect(defaultEncounterTitle(at(9, 9))).toBe('2026年8月9日 · 上午陪伴');
+        expect(defaultEncounterTitle(at(9, 2))).toBe('2026年8月9日 · 深夜陪伴');
     });
 });
 

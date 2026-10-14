@@ -13,6 +13,11 @@ export interface DateHistoryGroup {
     encounterCount: number;
     /** 旧记录可能没有 isOpening，UI 用它提示这是兼容分组。 */
     hasOpeningAnchor: boolean;
+    /**
+     * 用户自定义标题：存于开场消息 metadata.encounterTitle（无 DB schema 改动）。
+     * 旧记录/未命名时为 undefined，UI 回落到默认日期命名。
+     */
+    title?: string;
 }
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
@@ -36,6 +41,26 @@ export const formatDateHistoryTime = (timestamp: number, withDate = false): stri
 const sortMessagesChronologically = (messages: Message[]): Message[] => (
     [...messages].sort((left, right) => left.timestamp - right.timestamp || left.id - right.id)
 );
+
+/** 从消息 metadata 里读自定义标题（trim + 限长，空串视为未命名）。 */
+const readEncounterTitle = (message: Message | undefined): string | undefined => {
+    const title = message?.metadata?.encounterTitle;
+    if (typeof title !== 'string') return undefined;
+    const trimmed = title.trim().slice(0, 60);
+    return trimmed || undefined;
+};
+
+/**
+ * 默认目录命名：「2026年10月14日 · 晚间陪伴」——按开场时间给时段前缀，
+ * 老历史与未命名的新见面共用同一兜底。
+ */
+export function defaultEncounterTitle(startAt: number): string {
+    const date = new Date(startAt);
+    const hour = date.getHours();
+    const band = hour < 5 ? '深夜' : hour < 8 ? '清晨' : hour < 12 ? '上午' : hour < 17 ? '午后' : hour < 20 ? '傍晚' : '晚间';
+    const dateText = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+    return `${dateText} · ${band}陪伴`;
+}
 
 /**
  * 按“真实的一次见面”切分。
@@ -62,6 +87,8 @@ export function splitDateEncounters(messages: Message[]): DateHistoryGroup[] {
             messages: current,
             encounterCount: currentHasOpening ? 1 : 0,
             hasOpeningAnchor: currentHasOpening,
+            // 自定义标题挂在开场消息上；legacy 组无锚点，保持 undefined 走默认命名
+            title: currentHasOpening ? readEncounterTitle(first) : undefined,
         });
         current = [];
         currentHasOpening = false;

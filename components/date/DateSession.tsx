@@ -13,6 +13,7 @@ import { synthesizeSpeech, characterHasVoice } from '../../utils/ttsRouter';
 import { resolveTtsProvider } from '../../utils/ttsProvider';
 import { cleanTextForTtsFish } from '../../utils/fishAudioTts';
 import { planNovelLoadMore } from '../../utils/dateSessionHistory';
+import { toggleMessageFavorite } from '../../utils/messageFavoriteCapture';
 import { getPendingReplyText } from '../../utils/pendingReply';
 import { stripLeadingEmotionTags, readDateTextPresentation, writeDateTextPresentation, type StoryTextPresentation } from '../../utils/storyTextPresentation';
 import ImmersiveStoryText from './story/ImmersiveStoryText';
@@ -1198,6 +1199,17 @@ const DateSession: React.FC<DateSessionProps> = ({
                         }
                         setModalType('none');
                     }} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl">复制文本</button>
+                    <button onClick={() => {
+                        const msg = selectedMessage;
+                        setModalType('none');
+                        if (!msg) return;
+                        // 留音海螺：与 Chat/见面历史同一收藏入口（幂等 + 可取消）。
+                        // 见面中角色开口即有 TTS（播放时即时合成），已配音色 → 按语音收藏（spokenText 快照 + lazySynth 回放）。
+                        const forceVoice = msg.role === 'assistant' && characterHasVoice(char, apiConfig);
+                        toggleMessageFavorite({ msg, char, forceVoice })
+                            .then(({ added }) => addToast(added ? '已收进留音海螺 🐚' : '已取消收藏', 'success'))
+                            .catch(() => addToast('收藏操作失败，请重试', 'error'));
+                    }} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl">🐚 收进留音海螺</button>
                     <button onClick={() => { onEditMessage(selectedMessage!); setModalType('none'); }} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl">编辑内容</button>
                     <button onClick={() => { onDeleteMessage(selectedMessage!); setModalType('none'); }} className="w-full py-3 bg-red-50 text-red-500 font-medium rounded-2xl">删除记录</button>
                 </div>

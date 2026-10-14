@@ -28,6 +28,7 @@ import { materializeVisionDescriptions } from '../utils/visionApi';
 import { shareOrDownloadFile } from '../utils/shareExport';
 import {
     buildDateHistoryGroups,
+    defaultEncounterTitle,
     formatDateHistoryDate,
     formatDateHistoryExport,
     formatDateHistoryTime,
@@ -115,6 +116,11 @@ const DateApp: React.FC = () => {
     
     // History State
     const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
+    // 目录式历史：默认全部折叠，点击组头部展开（按需渲染消息内容）
+    const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+    // 组重命名（标题存开场消息 metadata.encounterTitle，无 DB schema 改动）
+    const [renameGroupTarget, setRenameGroupTarget] = useState<{ groupId: string; openingMsgId: number } | null>(null);
+    const [renameGroupTitle, setRenameGroupTitle] = useState('');
     const [historyView, setHistoryView] = useState<DateHistoryView>('encounter');
     const [historySortOrder, setHistorySortOrder] = useState<DateHistorySortOrder>('newest');
     const [historyLoadLimit, setHistoryLoadLimit] = useState(DATE_HISTORY_MESSAGE_LIMIT);
@@ -654,6 +660,41 @@ const DateApp: React.FC = () => {
         trackEvent('编辑一条见面消息');
     };
 
+    // --- 目录式历史：折叠展开 + 组重命名 ---
+    const toggleHistoryGroup = (groupId: string) => {
+        setExpandedGroupIds(prev => {
+            const next = new Set(prev);
+            if (next.has(groupId)) next.delete(groupId);
+            else next.add(groupId);
+            return next;
+        });
+    };
+
+    const handleRenameGroupOpen = (group: { id: string; messages: Message[] }) => {
+        const opening = group.messages.find(m => m.metadata?.isOpening === true);
+        if (!opening) return; // legacy 组无锚点，不支持自定义标题
+        const current = typeof opening.metadata?.encounterTitle === 'string' ? opening.metadata.encounterTitle : '';
+        setRenameGroupTarget({ groupId: group.id, openingMsgId: opening.id });
+        setRenameGroupTitle(current);
+    };
+
+    const handleRenameGroupConfirm = async () => {
+        if (!renameGroupTarget) return;
+        const title = renameGroupTitle.trim().slice(0, 60);
+        try {
+            await DB.updateMessageMetadata(renameGroupTarget.openingMsgId, prev => ({ ...(prev || {}), encounterTitle: title }));
+            setHistoryMessages(prev => prev.map(m => (
+                m.id === renameGroupTarget.openingMsgId
+                    ? { ...m, metadata: { ...(m.metadata || {}), encounterTitle: title } }
+                    : m
+            )));
+            addToast(title ? '已命名' : '已恢复默认命名', 'success');
+        } catch {
+            addToast('命名失败，请重试', 'error');
+        }
+        setRenameGroupTarget(null);
+    };
+
     // --- History Long Press ---
     const handleHistoryLongPressStart = useCallback((msg: Message, e: React.TouchEvent | React.MouseEvent) => {
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
@@ -1057,29 +1098,50 @@ const DateApp: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-20">
-                    {historyGroups.length === 0 ? <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-2"><BookOpen size={48} className="opacity-50" /><span className="text-xs">暂无见面记录</span></div> : historyGroups.map((group) => (
+                    {historyGroups.length === 0 ? <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-2"><BookOpen size={48} className="opacity-50" /><span className="text-xs">暂无见面记录</span></div> : historyGroups.map((group) => {
+                        const expanded = expandedGroupIds.has(group.id);
+                        const groupTitle = historyView === 'encounter'
+                            ? (group.title || defaultEncounterTitle(group.startAt))
+                            : formatDateHistoryDate(group.startAt);
+                        return (
                         <div key={group.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                            <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex gap-3 justify-between items-center">
-                                <div className="min-w-0">
-                                    <div className="text-xs font-bold text-slate-600 tracking-wide truncate">
-                                        {historyView === 'encounter' ? formatDateHistoryTime(group.startAt, true) : formatDateHistoryDate(group.startAt)}
+                            <div
+                                className={`bg-slate-50 px-4 py-3 flex gap-3 justify-between items-center cursor-pointer select-none active:bg-slate-100 ${expanded ? 'border-b border-slate-100' : ''}`}
+                                onClick={() => toggleHistoryGroup(group.id)}
+                            >
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-bold text-slate-600 tracking-wide truncate flex items-center gap-1.5">
+                                        {groupTitle && historyView === 'encounter' && group.title && <span title="自定义标题">✎</span>}
+                                        <span className="truncate">{groupTitle}</span>
                                     </div>
                                     <div className="text-[10px] text-slate-400 mt-1">
                                         {historyView === 'encounter'
                                             ? (group.hasOpeningAnchor ? '一次完整见面' : '旧记录 · 按日期兼容整理')
                                             : (group.encounterCount > 0 ? `${group.encounterCount} 次开场` : '旧记录')}
                                         {' · '}{group.messages.length} 句
+                                        {' · '}{formatDateHistoryTime(group.startAt)} - {formatDateHistoryTime(group.endAt)}
                                     </div>
                                 </div>
-                                <button
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        exportHistoryGroups([group], `${historyView === 'encounter' ? '本次' : '当天'}_${group.dateKey}`);
-                                    }}
-                                    disabled={historyBusy}
-                                    className="shrink-0 text-[11px] font-bold text-blue-500 bg-blue-50 px-3 py-1.5 rounded-full disabled:opacity-40"
-                                >导出{historyView === 'encounter' ? '本次' : '当天'}</button>
+                                <div className="shrink-0 flex items-center gap-2">
+                                    {historyView === 'encounter' && group.hasOpeningAnchor && (
+                                        <button
+                                            onClick={(event) => { event.stopPropagation(); handleRenameGroupOpen(group); }}
+                                            title="给这次见面起个名字"
+                                            className="text-[11px] font-bold text-slate-400 bg-white border border-slate-200 px-2.5 py-1.5 rounded-full hover:text-slate-600"
+                                        >命名</button>
+                                    )}
+                                    <button
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            exportHistoryGroups([group], `${historyView === 'encounter' ? '本次' : '当天'}_${group.dateKey}`);
+                                        }}
+                                        disabled={historyBusy}
+                                        className="text-[11px] font-bold text-blue-500 bg-blue-50 px-3 py-1.5 rounded-full disabled:opacity-40"
+                                    >导出</button>
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`}><path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+                                </div>
                             </div>
+                            {expanded && (
                             <div className="p-4 space-y-4">
                                 {group.messages.map(m => {
                                     const text = (m.content || '').replace(/\[.*?\]/g, '').trim();
@@ -1103,8 +1165,10 @@ const DateApp: React.FC = () => {
                                     );
                                 })}
                             </div>
+                            )}
                         </div>
-                    ))}
+                        );
+                    })}
                     {!historyReachedEnd && historyMessages.length > 0 && (
                         <button
                             onClick={handleLoadMoreHistory}
@@ -1161,6 +1225,23 @@ const DateApp: React.FC = () => {
                         onChange={(e) => setHistoryEditContent(e.target.value)}
                         className="w-full h-48 p-3 border border-slate-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
                     />
+                </Modal>
+
+                {/* 目录命名弹窗：标题存开场消息 metadata.encounterTitle，留空恢复默认命名 */}
+                <Modal isOpen={!!renameGroupTarget} title="给这次见面起个名字" onClose={() => setRenameGroupTarget(null)} footer={
+                    <div className="flex gap-3 w-full">
+                        <button onClick={() => setRenameGroupTarget(null)} className="flex-1 py-3 bg-slate-100 rounded-2xl text-slate-600 font-bold">取消</button>
+                        <button onClick={handleRenameGroupConfirm} className="flex-1 py-3 bg-blue-500 text-white rounded-2xl font-bold shadow-lg shadow-blue-200">保存</button>
+                    </div>
+                }>
+                    <input
+                        value={renameGroupTitle}
+                        onChange={(e) => setRenameGroupTitle(e.target.value)}
+                        maxLength={60}
+                        placeholder="留空则恢复默认日期命名"
+                        className="w-full p-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-2">默认命名形如「2026年10月14日 · 晚间陪伴」，保存在这次见面的开场记录里。</p>
                 </Modal>
             </div>
         );
