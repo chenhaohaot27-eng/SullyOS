@@ -23,6 +23,8 @@ export interface GeminiNativeCallOptions {
   signal?: AbortSignal;
   streamHooks?: StreamHooks;
   fetchImpl?: typeof fetch;
+  /** 调用来源（安全脱敏的用途标签，如「聊天回复」），只进诊断日志，不进请求体。 */
+  source?: string;
 }
 
 export interface GeminiProviderState {
@@ -553,6 +555,35 @@ async function extractErrorMessage(response: Response): Promise<string> {
   }
 }
 
+/** contents 末尾几个回合的角色序列（旧→新），只含角色名，可安全打日志。 */
+function describeContentsTail(contents: GeminiNativeRequest['contents'], count = 4): string {
+  return contents.slice(-count).map(turn => turn.role).join('<-') || '(empty)';
+}
+
+/**
+ * 发出前的末尾回合校验（Gemini 上游硬性要求）：
+ *   - contents 为空 → 上游必然 400（systemInstruction 不算回合）；
+ *   - 最后一个回合是 model → 上游 400
+ *     "Requests ending with a model turn are not supported"。
+ * 与上游 HTTP 400 的区别：这里在本地就拦下、不发请求、错误信息可直接定位调用方，
+ * 避免一次注定失败的计费请求。修复动作必须由调用方决定（追加 user 回合或
+ * functionResponse），适配器不做任何静默改写（不全局丢 assistant、不伪造历史）。
+ */
+export function assertLegalGeminiNativeTail(contents: GeminiNativeRequest['contents']): void {
+  if (contents.length === 0) {
+    throw new GeminiNativeAdapterError(
+      'Gemini Native 请求的 contents 为空：消息里没有可发送的 user/model 回合（system 只进 systemInstruction，不计入 contents）。',
+    );
+  }
+  if (contents[contents.length - 1].role === 'model') {
+    throw new GeminiNativeAdapterError(
+      `Gemini Native 不支持以 model 回合结尾的请求（contents 尾部角色: ${describeContentsTail(contents)}）。`
+      + '上游会返回 HTTP 400 "Requests ending with a model turn are not supported"。'
+      + '请由调用方在末尾追加 user 回合（或工具续跑的 functionResponse）后重试。',
+    );
+  }
+}
+
 export async function requestGeminiNativeChat(
   baseUrl: string,
   apiKey: string,
@@ -562,6 +593,16 @@ export async function requestGeminiNativeChat(
 ): Promise<JsonRecord> {
   const endpoint = buildGeminiNativeEndpoint(baseUrl, model);
   const nativeBody = buildGeminiNativeRequest(openAiBody);
+  // 安全脱敏的请求摘要：只有来源/模型/消息数/末尾角色/工具数，不含密钥、正文与图片数据。
+  console.info(
+    `[GeminiNative] → streamGenerateContent source=${options.source || 'unknown'}`
+    + ` model=${String(openAiBody.model || model)} messages=${Array.isArray(openAiBody.messages) ? openAiBody.messages.length : 0}`
+    + ` contentsTail=${describeContentsTail(nativeBody.contents)}`
+    + ` systemParts=${nativeBody.systemInstruction?.parts.length ?? 0}`
+    + ` tools=${nativeBody.tools?.[0]?.functionDeclarations.length ?? 0}`,
+  );
+  // 末尾回合校验：本地拦截注定 400 的请求（区别于上游返回的 HTTP 400）。
+  assertLegalGeminiNativeTail(nativeBody.contents);
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchImpl(endpoint, {
     method: 'POST',
@@ -572,6 +613,13 @@ export async function requestGeminiNativeChat(
     body: JSON.stringify(nativeBody),
     signal: options.signal,
   });
-  if (!response.ok) throw new GeminiNativeApiError(response.status, await extractErrorMessage(response));
+  if (!response.ok) {
+    console.warn(
+      `[GeminiNative] ← HTTP ${response.status} source=${options.source || 'unknown'}`
+      + ` model=${String(openAiBody.model || model)} contentsTail=${describeContentsTail(nativeBody.contents)}`
+      + '（这是上游拒绝；若错误信息提到 model turn 结尾，请检查调用方是否漏了 user 回合/functionResponse）',
+    );
+    throw new GeminiNativeApiError(response.status, await extractErrorMessage(response));
+  }
   return readGeminiResponse(response, model, options.streamHooks);
 }

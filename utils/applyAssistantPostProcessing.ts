@@ -600,8 +600,20 @@ export async function applyAssistantPostProcessing(
     // 「正在拍照… → 真实图片消息」闭环（utils/chatPhotoGeneration）。解析失败的标签同样剥掉
     // （宁可不拍也不漏 JSON），只留一行日志。
     const chatPhotoExtraction = extractChatPhotoIntent(aiContent);
+    if (chatPhotoExtraction.tagCount > 0) {
+        // 可观测性：标签是否出现、是否解析成功（安全脱敏：只有数量/结果/正文长度，不含 prompt 内容）。
+        console.info('[ChatPhoto] SEND_PHOTO 标签检测', {
+            charId: char.id,
+            tagCount: chatPhotoExtraction.tagCount,
+            parsed: !!chatPhotoExtraction.intent,
+            promptChars: chatPhotoExtraction.intent?.prompt.length ?? 0,
+        });
+    }
     if (chatPhotoExtraction.invalidTagFound) {
-        console.warn('[ChatPhoto] SEND_PHOTO 标签解析失败，已剥掉不执行', { charId: char.id });
+        console.warn('[ChatPhoto] SEND_PHOTO 标签解析失败，已剥掉不执行（本轮退化为纯文字，正是“角色只说发了一张照片”的形态）', {
+            charId: char.id,
+            tagCount: chatPhotoExtraction.tagCount,
+        });
     }
     aiContent = chatPhotoExtraction.cleanedContent;
 

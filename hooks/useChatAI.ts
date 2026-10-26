@@ -4,7 +4,7 @@ import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProf
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { safeFetchJson, safeResponseJson } from '../utils/safeApi';
-import { buildAssistantToolFollowUpMessage, completeChat } from '../utils/chatCompletionClient';
+import { buildAssistantToolFollowUpMessage, completeChat, ensureGeminiNativeTailUserTurn } from '../utils/chatCompletionClient';
 import { KeepAlive } from '../utils/keepAlive';
 import { ProactiveChat } from '../utils/proactiveChat';
 import { ContextBuilder } from '../utils/context';
@@ -1161,9 +1161,16 @@ export const useChatAI = ({
             const apiT0 = performance.now();
             const userTemp = (effectiveApi as any).temperature ?? apiConfig.temperature ?? 0.85;
             const userStream = (effectiveApi as any).stream ?? apiConfig.stream ?? false;
+            // Gemini Native 不接受以 assistant(model) 回合结尾的请求（上游 400 "Requests
+            // ending with a model turn are not supported"）。本地聊天是「手动 ⚡ 触发」：
+            // 用户在角色说完后不再发言、直接再点 ⚡ 想让角色继续说时，历史最后一条就是
+            // assistant。这里由调用方（真实需要"继续模型回复"的场景）补一条合法的 user
+            // continuation；OpenAI 兼容路径原样返回、行为不变。工具续跑的 functionResponse
+            // 本来就以 user 回合结尾，不会被这条影响。
+            const requestMessages = ensureGeminiNativeTailUserTurn(fullMessages, effectiveApi.apiFormat);
             const baseReqBody: any = {
                 model: effectiveApi.model,
-                messages: fullMessages,
+                messages: requestMessages,
                 temperature: userTemp,
                 max_tokens: 8000,
                 stream: userStream,

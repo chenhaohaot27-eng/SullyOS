@@ -87,8 +87,13 @@ interface RunArgs {
 /** 核心生图流程：不带 claim（execute 与 retry 共用），调用方负责去重。 */
 async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunArgs): Promise<ChatPhotoRunOutcome> {
     const config = loadImageGenerationConfig();
-    const fail = async (reason: string): Promise<ChatPhotoRunOutcome> => {
+    // 可观测性：分阶段记录（安全脱敏——只有阶段/角色ID/长度，不含 prompt 内容、Key、图片数据）。
+    const stageLog = (stage: string, extra: Record<string, unknown> = {}) => {
+        console.info(`[ChatPhoto] ${stage}`, { charId: char.id, messageId, includeCharacter: intent.includeCharacter, promptChars: intent.prompt.length, ...extra });
+    };
+    const fail = async (reason: string, stage = 'generate'): Promise<ChatPhotoRunOutcome> => {
         const safe = redactReason(reason, config.apiKey);
+        console.warn(`[ChatPhoto] 失败于 ${stage} 阶段`, { charId: char.id, messageId, reason: safe });
         await DB.updateMessageMetadata(messageId, prev => ({
             ...(prev || {}),
             chatPhoto: { ...(prev?.chatPhoto || {}), status: 'failed', reason: safe },
@@ -99,7 +104,7 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
 
     // 生图 API 未启用：明确提示去设置开启，而不是静默降级成假图。
     if (!config.enabled) {
-        return fail('生图 API 未启用，请先在「设置 → 生图」中开启并测试通过');
+        return fail('生图 API 未启用，请先在「设置 → 生图」中开启并测试通过', 'config-disabled');
     }
 
     // ─── Phase 2C：优先使用 characterId（自动处理 visualIdentity），兜底旧头像 ─────
@@ -118,6 +123,7 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
 
     let result;
     try {
+        stageLog('调用生图服务');
         result = await generateImage({
             prompt: intent.prompt,
             style: intent.style || undefined,
@@ -129,10 +135,11 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
     } catch (e) {
         // openai-images 等不支持参考图的接口：服务层已处理跳过逻辑，
         // 这里仅需捕获其他错误
-        return fail(errMessage(e));
+        return fail(errMessage(e), 'generate');
     }
 
     try {
+        stageLog('生图返回，落 Blob');
         const first = result.images[0];
         const blob = await generatedImageToBlob(first);
         const blobRef = await putImageBlob(blob);
@@ -147,9 +154,10 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
         try {
             await syncAssistantPhotoToGallery({ charId: char.id, messageId, url: blobRef, caption: intent.caption });
         } catch { /* 入相册失败不影响聊天消息本体 */ }
+        stageLog('生成成功', { status: 'ready' });
         return { status: 'ready' };
     } catch (e) {
-        return fail(errMessage(e));
+        return fail(errMessage(e), 'persist');
     }
 }
 

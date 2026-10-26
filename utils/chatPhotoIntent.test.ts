@@ -49,6 +49,23 @@ describe('extractChatPhotoIntent', () => {
         expect(fenced.intent?.prompt).toBe('a dog');
     });
 
+    it('容全角引号 / 全角冒号键 / 尾逗号（中文模型高频错误，修复“只说发了一张照片”退化）', () => {
+        // 全角双引号包键值
+        const fq = extractChatPhotoIntent('[[SEND_PHOTO: {"prompt":"窗外的夜景", "caption":"你看", "includeCharacter":false,}]]');
+        expect(fq.intent).toEqual({ prompt: '窗外的夜景', caption: '你看', includeCharacter: false, style: '' });
+        // 全角冒号键分隔
+        const fc = extractChatPhotoIntent('[[SEND_PHOTO: {"prompt":"a desk"}]]');
+        expect(fc.intent?.prompt).toBe('a desk');
+        // 数组里的尾逗号 + 围栏
+        const trail = extractChatPhotoIntent('[[SEND_PHOTO: ```json\n{"prompt":"a room", "style":"soft",}\n```]]');
+        expect(trail.intent?.style).toBe('soft');
+    });
+
+    it('tagCount 记录标签出现次数（诊断用）', () => {
+        expect(extractChatPhotoIntent('没有标签').tagCount).toBe(0);
+        expect(extractChatPhotoIntent(TAG('{"prompt":"x"}') + TAG('bad')).tagCount).toBe(2);
+    });
+
     it('includeCharacter 缺省为 false；超长字段被截断；非布尔值不当作 true', () => {
         const out = extractChatPhotoIntent(TAG('{"prompt":"x","includeCharacter":"yes"}'));
         expect(out.intent?.includeCharacter).toBe(false);

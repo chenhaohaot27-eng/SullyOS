@@ -36,6 +36,8 @@ export interface ChatPhotoExtraction {
     cleanedContent: string;
     /** 有标签但没一个能安全解析 */
     invalidTagFound: boolean;
+    /** 本轮正文里出现的 SEND_PHOTO 标签总数（诊断用，不含内容） */
+    tagCount: number;
 }
 
 /** 容全角冒号（中文输入法高频变体，与 SEND_EMOJI 同一理由） */
@@ -44,6 +46,20 @@ const SEND_PHOTO_TAG_RE = /\[\[SEND_PHOTO[:：]\s*([\s\S]*?)\]\]/g;
 const MAX_PROMPT_LENGTH = 1200;
 const MAX_CAPTION_LENGTH = 200;
 const MAX_STYLE_LENGTH = 400;
+
+/**
+ * 解析失败时的结构性纠偏：只动 JSON 的“骨架”字符——中文输入法常把引号/冒号打成
+ * 全角（{"prompt":"xx"} / {"prompt"：""xx""}），模型也爱在 } 前留尾逗号。这些都不改
+ * 字符串内容的语义（正文里的全角逗号、中文引号在合法 JSON 里本来就不该出现），
+ * 所以只做三件事：全角双引号→半角、全角冒号→半角、删 }]/] 前的尾逗号。
+ * 注意：合法解析成功时绝不走这条路径，原始 payload 原样生效。
+ */
+function relaxJsonishText(text: string): string {
+    return text
+        .replace(/[“”]/g, '"')
+        .replace(/：/g, ':')
+        .replace(/,\s*([}\]])/g, '$1');
+}
 
 function parsePayload(raw: string): ChatPhotoIntent | null {
     let text = raw.trim();
@@ -54,7 +70,13 @@ function parsePayload(raw: string): ChatPhotoIntent | null {
     try {
         parsed = JSON.parse(text);
     } catch {
-        return null;
+        // 第二次机会：只纠结构字符后重试（全角引号/冒号、尾逗号——中文模型高频错误）。
+        // 还不行就作废：宁可不拍，也不把 JSON/占位文本显示给玩家。
+        try {
+            parsed = JSON.parse(relaxJsonishText(text));
+        } catch {
+            return null;
+        }
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     const obj = parsed as Record<string, unknown>;
@@ -86,7 +108,7 @@ export function extractChatPhotoIntent(content: string): ChatPhotoExtraction {
         // 「标签原来占的那几行」的残影留给下游日志/预览）。
         .replace(/\n[ \t]*\n+/g, '\n')
         .trim();
-    return { intent, cleanedContent, invalidTagFound: tagCount > 0 && !intent };
+    return { intent, cleanedContent, invalidTagFound: tagCount > 0 && !intent, tagCount };
 }
 
 // ─── 一轮只拍一次的 claim（防流式重放 / StrictMode / 重渲染重复扣费） ─────────

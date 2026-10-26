@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildAssistantToolFollowUpMessage, completeChat } from './chatCompletionClient';
+import {
+  GEMINI_NATIVE_CONTINUE_USER_MESSAGE,
+  buildAssistantToolFollowUpMessage,
+  completeChat,
+  ensureGeminiNativeTailUserTurn,
+} from './chatCompletionClient';
 import { buildGeminiNativeRequest } from './geminiNativeChat';
 
 afterEach(() => {
@@ -125,5 +130,53 @@ describe('completeChat', () => {
       content: '(调用工具中)',
       tool_calls: toolCalls,
     });
+  });
+});
+
+describe('ensureGeminiNativeTailUserTurn（手动 ⚡ 续写的调用方级 user continuation）', () => {
+  it('gemini-native + assistant 结尾（尾部有 system）→ 追加合法 user continuation，不再以 model 回合结尾', () => {
+    // 复刻主聊天手动 ⚡ 续写场景：[system, 历史(最后是 assistant), 易变 system 尾段]
+    const fullMessages = [
+      { role: 'system', content: '设定' },
+      { role: 'user', content: '在吗' },
+      { role: 'assistant', content: '我在呢，刚刚在忙' },
+      { role: 'system', content: '易变状态' },
+    ];
+    const out = ensureGeminiNativeTailUserTurn(fullMessages, 'gemini-native');
+    expect(out).toHaveLength(5);
+    expect(out.at(-1)).toEqual({ role: 'user', content: GEMINI_NATIVE_CONTINUE_USER_MESSAGE });
+    // 端到端：转换后 contents 以 user 回合结尾（适配器校验可通过）
+    const request = buildGeminiNativeRequest({ messages: out });
+    expect(request.contents.at(-1)?.role).toBe('user');
+    expect(request.contents.at(-1)?.parts).toEqual([{ text: GEMINI_NATIVE_CONTINUE_USER_MESSAGE }]);
+  });
+
+  it('OpenAI 兼容路径原样返回（同一引用，行为零变化）', () => {
+    const messages = [
+      { role: 'system', content: 's' },
+      { role: 'user', content: 'u' },
+      { role: 'assistant', content: 'a' },
+    ];
+    expect(ensureGeminiNativeTailUserTurn(messages, undefined)).toBe(messages);
+    expect(ensureGeminiNativeTailUserTurn(messages, 'openai')).toBe(messages);
+  });
+
+  it('user 结尾 / 空 assistant 结尾 / 全 system：不追加任何消息', () => {
+    const userTail = [{ role: 'user', content: '最新输入' }];
+    expect(ensureGeminiNativeTailUserTurn(userTail, 'gemini-native')).toBe(userTail);
+    const emptyAssistantTail = [{ role: 'user', content: '问' }, { role: 'assistant', content: '' }];
+    expect(ensureGeminiNativeTailUserTurn(emptyAssistantTail, 'gemini-native')).toBe(emptyAssistantTail);
+    const allSystem = [{ role: 'system', content: 's' }];
+    expect(ensureGeminiNativeTailUserTurn(allSystem, 'gemini-native')).toBe(allSystem);
+  });
+
+  it('带 tool_calls 的 assistant 结尾也补 user continuation（工具循环中断后手动续写）', () => {
+    const messages = [
+      { role: 'user', content: '查' },
+      { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+    ];
+    const out = ensureGeminiNativeTailUserTurn(messages, 'gemini-native');
+    expect(out.at(-1)?.role).toBe('user');
+    expect(buildGeminiNativeRequest({ messages: out }).contents.at(-1)?.role).toBe('user');
   });
 });

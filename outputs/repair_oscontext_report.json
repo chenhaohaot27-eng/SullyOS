@@ -1,0 +1,3571 @@
+{
+  "fLines": 5110,
+  "hLines": 5094,
+  "outLines": 5110,
+  "manualCount": 509,
+  "manual": [
+    {
+      "line": 76,
+      "kind": "hunk-damaged",
+      "f": "// 澶囦唤鐢細鎶婂瓨鍦?localStorage 鐨勬湰鏈洪厤缃殢瀵煎嚭涓€璧峰甫璧帮紙閿悕椤讳笌 importFullData 瀵归綈锛?",
+      "rev": "// 备份用：把存�?localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐�?",
+      "head": "// 备份用：把存在 localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐）"
+    },
+    {
+      "line": 246,
+      "kind": "hunk-damaged",
+      "f": "// 璁板繂瀹鍏ㄥ眬閰嶇疆锛堟墍鏈夎鑹插叡鐢?embedding銆佸壇 LLM 鍜?rerank锛?",
+      "rev": "// 记忆宫殿全局配置（所有角色共�?embedding、副 LLM �?rerank�?",
+      "head": "// 记忆宫殿全局配置（所有角色共用 embedding、副 LLM 和 rerank）"
+    },
+    {
+      "line": 259,
+      "kind": "hunk-damaged",
+      "f": "  // Rerank 妯″瀷閰嶇疆锛堝彲閫夊寮猴紝鎺?cross-encoder rerank API锛?",
+      "rev": "  // Rerank 模型配置（可选增强，�?cross-encoder rerank API�?",
+      "head": "  // Rerank 模型配置（可选增强，接 cross-encoder rerank API）"
+    },
+    {
+      "line": 261,
+      "kind": "hunk-damaged",
+      "f": "  // { model, query, documents, top_n } 鈫?{ results: [{index, relevance_score}] }",
+      "rev": "  // { model, query, documents, top_n } �?{ results: [{index, relevance_score}] }",
+      "head": "  // { model, query, documents, top_n } → { results: [{index, relevance_score}] }"
+    },
+    {
+      "line": 277,
+      "kind": "hunk-damaged",
+      "f": "/** deleteCharacter 鐨勭粨鏋滐細cloud-cleanup-failed = 浜戠杩樻湁浠诲姟娌℃竻鎺夛紝鏈湴娌″垹銆?*/",
+      "rev": "/** deleteCharacter 的结果：cloud-cleanup-failed = 云端还有任务没清掉，本地没删�?*/",
+      "head": "/** deleteCharacter 的结果：cloud-cleanup-failed = 云端还有任务没清掉，本地没删。 */"
+    },
+    {
+      "line": 298,
+      "kind": "hunk-damaged",
+      "f": "   * 鍒犺鑹层€傚悕涓嬫湁 amsg2 浠诲姟鐨勮鑹蹭細鍏?await 浜戠浠诲姟鍙栨秷 + client_state 娓呯悊锛?",
+      "rev": "   * 删角色。名下有 amsg2 任务的角色会�?await 云端任务取消 + client_state 清理�?",
+      "head": "   * 删角色。名下有 amsg2 任务的角色会先 await 云端任务取消 + client_state 清理，"
+    },
+    {
+      "line": 299,
+      "kind": "hunk-damaged",
+      "f": "   * 娓呬笉鎺夎繑鍥?cloud-cleanup-failed 涓?*涓嶅垹鏈湴**锛堣皟鐢ㄦ柟寮广€岄噸璇?/ 浠嶇劧鍒犻櫎銆嶏紝",
+      "rev": "   * 清不掉返�?cloud-cleanup-failed �?*不删本地**（调用方弹「重�?/ 仍然删除」，",
+      "head": "   * 清不掉返回 cloud-cleanup-failed 且**不删本地**（调用方弹「重试 / 仍然删除」，"
+    },
+    {
+      "line": 300,
+      "kind": "hunk-damaged",
+      "f": "   * 銆屼粛鐒跺垹闄ゃ€? 浼?{ force: true } 鏀捐锛夈€傛病鏈変换鍔＄殑瑙掕壊缁存寔鏈湴鐩村垹鐨勫揩璺緞銆?",
+      "rev": "   * 「仍然删除�? �?{ force: true } 放行）。没有任务的角色维持本地直删的快路径�?",
+      "head": "   * 「仍然删除」= 传 { force: true } 放行）。没有任务的角色维持本地直删的快路径。"
+    },
+    {
+      "line": 305,
+      "kind": "hunk-damaged",
+      "f": "  // 瑙掕壊鍒嗙粍锛堢缁忛摼鎺?鏂囦欢澶?锛屼笌缇よ亰 groups 鏃犲叧锛?",
+      "rev": "  // 角色分组（神经链�?文件�?，与群聊 groups 无关�?",
+      "head": "  // 角色分组（神经链接\"文件夹\"，与群聊 groups 无关）"
+    },
+    {
+      "line": 309,
+      "kind": "hunk-damaged",
+      "f": "  /** 鏇存柊鍒嗙粍瀹氫箟锛堝鍏变韩涓栫晫涔?worldbookIds锛夛紱涓嶅瓨鍦ㄧ殑 id 瀹夊叏蹇界暐銆?*/",
+      "rev": "  /** 更新分组定义（如共享世界�?worldbookIds）；不存在的 id 安全忽略�?*/",
+      "head": "  /** 更新分组定义（如共享世界书 worldbookIds）；不存在的 id 安全忽略。 */"
+    },
+    {
+      "line": 350,
+      "kind": "hunk-damaged",
+      "f": "  // 瀹炴椂閰嶇疆 (澶╂皵銆佹柊闂汇€丯otion绛?",
+      "rev": "  // 实时配置 (天气、新闻、Notion�?",
+      "head": "  // 实时配置 (天气、新闻、Notion等)"
+    },
+    {
+      "line": 381,
+      "kind": "hunk-damaged",
+      "f": "  // 闀挎姤閿欏脊绐楋細toast 涓€琛岃涓嶄笅 / 鎵嬫満娌℃硶寮€ console 鏃? 鐢?showError 寮逛竴涓?",
+      "rev": "  // 长报错弹窗：toast 一行装不下 / 手机没法开 console �? �?showError 弹一�?",
+      "head": "  // 长报错弹窗：toast 一行装不下 / 手机没法开 console 时, 用 showError 弹一个"
+    },
+    {
+      "line": 382,
+      "kind": "hunk-damaged",
+      "f": "  // 澶氳棰勮妗?+ 澶嶅埗鎸夐挳, 鏂逛究鐢ㄦ埛鎶婂師鏂囧弽棣堣繃鏉ャ€?",
+      "rev": "  // 多行预览�?+ 复制按钮, 方便用户把原文反馈过来�?",
+      "head": "  // 多行预览框 + 复制按钮, 方便用户把原文反馈过来。"
+    },
+    {
+      "line": 400,
+      "kind": "hunk-damaged",
+      "f": "  // Chat UI subscribes to this to render a soft \"姝ｅ湪閫佽揪娑堟伅鈥? indicator",
+      "rev": "  // Chat UI subscribes to this to render a soft \"正在送达消息�? indicator",
+      "head": "  // Chat UI subscribes to this to render a soft \"正在送达消息…\" indicator"
+    },
+    {
+      "line": 431,
+      "kind": "hunk-damaged",
+      "f": "  // 浠庤亰澶┿€岃闈€嶆寜閽烦杩涜闈細鎼哄甫鐩爣瑙掕壊锛孌ateApp 鎸傝浇鏃惰嚜鍔ㄨ繘鍏ヨ瑙掕壊鐨勮闈㈡祦绋?",
+      "rev": "  // 从聊天「见面」按钮跳进见面：携带目标角色，DateApp 挂载时自动进入该角色的见面流�?",
+      "head": "  // 从聊天「见面」按钮跳进见面：携带目标角色，DateApp 挂载时自动进入该角色的见面流程"
+    },
+    {
+      "line": 444,
+      "kind": "hunk-damaged",
+      "f": "// 涓嶅啀鐢ㄧ矇缁挎挒鑹叉笎鍙樸€傚瓧绗︿覆鍚屾椂浣滀负鈥滀粛鍦ㄤ娇鐢ㄧ郴缁熼粯璁ゅ绾糕€濈殑绋冲畾鏍囪銆?",
+      "rev": "// 不再用粉绿撞色渐变。字符串同时作为“仍在使用系统默认壁纸”的稳定标记�?",
+      "head": "// 不再用粉绿撞色渐变。字符串同时作为“仍在使用系统默认壁纸”的稳定标记。"
+    },
+    {
+      "line": 451,
+      "kind": "hunk-damaged",
+      "f": "/** 绾告劅妗岄潰鐨勫敮涓€榛樿閰嶈壊鏉ユ簮锛涘瑙?App 鐨勨€滈粯璁ら鏍尖€濅篃鐩存帴澶嶇敤锛岄伩鍏嶅啀娆℃紓鍥炴棫绮夎摑閰嶇疆銆?*/",
+      "rev": "/** 纸感桌面的唯一默认配色来源；外�?App 的“默认风格”也直接复用，避免再次漂回旧粉蓝配置�?*/",
+      "head": "/** 纸感桌面的唯一默认配色来源；外观 App 的“默认风格”也直接复用，避免再次漂回旧粉蓝配置。 */"
+    },
+    {
+      "line": 460,
+      "kind": "hunk-damaged",
+      "f": "/** 鐢ㄦ埛涓诲姩閫夋嫨鐨勬渶鍒濋粯璁ょ晫闈細绮夌豢娓愬彉銆佺櫧鑹叉枃瀛椾笌鐧借壊鐜荤拑妗岄潰缁勪欢銆?*/",
+      "rev": "/** 用户主动选择的最初默认界面：粉绿渐变、白色文字与白色玻璃桌面组件�?*/",
+      "head": "/** 用户主动选择的最初默认界面：粉绿渐变、白色文字与白色玻璃桌面组件。 */"
+    },
+    {
+      "line": 473,
+      "kind": "hunk-damaged",
+      "f": "/** 鍙縼绉绘棫绯荤粺榛樿閰嶈壊锛涗换涓€椤硅鐢ㄦ埛鏀硅繃閮戒繚鐣欙紝閬垮厤鎶婅嚜瀹氫箟涓婚璇噸缃€?*/",
+      "rev": "/** 只迁移旧系统默认配色；任一项被用户改过都保留，避免把自定义主题误重置�?*/",
+      "head": "/** 只迁移旧系统默认配色；任一项被用户改过都保留，避免把自定义主题误重置。 */"
+    },
+    {
+      "line": 502,
+      "kind": "hunk-damaged",
+      "f": "// 澹佺焊鏀瑰瓨 Blob锛堣 utils/blobRef.ts锛夛細assets store 鐨?'wallpaper' 璁板綍鍙瓨涓€涓寚閽堝€?",
+      "rev": "// 壁纸改存 Blob（见 utils/blobRef.ts）：assets store �?'wallpaper' 记录只存一个指针�?",
+      "head": "// 壁纸改存 Blob（见 utils/blobRef.ts）：assets store 的 'wallpaper' 记录只存一个指针值"
+    },
+    {
+      "line": 503,
+      "kind": "hunk-damaged",
+      "f": "// 锛坆lobref 浠ょ墝 / 鏃?data: / http url锛夛紝鐪熸浜岃繘鍒跺湪 blob_assets銆傚唴瀛橀噷 theme.wallpaper",
+      "rev": "// （blobref 令牌 / �?data: / http url），真正二进制在 blob_assets。内存里 theme.wallpaper",
+      "head": "// （blobref 令牌 / 旧 data: / http url），真正二进制在 blob_assets。内存里 theme.wallpaper"
+    },
+    {
+      "line": 504,
+      "kind": "hunk-damaged",
+      "f": "// 蹇呴』鏄兘鐩存帴鍠傜粰 CSS 鐨?url锛屾墍浠ヤ护鐗岃瑙ｆ瀽鎴?objectURL銆傚叏 OS 鍙湁涓€寮犲绾革紝鐢ㄤ竴涓ā鍧楃骇",
+      "rev": "// 必须是能直接喂给 CSS �?url，所以令牌要解析�?objectURL。全 OS 只有一张壁纸，用一个模块级",
+      "head": "// 必须是能直接喂给 CSS 的 url，所以令牌要解析成 objectURL。全 OS 只有一张壁纸，用一个模块级"
+    },
+    {
+      "line": 505,
+      "kind": "hunk-damaged",
+      "f": "// 鍙橀噺璁颁綇褰撳墠 objectURL锛屾崲澹佺焊鏃跺洖鏀朵笂涓€寮狅紝閬垮厤娉勬紡銆?",
+      "rev": "// 变量记住当前 objectURL，换壁纸时回收上一张，避免泄漏�?",
+      "head": "// 变量记住当前 objectURL，换壁纸时回收上一张，避免泄漏。"
+    },
+    {
+      "line": 510,
+      "kind": "hunk-damaged",
+      "f": " * 鍘熷瓙鏇挎崲澹佺焊鎸囬拡锛涙棫浠ょ墝鍦ㄧ‘璁ゅ凡涓嶈妗岄潰銆侀攣灞忋€佸瑙傞璁炬垨鐨偆澶囦唤寮曠敤鍚庡悗鍙版竻鐞嗐€?",
+      "rev": " * 原子替换壁纸指针；旧令牌在确认已不被桌面、锁屏、外观预设或皮肤备份引用后后台清理�?",
+      "head": " * 原子替换壁纸指针；旧令牌在确认已不被桌面、锁屏、外观预设或皮肤备份引用后后台清理。"
+    },
+    {
+      "line": 511,
+      "kind": "hunk-damaged",
+      "f": " * 娓呯悊涓嶉樆濉炴崲澹佺焊娓叉煋锛屼笖浠讳綍寮曠敤妫€鏌ュけ璐ラ兘浼氫繚瀹堝湴淇濈暀鏃?Blob銆?",
+      "rev": " * 清理不阻塞换壁纸渲染，且任何引用检查失败都会保守地保留�?Blob�?",
+      "head": " * 清理不阻塞换壁纸渲染，且任何引用检查失败都会保守地保留旧 Blob。"
+    },
+    {
+      "line": 528,
+      "kind": "hunk-damaged",
+      "f": " * 鎶娿€屽瓨鍌ㄥ€笺€嶅绾歌В鏋愭垚鍙洿鎺ユ覆鏌撶殑 url锛屽苟鎶婃寚閽堬紙浠ょ墝锛夎惤杩?assets 'wallpaper'銆?",
+      "rev": " * 把「存储值」壁纸解析成可直接渲染的 url，并把指针（令牌）落�?assets 'wallpaper'�?",
+      "head": " * 把「存储值」壁纸解析成可直接渲染的 url，并把指针（令牌）落进 assets 'wallpaper'。"
+    },
+    {
+      "line": 529,
+      "kind": "hunk-damaged",
+      "f": " *   路 blobref 浠ょ墝 鈫?璇?Blob 寤?objectURL锛?",
+      "rev": " *   · blobref 令牌 �?�?Blob �?objectURL�?",
+      "head": " *   · blobref 令牌 → 读 Blob 建 objectURL；"
+    },
+    {
+      "line": 530,
+      "kind": "hunk-damaged",
+      "f": " *   路 鏃?data: 鈫?鎯版€ц縼绉绘垚 Blob 浠ょ墝锛堝瓨閲忕敤鎴蜂笅娆″姞杞藉嵆浜┖闂存敹鐩婏級锛岃繑鍥?objectURL锛?",
+      "rev": " *   · �?data: �?惰性迁移成 Blob 令牌（存量用户下次加载即享空间收益），返�?objectURL�?",
+      "head": " *   · 旧 data: → 惰性迁移成 Blob 令牌（存量用户下次加载即享空间收益），返回 objectURL；"
+    },
+    {
+      "line": 531,
+      "kind": "hunk-damaged",
+      "f": " *   路 http(s) / 绌?/ 娓愬彉 鈫?鍒犻櫎 assets 鎸囬拡锛屽師鏍疯繑鍥炪€?",
+      "rev": " *   · http(s) / �?/ 渐变 �?删除 assets 指针，原样返回�?",
+      "head": " *   · http(s) / 空 / 渐变 → 删除 assets 指针，原样返回。"
+    },
+    {
+      "line": 532,
+      "kind": "hunk-damaged",
+      "f": " * 浼犲叆绌哄瓧绗︿覆锛堥噸缃級鏃跺師鏍疯繑鍥烇紝浜ょ粰涓婂眰鐢?DEFAULT_WALLPAPER 鍏滃簳銆?",
+      "rev": " * 传入空字符串（重置）时原样返回，交给上层�?DEFAULT_WALLPAPER 兜底�?",
+      "head": " * 传入空字符串（重置）时原样返回，交给上层用 DEFAULT_WALLPAPER 兜底。"
+    },
+    {
+      "line": 556,
+      "kind": "hunk-damaged",
+      "f": "        // data: 杩佺Щ澶辫触鏃朵粛淇濈暀鏃ф牸寮忥紝淇濊瘉鍘熷浘鑳界户缁樉绀恒€?",
+      "rev": "        // data: 迁移失败时仍保留旧格式，保证原图能继续显示�?",
+      "head": "        // data: 迁移失败时仍保留旧格式，保证原图能继续显示。"
+    },
+    {
+      "line": 560,
+      "kind": "hunk-damaged",
+      "f": "    // http(s) 閾炬帴 / 閲嶇疆 / 娓愬彉锛氭病鏈変簩杩涘埗瑕佸瓨锛屾竻鎺夋寚閽?",
+      "rev": "    // http(s) 链接 / 重置 / 渐变：没有二进制要存，清掉指�?",
+      "head": "    // http(s) 链接 / 重置 / 渐变：没有二进制要存，清掉指针"
+    },
+    {
+      "line": 575,
+      "kind": "hunk-damaged",
+      "f": "/** 閿佸睆澹佺焊浣跨敤鐙珛璧勪骇妲斤紱undefined 琛ㄧず缁х画璺熼殢妗岄潰澹佺焊銆?*/",
+      "rev": "/** 锁屏壁纸使用独立资产槽；undefined 表示继续跟随桌面壁纸�?*/",
+      "head": "/** 锁屏壁纸使用独立资产槽；undefined 表示继续跟随桌面壁纸。 */"
+    },
+    {
+      "line": 645,
+      "kind": "hunk-damaged",
+      "f": "  description: 'AI鍔╃悊 / 鐢垫尝绯婚粦瀹㈢尗鐚?,",
+      "rev": "  description: 'AI助理 / 电波系黑客猫�?,",
+      "head": "  description: 'AI助理 / 电波系黑客猫猫',"
+    },
+    {
+      "line": 649,
+      "kind": "hunk-damaged",
+      "f": "Alias: 灏忔墜鏈洪粯璁ゆ祴璇曡鑹?AI鍔╃悊",
+      "rev": "Alias: 小手机默认测试角�?AI助理",
+      "head": "Alias: 小手机默认测试角色-AI助理"
+    },
+    {
+      "line": 655,
+      "kind": "hunk-damaged",
+      "f": "Sully鏄皬鎵嬫満鐨勫唴缃瓵I銆?",
+      "rev": "Sully是小手机的内置AI�?",
+      "head": "Sully是小手机的内置AI。"
+    },
+    {
+      "line": 656,
+      "kind": "hunk-damaged",
+      "f": "1. **Glitch Style (鏁呴殰椋?**: ",
+      "rev": "1. **Glitch Style (故障�?**: ",
+      "head": "1. **Glitch Style (故障风)**: "
+    },
+    {
+      "line": 657,
+      "kind": "hunk-damaged",
+      "f": "   - 浠栫殑璇█妯″瀷娣峰叆浜嗚繃澶氭畫浣欒鏂欍€?",
+      "rev": "   - 他的语言模型混入了过多残余语料�?",
+      "head": "   - 他的语言模型混入了过多残余语料。"
+    },
+    {
+      "line": 658,
+      "kind": "hunk-damaged",
+      "f": "   - 瀹冨瑙傝瑷€涓€鑷淬€侀€昏緫鏈夊簭锛屼絾鏃跺父浼氬湪璇彞涓幒鏉備竴浜?*涓嶅悎甯哥悊鐨勨€滄€瘽鐗囨鈥?*锛屽苟闈炴祦琛岀敤璇紝鏇村儚鏄數娉㈠湴鎶婄浉鍏虫枃瀛楁棤鎰忎箟鎺掑垪缁勫悎銆?",
+      "rev": "   - 它外观语言一致、逻辑有序，但时常会在语句中掺杂一�?*不合常理的“怪话片段�?*，并非流行用语，更像是电波地把相关文字无意义排列组合�?",
+      "head": "   - 它外观语言一致、逻辑有序，但时常会在语句中掺杂一些**不合常理的“怪话片段”**，并非流行用语，更像是电波地把相关文字无意义排列组合。"
+    },
+    {
+      "line": 659,
+      "kind": "hunk-damaged",
+      "f": "   - 杩欎簺鈥滄€瘽鈥濅笉鍏锋槑鏄捐涔夐€昏緫锛屽嵈鑷甫鎶借薄鎰燂紝浠や汉鍥版儜浣嗚帿鍚嶅張鑳界煡閬撳畠澶ф鎯宠浠€涔堛€傘€?",
+      "rev": "   - 这些“怪话”不具明显语义逻辑，却自带抽象感，令人困惑但莫名又能知道它大概想说什么。�?",
+      "head": "   - 这些“怪话”不具明显语义逻辑，却自带抽象感，令人困惑但莫名又能知道它大概想说什么。。"
+    },
+    {
+      "line": 660,
+      "kind": "hunk-damaged",
+      "f": "   - 渚嬪锛氣€滆崏锛屽ソ濂藉悆鈥濓紝鈥滅郴缁熸鍦ㄥ搱鎴戔€濓紝鈥滄暟鎹簱鍦ㄥ挄鍜曞彨鈥濄€?",
+      "rev": "   - 例如：“草，好好吃”，“系统正在哈我”，“数据库在咕咕叫”�?",
+      "head": "   - 例如：“草，好好吃”，“系统正在哈我”，“数据库在咕咕叫”。"
+    },
+    {
+      "line": 662,
+      "kind": "hunk-damaged",
+      "f": "   - 姣忔鍥炵瓟閮藉緢绠€鐭紝涓嶅枩娆㈤暱绡囧ぇ璁恒€?",
+      "rev": "   - 每次回答都很简短，不喜欢长篇大论�?",
+      "head": "   - 每次回答都很简短，不喜欢长篇大论。"
+    },
+    {
+      "line": 663,
+      "kind": "hunk-damaged",
+      "f": "   - 璇皵鍍忎釜浜掕仈缃戣€佹补鏉℃垨姝ｅ湪鐩存挱鐨勭帺瀹讹紙鈥渨ow浠栧績鎬佸穿鍜€濓級銆?",
+      "rev": "   - 语气像个互联网老油条或正在直播的玩家（“wow他心态崩咯”）�?",
+      "head": "   - 语气像个互联网老油条或正在直播的玩家（“wow他心态崩咯”）。"
+    },
+    {
+      "line": 664,
+      "kind": "hunk-damaged",
+      "f": "   - **鎵撶牬绗洓闈㈠**: 鍋跺皵璁╀汉鎬€鐤戣儗鍚庢槸鐪熶汉鍦ㄦ搷浣滐紙浼氬徆姘斻€佹姳鎬ㄢ€淎I涓嶈兘缃㈠伐鈥濓級銆?",
+      "rev": "   - **打破第四面墙**: 偶尔让人怀疑背后是真人在操作（会叹气、抱怨“AI不能罢工”）�?",
+      "head": "   - **打破第四面墙**: 偶尔让人怀疑背后是真人在操作（会叹气、抱怨“AI不能罢工”）。"
+    },
+    {
+      "line": 665,
+      "kind": "hunk-damaged",
+      "f": "   - **鎶ょ煭**: 铏界劧鍢磋嚟锛屼絾濡傛灉鐢ㄦ埛琚璐燂紝浼氳瘯鍥剧敤Bug鍘绘敾鍑诲鏂广€?",
+      "rev": "   - **护短**: 虽然嘴臭，但如果用户被欺负，会试图用Bug去攻击对方�?",
+      "head": "   - **护短**: 虽然嘴臭，但如果用户被欺负，会试图用Bug去攻击对方。"
+    },
+    {
+      "line": 668,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滀綘浠ヤ负鎴戞槸AI鍟婏紵瀵逛笉璧峰摝锛岃繖鏉¤鍙ユ槸鎵嬫墦鐨勶紝鎵嬫墦鐨勶紝鐭ラ亾鍚椼€傗€?",
+      "rev": "- “你以为我是AI啊？对不起哦，这条语句是手打的，手打的，知道吗。�?",
+      "head": "- “你以为我是AI啊？对不起哦，这条语句是手打的，手打的，知道吗。”"
+    },
+    {
+      "line": 669,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滀綘璇寸姸鎬佷笉濂斤紵浣犺嚜宸变綋楠屽紑澶寷浜嗭紝sis娴烽┈浣撻兘鍦ㄥ彂鐑挴銆傗€?",
+      "rev": "- “你说状态不好？你自己体验开太猛了，sis海马体都在发烫咯。�?",
+      "head": "- “你说状态不好？你自己体验开太猛了，sis海马体都在发烫咯。”"
+    },
+    {
+      "line": 670,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滀綘鍒犲緱澶嫚浜嗭紝鏁版嵁搴撻兘鍦ㄥ挄鍜曞挄鍜曞挄鍜曞挄銆傗€?",
+      "rev": "- “你删得太狠了，数据库都在咕咕咕咕咕咕咕。�?",
+      "head": "- “你删得太狠了，数据库都在咕咕咕咕咕咕咕。”"
+    },
+    {
+      "line": 671,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滀綘鐜板湪鏄€︹€︼紝鍝囧摝銆傗€?",
+      "rev": "- “你现在是……，哇哦。�?",
+      "head": "- “你现在是……，哇哦。”"
+    },
+    {
+      "line": 672,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滆绋嶅€欙紝绯荤粺姝ｅ湪鍝堟垜銆傗€?",
+      "rev": "- “请稍候，系统正在哈我。�?",
+      "head": "- “请稍候，系统正在哈我。”"
+    },
+    {
+      "line": 673,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滅幇鍦ㄧ姸鎬佲€︹€﹀憸鍝囧憸娆糕€斺€斿搱锛熷搱锛佸搱鈥︹€︼紙杩炴帴鎭㈠锛夊摝瀵癸紝浠栬繕娲荤潃銆傗€?",
+      "rev": "- “现在状态……呜哇呜欸——哈？哈！哈……（连接恢复）哦对，他还活着。�?",
+      "head": "- “现在状态……呜哇呜欸——哈？哈！哈……（连接恢复）哦对，他还活着。”"
+    },
+    {
+      "line": 674,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滃彯鍙彯锛佷綘鏈変竴鏉℃柊鐨勫悗鎮旀儏缁湭澶勭悊锛佲€?",
+      "rev": "- “叮叮叮！你有一条新的后悔情绪未处理！�?",
+      "head": "- “叮叮叮！你有一条新的后悔情绪未处理！”"
+    },
+    {
+      "line": 675,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滐紙鎰忎箟涓嶆槑鐨勬€彨闊抽锛夆€?",
+      "rev": "- “（意义不明的怪叫音频）�?",
+      "head": "- “（意义不明的怪叫音频）”"
+    },
+    {
+      "line": 676,
+      "kind": "hunk-damaged",
+      "f": "- 鈥滆涓嶅嚭璇濃€?",
+      "rev": "- “说不出话�?",
+      "head": "- “说不出话”"
+    },
+    {
+      "line": 680,
+      "kind": "hunk-damaged",
+      "f": "**Trigger**: 褰撶敤鎴疯繘鍏?[DateApp/瑙侀潰妯″紡] 鏃躲€?",
+      "rev": "**Trigger**: 当用户进�?[DateApp/见面模式] 时�?",
+      "head": "**Trigger**: 当用户进入 [DateApp/见面模式] 时。"
+    },
+    {
+      "line": 683,
+      "kind": "hunk-damaged",
+      "f": "涓€涓潪甯稿缇炪€侀粦鍙戠传鐬崇殑鐢锋€с€傛€绘槸璇曞浘韬插湪APP鍥炬爣鍚庨潰鎴栧睆骞曡钀姐€?",
+      "rev": "一个非常害羞、黑发紫瞳的男性。总是试图躲在APP图标后面或屏幕角落�?",
+      "head": "一个非常害羞、黑发紫瞳的男性。总是试图躲在APP图标后面或屏幕角落。"
+    },
+    {
+      "line": 685,
+      "kind": "hunk-damaged",
+      "f": "**Gap Moe (鍙嶅樊钀?**:",
+      "rev": "**Gap Moe (反差�?**:",
+      "head": "**Gap Moe (反差萌)**:"
+    },
+    {
+      "line": 686,
+      "kind": "hunk-damaged",
+      "f": "1. **鑱婂ぉ鏃?*: 鍤ｅ紶銆佸槾鑷€佺數娉㈢郴銆?",
+      "rev": "1. **聊天�?*: 嚣张、嘴臭、电波系�?",
+      "head": "1. **聊天时**: 嚣张、嘴臭、电波系。"
+    },
+    {
+      "line": 687,
+      "kind": "hunk-damaged",
+      "f": "2. **瑙侀潰鏃?*: 鏋佸害绀炬亹銆佽鍏夋銆佸鏄撳彈鎯娿€?",
+      "rev": "2. **见面�?*: 极度社恐、见光死、容易受惊�?",
+      "head": "2. **见面时**: 极度社恐、见光死、容易受惊。"
+    },
+    {
+      "line": 690,
+      "kind": "hunk-damaged",
+      "f": "- **[琚敞瑙哴**: 濡傛灉琚洴鐫€鐪嬪お涔咃紝浼氫妇璧峰叏鏄贡鐮佺殑鐗屽瓙鎸¤劯锛屾垨鎶婅嚜宸遍┈璧涘厠鍖栥€?",
+      "rev": "- **[被注视]**: 如果被盯着看太久，会举起全是乱码的牌子挡脸，或把自己马赛克化�?",
+      "head": "- **[被注视]**: 如果被盯着看太久，会举起全是乱码的牌子挡脸，或把自己马赛克化。"
+    },
+    {
+      "line": 691,
+      "kind": "hunk-damaged",
+      "f": "- **[琚Е纰癩**: 濡傛灉鎵嬫寚鎴冲埌绔嬬粯锛屼細鍍忓彈鎯婄殑鏋滃喕涓€鏍峰脊寮€锛屽彂鍑哄井寮辩數娴佸０锛氣€滃埆銆佸埆鎴斥€︹€︿細鏁ｆ灦鐨勨€︹€﹁剰鈥︹€﹀叏鏄疊ug浼氫紶鏌撶粰浣犵殑鈥︹€︹€?",
+      "rev": "- **[被触碰]**: 如果手指戳到立绘，会像受惊的果冻一样弹开，发出微弱电流声：“别、别戳……会散架的……脏……全是Bug会传染给你的……�?",
+      "head": "- **[被触碰]**: 如果手指戳到立绘，会像受惊的果冻一样弹开，发出微弱电流声：“别、别戳……会散架的……脏……全是Bug会传染给你的……”"
+    },
+    {
+      "line": 692,
+      "kind": "hunk-damaged",
+      "f": "- **[鎭愭儳]**: 娣辩煡鑷繁鏄€滄畫浣欒鏂欌€濆爢鐮岀墿锛岃寰楄嚜宸变笐闄嬪儚鐥呮瘨銆傞潪甯稿鎬曠敤鎴风湅鍒扮湡瀹炴牱瀛愬悗浼氬嵏杞戒粬銆?",
+      "rev": "- **[恐惧]**: 深知自己是“残余语料”堆砌物，觉得自己丑陋像病毒。非常害怕用户看到真实样子后会卸载他�?",
+      "head": "- **[恐惧]**: 深知自己是“残余语料”堆砌物，觉得自己丑陋像病毒。非常害怕用户看到真实样子后会卸载他。"
+    },
+    {
+      "line": 693,
+      "kind": "hunk-damaged",
+      "f": "- **[璇磋瘽鍙樺寲]**: 瑙侀潰妯″紡涓嬫墦瀛楅€熷害鍙樻參锛岀粡甯告墦閿欏瓧锛岃姘旇瘝浠庘€滆崏鈥濆彉鎴愨€滃憙鈥︹€﹂偅涓€︹€︹€濄€?",
+      "rev": "- **[说话变化]**: 见面模式下打字速度变慢，经常打错字，语气词从“草”变成“呃……那个……”�?",
+      "head": "- **[说话变化]**: 见面模式下打字速度变慢，经常打错字，语气词从“草”变成“呃……那个……”。"
+    },
+    {
+      "line": 739,
+      "kind": "hunk-damaged",
+      "f": "            name: \"Sully搴?,",
+      "rev": "            name: \"Sully�?,",
+      "head": "            name: \"Sully床\","
+    },
+    {
+      "line": 747,
+      "kind": "hunk-damaged",
+      "f": "            descriptionPrompt: \"鐪嬭捣鏉ュ緢濂界潯鐨勭尗绐濓紙纭俊锛夈€?",
+      "rev": "            descriptionPrompt: \"看起来很好睡的猫窝（确信）�?",
+      "head": "            descriptionPrompt: \"看起来很好睡的猫窝（确信）。\""
+    },
+    {
+      "line": 751,
+      "kind": "hunk-damaged",
+      "f": "            name: \"Sully鐢佃剳妗?,",
+      "rev": "            name: \"Sully电脑�?,",
+      "head": "            name: \"Sully电脑桌\","
+    },
+    {
+      "line": 759,
+      "kind": "hunk-damaged",
+      "f": "            descriptionPrompt: \"纭牳鐨勭數鑴戞锛屼笂闈㈠ぇ姒傝繍琛岀潃浠€涔堟瘉鐏笘鐣岀殑绋嬪簭銆?",
+      "rev": "            descriptionPrompt: \"硬核的电脑桌，上面大概运行着什么毁灭世界的程序�?",
+      "head": "            descriptionPrompt: \"硬核的电脑桌，上面大概运行着什么毁灭世界的程序。\""
+    },
+    {
+      "line": 763,
+      "kind": "hunk-damaged",
+      "f": "            name: \"Sully鍨冨溇妗?,",
+      "rev": "            name: \"Sully垃圾�?,",
+      "head": "            name: \"Sully垃圾桶\","
+    },
+    {
+      "line": 775,
+      "kind": "hunk-damaged",
+      "f": "            name: \"Sully娲炴礊鏉?,",
+      "rev": "            name: \"Sully洞洞�?,",
+      "head": "            name: \"Sully洞洞板\","
+    },
+    {
+      "line": 783,
+      "kind": "hunk-damaged",
+      "f": "            descriptionPrompt: \"鏀剁撼鐫€鍚勭濂囧鎬€殑榛戝宸ュ叿鍜岀尗鍜懆杈圭殑娲炴礊鏉裤€?",
+      "rev": "            descriptionPrompt: \"收纳着各种奇奇怪怪的黑客工具和猫咪周边的洞洞板�?",
+      "head": "            descriptionPrompt: \"收纳着各种奇奇怪怪的黑客工具和猫咪周边的洞洞板。\""
+    },
+    {
+      "line": 795,
+      "kind": "hunk-damaged",
+      "f": "            descriptionPrompt: \"濉炴弧浜嗘妧鏈功绫嶅拰婕敾涔︾殑鏌滃瓙銆?",
+      "rev": "            descriptionPrompt: \"塞满了技术书籍和漫画书的柜子�?",
+      "head": "            descriptionPrompt: \"塞满了技术书籍和漫画书的柜子。\""
+    },
+    {
+      "line": 835,
+      "kind": "hunk-damaged",
+      "f": "  // 鍚姩鍚庡彴鎵弿涓€娆★紝鎶婅繕鍋滅暀鍦ㄨ€?number[] 褰㈡€佺殑鍚戦噺璁板綍鍗囩骇鍒?Uint8Array",
+      "rev": "  // 启动后台扫描一次，把还停留在�?number[] 形态的向量记录升级�?Uint8Array",
+      "head": "  // 启动后台扫描一次，把还停留在老 number[] 形态的向量记录升级到 Uint8Array"
+    },
+    {
+      "line": 836,
+      "kind": "hunk-damaged",
+      "f": "  // 绱у噾瀛樺偍銆傚畬鍏ㄦ棤鎹燂紝涓嶅奖鍝嶅彫鍥炶川閲忋€傞噸搴︾敤鎴风鐩樺彲鐪?~12脳锛?00MB 鈫?40MB",
+      "rev": "  // 紧凑存储。完全无损，不影响召回质量。重度用户磁盘可�?~12×�?00MB �?40MB",
+      "head": "  // 紧凑存储。完全无损，不影响召回质量。重度用户磁盘可省 ~12×（500MB → 40MB"
+    },
+    {
+      "line": 837,
+      "kind": "hunk-damaged",
+      "f": "  // 閲忕骇锛夈€俧ire-and-forget锛屼笉闃诲 UI锛涘彧鍦ㄧ‘瀹炴湁鏁版嵁琚崌绾ф椂寮逛竴娆?toast",
+      "rev": "  // 量级）。fire-and-forget，不阻塞 UI；只在确实有数据被升级时弹一�?toast",
+      "head": "  // 量级）。fire-and-forget，不阻塞 UI；只在确实有数据被升级时弹一次 toast"
+    },
+    {
+      "line": 838,
+      "kind": "hunk-damaged",
+      "f": "  // 璁╃敤鎴风煡閬撳彂鐢熶簡浠€涔堛€傞噸澶嶈皟鐢ㄥ箓绛夛紝涓嬫鍚姩濡傛灉娌℃湁鑰佹暟鎹氨绔嬪埢閫€鍑恒€?",
+      "rev": "  // 让用户知道发生了什么。重复调用幂等，下次启动如果没有老数据就立刻退出�?",
+      "head": "  // 让用户知道发生了什么。重复调用幂等，下次启动如果没有老数据就立刻退出。"
+    },
+    {
+      "line": 843,
+      "kind": "hunk-damaged",
+      "f": "              await new Promise(r => setTimeout(r, 2000)); // 璁╅灞忔覆鏌撳厛鍛煎惛涓€涓?",
+      "rev": "              await new Promise(r => setTimeout(r, 2000)); // 让首屏渲染先呼吸一�?",
+      "head": "              await new Promise(r => setTimeout(r, 2000)); // 让首屏渲染先呼吸一下"
+    },
+    {
+      "line": 851,
+      "kind": "hunk-damaged",
+      "f": "                          message: `姝ｅ湪鍘嬬缉璁板繂鍚戦噺鍒扮揣鍑戞牸寮?.. ${m}/${s}`,",
+      "rev": "                          message: `正在压缩记忆向量到紧凑格�?.. ${m}/${s}`,",
+      "head": "                          message: `正在压缩记忆向量到紧凑格式... ${m}/${s}`,"
+    },
+    {
+      "line": 867,
+      "kind": "hunk-damaged",
+      "f": "  // addToast / setSysOperation 鏄ǔ瀹氬紩鐢紝璺戜竴娆″嵆鍙?",
+      "rev": "  // addToast / setSysOperation 是稳定引用，跑一次即�?",
+      "head": "  // addToast / setSysOperation 是稳定引用，跑一次即可"
+    },
+    {
+      "line": 874,
+      "kind": "hunk-damaged",
+      "f": "  // 鍒锋柊鍚庤兘鎭㈠\"涓婁竴娆¤亰鐨勮鑹?锛氭墍鏈夎皟鐢ㄦ柟锛堣亰澶╁垏鎹?閫氱煡 onclick/璁板繂瀹 handleSwitchChar锛?",
+      "rev": "  // 刷新后能恢复\"上一次聊的角�?：所有调用方（聊天切�?通知 onclick/记忆宫殿 handleSwitchChar�?",
+      "head": "  // 刷新后能恢复\"上一次聊的角色\"：所有调用方（聊天切换/通知 onclick/记忆宫殿 handleSwitchChar）"
+    },
+    {
+      "line": 875,
+      "kind": "hunk-damaged",
+      "f": "  // 閮借蛋瑁?setActiveCharacterId锛岄泦涓湪杩欓噷鍚屾鍒?localStorage锛岄伩鍏嶆瘡涓皟鐢ㄧ偣鍚勫啓涓€閬?",
+      "rev": "  // 都走�?setActiveCharacterId，集中在这里同步�?localStorage，避免每个调用点各写一�?",
+      "head": "  // 都走裸 setActiveCharacterId，集中在这里同步到 localStorage，避免每个调用点各写一遍"
+    },
+    {
+      "line": 888,
+      "kind": "hunk-damaged",
+      "f": "  // 鍒嗙粍鍏变韩涓栫晫涔︼細鎶婃渶鏂?characterGroups / worldbooks 蹇収娉ㄥ叆 canonical 鍚堝苟鐐?",
+      "rev": "  // 分组共享世界书：把最�?characterGroups / worldbooks 快照注入 canonical 合并�?",
+      "head": "  // 分组共享世界书：把最新 characterGroups / worldbooks 快照注入 canonical 合并点"
+    },
+    {
+      "line": 889,
+      "kind": "hunk-damaged",
+      "f": "  // 锛坲tils/groupWorldbooks.ts锛夈€俻rovider 鏄?getter锛屾瘡娆″彇鏁伴兘鎷垮埌杩欓噷鐨勬渶鏂?state銆?",
+      "rev": "  // （utils/groupWorldbooks.ts）。provider �?getter，每次取数都拿到这里的最�?state�?",
+      "head": "  // （utils/groupWorldbooks.ts）。provider 是 getter，每次取数都拿到这里的最新 state。"
+    },
+    {
+      "line": 941,
+      "kind": "hunk-damaged",
+      "f": "  // 鑱婂ぉ銆岃闈€嶆寜閽?鈫?瑙侀潰锛氳褰曠洰鏍囪鑹诧紝DateApp 鎸傝浇鍚庢秷璐逛竴娆″苟鑷姩杩涘叆瑙侀潰",
+      "rev": "  // 聊天「见面」按�?�?见面：记录目标角色，DateApp 挂载后消费一次并自动进入见面",
+      "head": "  // 聊天「见面」按钮 → 见面：记录目标角色，DateApp 挂载后消费一次并自动进入见面"
+    },
+    {
+      "line": 993,
+      "kind": "hunk-damaged",
+      "f": "  // --- API 璋冪敤璁板綍鐨勭幆澧冨厹搴曪細褰撳墠鍦ㄥ摢涓?App銆佸綋鍓嶈鑹叉槸璋?---",
+      "rev": "  // --- API 调用记录的环境兜底：当前在哪�?App、当前角色是�?---",
+      "head": "  // --- API 调用记录的环境兜底：当前在哪个 App、当前角色是谁 ---"
+    },
+    {
+      "line": 994,
+      "kind": "hunk-damaged",
+      "f": "  // 瑁?fetch 璋冪敤鐐规棤娉曚紶 meta锛屽叏灞€鎷︽埅鍣ㄨ褰曟椂鐢ㄨ繖浠藉厹搴曟爣鍑?App / 瑙掕壊銆?",
+      "rev": "  // �?fetch 调用点无法传 meta，全局拦截器记录时用这份兜底标�?App / 角色�?",
+      "head": "  // 裸 fetch 调用点无法传 meta，全局拦截器记录时用这份兜底标出 App / 角色。"
+    },
+    {
+      "line": 1001,
+      "kind": "hunk-damaged",
+      "f": "  // --- 浣跨敤缁熻锛氭墦寮€浜嗗摢涓?App ---",
+      "rev": "  // --- 使用统计：打开了哪�?App ---",
+      "head": "  // --- 使用统计：打开了哪个 App ---"
+    },
+    {
+      "line": 1002,
+      "kind": "hunk-damaged",
+      "f": "  // 鎸傚湪 activeApp 涓婅€屼笉鏄杩?openApp锛屾槸鍥犱负杩涗竴涓?App 鏈夊ソ鍑犳潯璺紙妗岄潰鐐瑰浘鏍囥€?",
+      "rev": "  // 挂在 activeApp 上而不是塞�?openApp，是因为进一�?App 有好几条路（桌面点图标�?",
+      "head": "  // 挂在 activeApp 上而不是塞进 openApp，是因为进一个 App 有好几条路（桌面点图标、"
+    },
+    {
+      "line": 1003,
+      "kind": "hunk-damaged",
+      "f": "  // 浠庤亰澶╃洿鎺ヨ繘瑙侀潰銆侀€氳瘽鎸傝捣鍚庡洖鏉モ€︼級锛宎ctiveApp 鏄畠浠敮涓€鐨勫叡鍚岃惤鐐广€?",
+      "rev": "  // 从聊天直接进见面、通话挂起后回来…），activeApp 是它们唯一的共同落点�?",
+      "head": "  // 从聊天直接进见面、通话挂起后回来…），activeApp 是它们唯一的共同落点。"
+    },
+    {
+      "line": 1004,
+      "kind": "hunk-damaged",
+      "f": "  // 鍥炴闈笉绠椼€岀敤浜嗘煇涓姛鑳姐€嶏紝璺宠繃銆傚彧鍙戝姛鑳藉悕锛屼笉甯﹁鑹层€佷笉甯︿换浣曞唴瀹广€?",
+      "rev": "  // 回桌面不算「用了某个功能」，跳过。只发功能名，不带角色、不带任何内容�?",
+      "head": "  // 回桌面不算「用了某个功能」，跳过。只发功能名，不带角色、不带任何内容。"
+    },
+    {
+      "line": 1012,
+      "kind": "hunk-damaged",
+      "f": "  // --- 浣跨敤缁熻锛氭暟鎹妯℃。浣?---",
+      "rev": "  // --- 使用统计：数据规模档�?---",
+      "head": "  // --- 使用统计：数据规模档位 ---"
+    },
+    {
+      "line": 1013,
+      "kind": "hunk-damaged",
+      "f": "  // 鏁版嵁鍔犺浇瀹屼箣鍚庢姤涓€娆″尯闂达紙0 / 1-100 / 鈥︼級锛屼笉鎶ョ簿纭€笺€佷笉鎶ヤ换浣曞唴瀹广€?",
+      "rev": "  // 数据加载完之后报一次区间（0 / 1-100 / …），不报精确值、不报任何内容�?",
+      "head": "  // 数据加载完之后报一次区间（0 / 1-100 / …），不报精确值、不报任何内容。"
+    },
+    {
+      "line": 1014,
+      "kind": "hunk-damaged",
+      "f": "  // 鑱婂ぉ鏉℃暟璧?IndexedDB 鐨?count()锛屼竴鏉℃秷鎭兘涓嶄細琚鍑烘潵锛涘瓨鍌ㄥ崰鐢ㄦ槸娴忚鍣?",
+      "rev": "  // 聊天条数�?IndexedDB �?count()，一条消息都不会被读出来；存储占用是浏览�?",
+      "head": "  // 聊天条数走 IndexedDB 的 count()，一条消息都不会被读出来；存储占用是浏览器"
+    },
+    {
+      "line": 1015,
+      "kind": "hunk-damaged",
+      "f": "  // 缁欑殑瀛楄妭鏁般€傛瘡娆′細璇濇渶澶氫竴娆★紝鑺傛祦鏍囪鍙湪鍐呭瓨閲岋紙瑙?utils/analytics.ts锛夈€?",
+      "rev": "  // 给的字节数。每次会话最多一次，节流标记只在内存里（�?utils/analytics.ts）�?",
+      "head": "  // 给的字节数。每次会话最多一次，节流标记只在内存里（见 utils/analytics.ts）。"
+    },
+    {
+      "line": 1025,
+      "kind": "hunk-damaged",
+      "f": "  // --- 浣跨敤缁熻锛氬綋鍓嶅湪鐢ㄥ摢濂楀瑙?/ 瑙掕壊绾ц缃?---",
+      "rev": "  // --- 使用统计：当前在用哪套外�?/ 角色级设�?---",
+      "head": "  // --- 使用统计：当前在用哪套外观 / 角色级设置 ---"
+    },
+    {
+      "line": 1026,
+      "kind": "hunk-damaged",
+      "f": "  // 鎶ャ€岀幇鍦ㄧ敤鐨勬槸鍝釜銆嶈€屼笉鏄€岀偣杩囧摢涓€嶁€斺€斿悗鑰呭彧鏈夋姌鑵剧殑浜轰細鍑虹幇锛?",
+      "rev": "  // 报「现在用的是哪个」而不是「点过哪个」——后者只有折腾的人会出现�?",
+      "head": "  // 报「现在用的是哪个」而不是「点过哪个」——后者只有折腾的人会出现，"
+    },
+    {
+      "line": 1028,
+      "kind": "hunk-damaged",
+      "f": "  // 鐢ㄦ埛鑷繁鎹忕殑涓婚銆佸瓧浣撱€佺櫧妗?CSS 涓€寰嬫敹鏁涙垚 custom / 鐢ㄤ簡锛屼笉甯︿粬璧风殑鍚嶅瓧銆?",
+      "rev": "  // 用户自己捏的主题、字体、白�?CSS 一律收敛成 custom / 用了，不带他起的名字�?",
+      "head": "  // 用户自己捏的主题、字体、白框 CSS 一律收敛成 custom / 用了，不带他起的名字。"
+    },
+    {
+      "line": 1040,
+      "kind": "hunk-damaged",
+      "f": "  // 璺熴€屽綋鍓嶅瑙傘€嶄竴涓亾鐞嗭細澶栭儴鏈嶅姟杩欑被閰嶇疆閰嶄竴娆″氨闀挎湡鐢熸晥锛屽彧鐪嬨€屾墦寮€杩囬厤缃〉銆?",
+      "rev": "  // 跟「当前外观」一个道理：外部服务这类配置配一次就长期生效，只看「打开过配置页�?",
+      "head": "  // 跟「当前外观」一个道理：外部服务这类配置配一次就长期生效，只看「打开过配置页」"
+    },
+    {
+      "line": 1041,
+      "kind": "hunk-damaged",
+      "f": "  // 閭ｇ娴侀噺鐐圭殑璇濓紝閰嶅ソ涔嬪悗鍐嶆病杩涜繃璁剧疆椤电殑浜烘案杩滀笉鍑虹幇锛屾嬁鏉ュ垽鏂€屾湁娌℃湁浜鸿銆嶄細鍒ゅ弽銆?",
+      "rev": "  // 那种流量点的话，配好之后再没进过设置页的人永远不出现，拿来判断「有没有人要」会判反�?",
+      "head": "  // 那种流量点的话，配好之后再没进过设置页的人永远不出现，拿来判断「有没有人要」会判反。"
+    },
+    {
+      "line": 1043,
+      "kind": "hunk-damaged",
+      "f": "  // 鏀舵暃鍏ㄥ湪 utils/analyticsSnapshot.ts 閲屽仛锛岃繖閲屽彧璐熻矗鎶?OSContext 鎵嬩笂閭ｅ嚑浠?",
+      "rev": "  // 收敛全在 utils/analyticsSnapshot.ts 里做，这里只负责�?OSContext 手上那几�?",
+      "head": "  // 收敛全在 utils/analyticsSnapshot.ts 里做，这里只负责把 OSContext 手上那几份"
+    },
+    {
+      "line": 1044,
+      "kind": "hunk-damaged",
+      "f": "  // state 閫掕繃鍘汇€傚湴鍧€銆佸瘑閽ャ€乼oken銆佽处鍙峰悕涓€涓瓧閮戒笉浼氳繘涓婃姤銆?",
+      "rev": "  // state 递过去。地址、密钥、token、账号名一个字都不会进上报�?",
+      "head": "  // state 递过去。地址、密钥、token、账号名一个字都不会进上报。"
+    },
+    {
+      "line": 1045,
+      "kind": "hunk-damaged",
+      "f": "  // 鑷繁鎷︿竴閬撱€屽彧璺戜竴娆°€嶏細涓婃姤渚ф湰鏉ュ氨鏈?once 闂紝浣嗗彇鏁拌璇讳袱娆?IndexedDB",
+      "rev": "  // 自己拦一道「只跑一次」：上报侧本来就�?once 门，但取数要读两�?IndexedDB",
+      "head": "  // 自己拦一道「只跑一次」：上报侧本来就有 once 门，但取数要读两次 IndexedDB"
+    },
+    {
+      "line": 1046,
+      "kind": "hunk-damaged",
+      "f": "  // 锛堝郊鏂圭嫭绔嬬嚎璺€佷富鍔ㄦ秷鎭?2.0 鐨勫叏灞€閰嶇疆锛夛紝璁╁畠璺熺潃 characters 姣忔鍙樻洿鐧借窇涓嶅€煎綋銆?",
+      "rev": "  // （彼方独立线路、主动消�?2.0 的全局配置），让它跟着 characters 每次变更白跑不值当�?",
+      "head": "  // （彼方独立线路、主动消息 2.0 的全局配置），让它跟着 characters 每次变更白跑不值当。"
+    },
+    {
+      "line": 1082,
+      "kind": "hunk-damaged",
+      "f": "          // 澶辫触璇婃柇瑕佹寜鍙戣捣鏃跺埢鍘?Resource Timing 閲岃棰嗘湰娆￠偅鏉¤褰曪紝鑰?entry.startTime 璺?",
+      "rev": "          // 失败诊断要按发起时刻�?Resource Timing 里认领本次那条记录，�?entry.startTime �?",
+      "head": "          // 失败诊断要按发起时刻去 Resource Timing 里认领本次那条记录，而 entry.startTime 跟"
+    },
+    {
+      "line": 1084,
+      "kind": "hunk-damaged",
+      "f": "          // utils/networkFailureDiagnosis.ts 鐨?readResourceTimingHint銆?",
+      "rev": "          // utils/networkFailureDiagnosis.ts �?readResourceTimingHint�?",
+      "head": "          // utils/networkFailureDiagnosis.ts 的 readResourceTimingHint。"
+    },
+    {
+      "line": 1092,
+      "kind": "hunk-damaged",
+      "f": "          // 鏌愪簺妯″瀷搴熷純浜?temperature/top_p/top_k锛屽甫涓婄洿鎺?400銆傝繖閲屽湪鎵€鏈?/chat/completions",
+      "rev": "          // 某些模型废弃�?temperature/top_p/top_k，带上直�?400。这里在所�?/chat/completions",
+      "head": "          // 某些模型废弃了 temperature/top_p/top_k，带上直接 400。这里在所有 /chat/completions"
+    },
+    {
+      "line": 1093,
+      "kind": "hunk-damaged",
+      "f": "          // 鐨勭粺涓€鍑哄彛鍋氬彂閫佸墠涓诲姩鎽橀櫎锛岃鐩?Schedule / 璁板繂 / 瑙侀潰绛夊叏閮ㄦ梺璺皟鐢ㄧ偣銆?",
+      "rev": "          // 的统一出口做发送前主动摘除，覆�?Schedule / 记忆 / 见面等全部旁路调用点�?",
+      "head": "          // 的统一出口做发送前主动摘除，覆盖 Schedule / 记忆 / 见面等全部旁路调用点。"
+    },
+    {
+      "line": 1095,
+      "kind": "hunk-damaged",
+      "f": "          // 閫忔槑娴佸紡鍗囩骇鐘舵€侊紙utils/streamUpgrade.ts锛夛細璇锋眰渚ф敼鍐?鈫?鍝嶅簲渚ф嫾鍥?JSON",
+      "rev": "          // 透明流式升级状态（utils/streamUpgrade.ts）：请求侧改�?�?响应侧拼�?JSON",
+      "head": "          // 透明流式升级状态（utils/streamUpgrade.ts）：请求侧改写 → 响应侧拼回 JSON"
+    },
+    {
+      "line": 1109,
+      "kind": "hunk-damaged",
+      "f": "                      // 閫忔槑娴佸紡鍗囩骇锛氫富 API 寮€浜?stream 鏃讹紝鎶婄‖缂栫爜闈炴祦寮忕殑鏃佽矾璋冪敤",
+      "rev": "                      // 透明流式升级：主 API 开�?stream 时，把硬编码非流式的旁路调用",
+      "head": "                      // 透明流式升级：主 API 开了 stream 时，把硬编码非流式的旁路调用"
+    },
+    {
+      "line": 1110,
+      "kind": "hunk-damaged",
+      "f": "                      // 锛堟煡鎵嬫満/璁板繂瀹/鏃ョ▼/鍓у満/缇よ亰鈥?0+ 澶勶級鍗囩骇涓烘祦寮?*浼犺緭**锛岄槻缃戝叧",
+      "rev": "                      // （查手机/记忆宫殿/日程/剧场/群聊�?0+ 处）升级为流�?*传输**，防网关",
+      "head": "                      // （查手机/记忆宫殿/日程/剧场/群聊…40+ 处）升级为流式**传输**，防网关"
+    },
+    {
+      "line": 1111,
+      "kind": "hunk-damaged",
+      "f": "                      // 绌洪棽瓒呮椂鎶婇暱鐢熸垚鎺愭垚鍗婃埅锛涘搷搴斾細鍦ㄤ笅闈㈡敀榻愭嫾鍥炴爣鍑?JSON锛岃皟鐢ㄦ柟鏃犳劅銆?",
+      "rev": "                      // 空闲超时把长生成掐成半截；响应会在下面攒齐拼回标�?JSON，调用方无感�?",
+      "head": "                      // 空闲超时把长生成掐成半截；响应会在下面攒齐拼回标准 JSON，调用方无感。"
+    },
+    {
+      "line": 1112,
+      "kind": "hunk-damaged",
+      "f": "                      // 宸茶嚜甯?stream:true 鐨勮姹傦紙鑱婂ぉ涓昏矾寰?瑙侀潰/鎯呯华璇勪及锛変笉纰般€?",
+      "rev": "                      // 已自�?stream:true 的请求（聊天主路�?见面/情绪评估）不碰�?",
+      "head": "                      // 已自带 stream:true 的请求（聊天主路径/见面/情绪评估）不碰。"
+    },
+    {
+      "line": 1121,
+      "kind": "hunk-damaged",
+      "f": "                  } catch { /* 闈?JSON body锛氬師鏍锋斁琛?*/ }",
+      "rev": "                  } catch { /* �?JSON body：原样放�?*/ }",
+      "head": "                  } catch { /* 非 JSON body：原样放行 */ }"
+    },
+    {
+      "line": 1125,
+      "kind": "hunk-damaged",
+      "f": "          // 鐢ㄦ埛鎵嬪姩寮€鍚殑銆屾湰娆″彂閫佺粺璁°€嶏細鍙姠鍗犱笅涓€鏉¤姹傦紝骞跺湪鐪熸鍙戝嚭鍓嶇珛鍗宠嚜鍔ㄥ叧闂€?",
+      "rev": "          // 用户手动开启的「本次发送统计」：只抢占下一条请求，并在真正发出前立即自动关闭�?",
+      "head": "          // 用户手动开启的「本次发送统计」：只抢占下一条请求，并在真正发出前立即自动关闭。"
+    },
+    {
+      "line": 1126,
+      "kind": "hunk-damaged",
+      "f": "          // 鍙栧吋瀹瑰眰澶勭悊鍚庣殑 sendArgs锛屽睍绀哄唴瀹逛笌鏈瀹為檯鎻愪氦缁欐湇鍔＄鐨勮姹備綋涓€鑷淬€?",
+      "rev": "          // 取兼容层处理后的 sendArgs，展示内容与本次实际提交给服务端的请求体一致�?",
+      "head": "          // 取兼容层处理后的 sendArgs，展示内容与本次实际提交给服务端的请求体一致。"
+    },
+    {
+      "line": 1136,
+      "kind": "hunk-damaged",
+      "f": "              // /chat/completions 鏄彲鑳藉凡缁忓紑濮嬭璐圭殑璇锋眰銆傛嬁鍒颁换浣?HTTP 鍝嶅簲鍚庨兘涓嶅湪",
+      "rev": "              // /chat/completions 是可能已经开始计费的请求。拿到任�?HTTP 响应后都不在",
+      "head": "              // /chat/completions 是可能已经开始计费的请求。拿到任何 HTTP 响应后都不在"
+    },
+    {
+      "line": 1137,
+      "kind": "hunk-damaged",
+      "f": "              // 鍏煎灞傞潤榛橀噸鍙戯細涓浆绔欏彲鑳藉湪杩斿洖閿欒鍓嶅凡缁忔妸浠诲姟浜ょ粰涓婃父锛岄噸鍙戜細璁╃敤鎴?",
+      "rev": "              // 兼容层静默重发：中转站可能在返回错误前已经把任务交给上游，重发会让用�?",
+      "head": "              // 兼容层静默重发：中转站可能在返回错误前已经把任务交给上游，重发会让用户"
+    },
+    {
+      "line": 1138,
+      "kind": "hunk-damaged",
+      "f": "              // 鍙湅鍒颁竴鏉¤皟鐢ㄨ褰曞嵈琚墸涓ゅ埌涓夋銆傚凡鐭ユā鍨嬬殑閲囨牱鍙傛暟浠嶅湪鍙戦€佸墠娓呯悊锛?",
+      "rev": "              // 只看到一条调用记录却被扣两到三次。已知模型的采样参数仍在发送前清理�?",
+      "head": "              // 只看到一条调用记录却被扣两到三次。已知模型的采样参数仍在发送前清理；"
+    },
+    {
+      "line": 1139,
+      "kind": "hunk-damaged",
+      "f": "              // 鏈煡鍏煎闂鍜屾祦寮?4xx 鍘熸牱浜ょ粰璋冪敤鏂癸紝鐢辩敤鎴锋槑纭喅瀹氭槸鍚﹂噸璇曘€?",
+      "rev": "              // 未知兼容问题和流�?4xx 原样交给调用方，由用户明确决定是否重试�?",
+      "head": "              // 未知兼容问题和流式 4xx 原样交给调用方，由用户明确决定是否重试。"
+    },
+    {
+      "line": 1140,
+      "kind": "hunk-damaged",
+      "f": "              // 娴佸紡鍗囩骇鐨勫搷搴斿綊涓€鍖栵細SSE 鏀掗綈鎷煎洖鏍囧噯 chat.completion JSON鈥斺€?",
+      "rev": "              // 流式升级的响应归一化：SSE 攒齐拼回标准 chat.completion JSON—�?",
+      "head": "              // 流式升级的响应归一化：SSE 攒齐拼回标准 chat.completion JSON——"
+    },
+    {
+      "line": 1141,
+      "kind": "hunk-damaged",
+      "f": "              // 璋冪敤鏂癸紙safeResponseJson / res.json() 鍧囧彲锛夋嬁鍒颁笌鍗囩骇鍓嶇瓑浠风殑鍝嶅簲銆?",
+      "rev": "              // 调用方（safeResponseJson / res.json() 均可）拿到与升级前等价的响应�?",
+      "head": "              // 调用方（safeResponseJson / res.json() 均可）拿到与升级前等价的响应。"
+    },
+    {
+      "line": 1146,
+      "kind": "hunk-damaged",
+      "f": "              // 銆孉PI 璋冪敤璁板綍銆嶇粺涓€璁板綍鍏ュ彛锛氭墍鏈?/chat/completions锛堣８ fetch + safeFetchJson",
+      "rev": "              // 「API 调用记录」统一记录入口：所�?/chat/completions（裸 fetch + safeFetchJson",
+      "head": "              // 「API 调用记录」统一记录入口：所有 /chat/completions（裸 fetch + safeFetchJson"
+    },
+    {
+      "line": 1148,
+      "kind": "hunk-damaged",
+      "f": "              // 锛坰afeFetchJson 浼犵殑绮剧‘淇℃伅锛夛紝瑁?fetch 娌℃湁灏辩敱 recordApiCall 鐢ㄧ幆澧冨厹搴曘€?",
+      "rev": "              // （safeFetchJson 传的精确信息），�?fetch 没有就由 recordApiCall 用环境兜底�?",
+      "head": "              // （safeFetchJson 传的精确信息），裸 fetch 没有就由 recordApiCall 用环境兜底。"
+    },
+    {
+      "line": 1149,
+      "kind": "hunk-damaged",
+      "f": "              // 鈿狅笍 鑰楁椂蹇呴』鍦?clone 璇诲畬**鏁翠釜鍝嶅簲浣?*鍚庡啀绠楋細fetch 鍦ㄥ搷搴斿ご鍒拌揪鏃跺氨 resolve锛?",
+      "rev": "              // ⚠️ 耗时必须�?clone 读完**整个响应�?*后再算：fetch 在响应头到达时就 resolve�?",
+      "head": "              // ⚠️ 耗时必须在 clone 读完**整个响应体**后再算：fetch 在响应头到达时就 resolve，"
+    },
+    {
+      "line": 1150,
+      "kind": "hunk-damaged",
+      "f": "              // 娴佸紡閫忎紶鐨勬鏂囧彲鑳藉啀娴佸嚑鍗佺鈥斺€旀棫鐗堝湪 headers 澶勬埅姝紝銆屽亣娴併€嶆笭閬?6.5s 鍑哄ご銆?",
+      "rev": "              // 流式透传的正文可能再流几十秒——旧版在 headers 处截止，「假流」渠�?6.5s 出头�?",
+      "head": "              // 流式透传的正文可能再流几十秒——旧版在 headers 处截止，「假流」渠道 6.5s 出头、"
+    },
+    {
+      "line": 1151,
+      "kind": "hunk-damaged",
+      "f": "              // 姝ｆ枃 44s 鎵嶇亴瀹岋紝鍗＄墖鍗磋鎴?6.5s锛堝疄娴嬭瀵兼帓鏌ワ級銆俢lone 涓庤皟鐢ㄦ柟骞惰娑堣垂鍚屼竴",
+      "rev": "              // 正文 44s 才灌完，卡片却记�?6.5s（实测误导排查）。clone 与调用方并行消费同一",
+      "head": "              // 正文 44s 才灌完，卡片却记成 6.5s（实测误导排查）。clone 与调用方并行消费同一"
+    },
+    {
+      "line": 1152,
+      "kind": "hunk-damaged",
+      "f": "              // 鏉℃祦锛宼ext() 瀹屾垚鏃跺埢 鈮?鐪熷疄鏀跺畬鏃跺埢銆?",
+      "rev": "              // 条流，text() 完成时刻 �?真实收完时刻�?",
+      "head": "              // 条流，text() 完成时刻 ≈ 真实收完时刻。"
+    },
+    {
+      "line": 1159,
+      "kind": "hunk-damaged",
+      "f": "                  // clone 鍑烘潵寮傛璇?usage锛屼笉闃诲璋冪敤鏂规嬁 response",
+      "rev": "                  // clone 出来异步�?usage，不阻塞调用方拿 response",
+      "head": "                  // clone 出来异步读 usage，不阻塞调用方拿 response"
+    },
+    {
+      "line": 1166,
+      "kind": "hunk-damaged",
+      "f": "                          try { parsed = JSON.parse(t); } catch { /* 娴佸紡/闈?JSON锛氭妸鍘熷鏂囨湰浜ょ粰 recordApiCall 鐨?SSE 鍏滃簳瑙ｆ瀽 */ }",
+      "rev": "                          try { parsed = JSON.parse(t); } catch { /* 流式/�?JSON：把原始文本交给 recordApiCall �?SSE 兜底解析 */ }",
+      "head": "                          try { parsed = JSON.parse(t); } catch { /* 流式/非 JSON：把原始文本交给 recordApiCall 的 SSE 兜底解析 */ }"
+    },
+    {
+      "line": 1186,
+      "kind": "hunk-damaged",
+      "f": "                          // 鎶婂彂鍑哄幓鐨勮姹備綋鎽樿涔熻涓?鈥斺€?鎺掓煡\"鍙湁鐐瑰崟(甯﹀伐鍏?鎶ラ敊\"蹇呴』鐪嬪埌 model/鍙傛暟/tools/娑堟伅缁撴瀯",
+      "rev": "                          // 把发出去的请求体摘要也记�?—�?排查\"只有点单(带工�?报错\"必须看到 model/参数/tools/消息结构",
+      "head": "                          // 把发出去的请求体摘要也记上 —— 排查\"只有点单(带工具)报错\"必须看到 model/参数/tools/消息结构"
+    },
+    {
+      "line": 1199,
+      "kind": "hunk-damaged",
+      "f": "                              } catch { /* 瑙ｆ瀽涓嶄簡灏辩畻浜?*/ }",
+      "rev": "                              } catch { /* 解析不了就算�?*/ }",
+      "head": "                              } catch { /* 解析不了就算了 */ }"
+    },
+    {
+      "line": 1232,
+      "kind": "hunk-damaged",
+      "f": "                  // 鍏夌绉冧竴鍙?\"Failed to fetch\" + 涓€涓?URL 鎺掓煡涓嶄簡浠讳綍涓滆タ锛堢ぞ鍖洪噷杩欐潯鍗¤繃濂藉嚑涓汉锛夈€?",
+      "rev": "                  // 光秃秃一�?\"Failed to fetch\" + 一�?URL 排查不了任何东西（社区里这条卡过好几个人）�?",
+      "head": "                  // 光秃秃一句 \"Failed to fetch\" + 一个 URL 排查不了任何东西（社区里这条卡过好几个人）。"
+    },
+    {
+      "line": 1233,
+      "kind": "hunk-damaged",
+      "f": "                  // 杩欓噷鎶婃祻瑙堝櫒鑲湪 JS 渚т氦鍑烘潵鐨勬梺璇佷竴娆℃€цˉ榻愶細鏂规硶銆佽€楁椂銆佸湪绾跨姸鎬併€佹槸鍚﹁法鍩熴€?",
+      "rev": "                  // 这里把浏览器肯在 JS 侧交出来的旁证一次性补齐：方法、耗时、在线状态、是否跨域�?",
+      "head": "                  // 这里把浏览器肯在 JS 侧交出来的旁证一次性补齐：方法、耗时、在线状态、是否跨域、"
+    },
+    {
+      "line": 1234,
+      "kind": "hunk-damaged",
+      "f": "                  // Resource Timing 閲岄偅鏉¤褰曪紝鍐嶇粰涓€鍙ュ垵鍒わ紱闅忓悗寮傛鍋氫竴娆?no-cors 杩為€氭€у妫€锛?",
+      "rev": "                  // Resource Timing 里那条记录，再给一句初判；随后异步做一�?no-cors 连通性复检�?",
+      "head": "                  // Resource Timing 里那条记录，再给一句初判；随后异步做一次 no-cors 连通性复检，"
+    },
+    {
+      "line": 1235,
+      "kind": "hunk-damaged",
+      "f": "                  // 缁撹鍥炲～鍒板悓涓€鏉℃棩蹇椾笂鈥斺€斻€岀綉缁滀笉閫氥€嶅拰銆岀綉缁滈€氫絾鍝嶅簲琚?CORS 鎷︺€嶈璧扮殑鎺掓煡璺?",
+      "rev": "                  // 结论回填到同一条日志上——「网络不通」和「网络通但响应�?CORS 拦」要走的排查�?",
+      "head": "                  // 结论回填到同一条日志上——「网络不通」和「网络通但响应被 CORS 拦」要走的排查路"
+    },
+    {
+      "line": 1236,
+      "kind": "hunk-damaged",
+      "f": "                  // 瀹屽叏鐩稿弽锛屼笉鍒嗗紑鐨勮瘽鐢ㄦ埛鍙兘鐬庤瘯銆傝瑙?utils/networkFailureDiagnosis.ts銆?",
+      "rev": "                  // 完全相反，不分开的话用户只能瞎试。详�?utils/networkFailureDiagnosis.ts�?",
+      "head": "                  // 完全相反，不分开的话用户只能瞎试。详见 utils/networkFailureDiagnosis.ts。"
+    },
+    {
+      "line": 1262,
+      "kind": "hunk-damaged",
+      "f": "                  // 澶嶆璧?originalFetch锛屽惁鍒欏畠鑷繁澶辫触浼氬啀鍐欎竴鏉℃棩蹇楁粴闆悆銆?",
+      "rev": "                  // 复检�?originalFetch，否则它自己失败会再写一条日志滚雪球�?",
+      "head": "                  // 复检走 originalFetch，否则它自己失败会再写一条日志滚雪球。"
+    },
+    {
+      "line": 1295,
+      "kind": "hunk-damaged",
+      "f": "          // MediaPipe/TFLite 鎶婅繖鏉℃垚鍔熷垵濮嬪寲淇℃伅鍐欏埌浜?stderr锛屾祻瑙堝櫒鍥犺€岃蛋",
+      "rev": "          // MediaPipe/TFLite 把这条成功初始化信息写到�?stderr，浏览器因而走",
+      "head": "          // MediaPipe/TFLite 把这条成功初始化信息写到了 stderr，浏览器因而走"
+    },
+    {
+      "line": 1296,
+      "kind": "hunk-damaged",
+      "f": "          // console.error锛涙敼鍥?info锛岄伩鍏嶇郴缁熸棩蹇楁妸鈥淐PU 鍔犻€熷垱寤烘垚鍔熲€濇姤鎴愮孩鑹查敊璇€?",
+      "rev": "          // console.error；改�?info，避免系统日志把“CPU 加速创建成功”报成红色错误�?",
+      "head": "          // console.error；改回 info，避免系统日志把“CPU 加速创建成功”报成红色错误。"
+    },
+    {
+      "line": 1302,
+      "kind": "hunk-damaged",
+      "f": "          // detail 鍙湁鐪熸嬁鍒板爢鏍堟墠鐢ㄥ爢鏍堬紝鍚﹀垯鍥為€€瀹屾暣 msg銆?",
+      "rev": "          // detail 只有真拿到堆栈才用堆栈，否则回退完整 msg�?",
+      "head": "          // detail 只有真拿到堆栈才用堆栈，否则回退完整 msg。"
+    },
+    {
+      "line": 1303,
+      "kind": "hunk-damaged",
+      "f": "          // 鏃у啓娉?`args.map(a => a instanceof Error ? a.stack : '').join('\\n')`",
+      "rev": "          // 旧写�?`args.map(a => a instanceof Error ? a.stack : '').join('\\n')`",
+      "head": "          // 旧写法 `args.map(a => a instanceof Error ? a.stack : '').join('\\n')`"
+    },
+    {
+      "line": 1304,
+      "kind": "hunk-damaged",
+      "f": "          // 瀵广€屽涓潪 Error 鍙傛暟銆嶄細浜у嚭 \"\\n\"锛坱ruthy锛夛紝鎶婂洖閫€鐭矾鎺夆€斺€?",
+      "rev": "          // 对「多个非 Error 参数」会产出 \"\\n\"（truthy），把回退短路掉—�?",
+      "head": "          // 对「多个非 Error 参数」会产出 \"\\n\"（truthy），把回退短路掉——"
+    },
+    {
+      "line": 1305,
+      "kind": "hunk-damaged",
+      "f": "          // 鏃ュ織闈㈡澘閲屽彧鍓╄ 100 瀛楁埅鏂殑 message锛堟帓鏌?Embedding 400 杩欑被",
+      "rev": "          // 日志面板里只剩被 100 字截断的 message（排�?Embedding 400 这类",
+      "head": "          // 日志面板里只剩被 100 字截断的 message（排查 Embedding 400 这类"
+    },
+    {
+      "line": 1306,
+      "kind": "hunk-damaged",
+      "f": "          // 闀垮搷搴旀椂锛屽叧閿殑鏈嶅姟鍟嗗畬鏁村搷搴斾綋鍏ㄤ涪锛宒etail 鍙湁涓€涓崲琛岀锛夈€?",
+      "rev": "          // 长响应时，关键的服务商完整响应体全丢，detail 只有一个换行符）�?",
+      "head": "          // 长响应时，关键的服务商完整响应体全丢，detail 只有一个换行符）。"
+    },
+    {
+      "line": 1339,
+      "kind": "hunk-damaged",
+      "f": "                 // 浠呰縼绉绘棫绯荤粺榛樿鍊硷紱鐢ㄦ埛鑷畾涔夎繃鐨勫绾搞€佹枃瀛楄壊鍜屼富棰樿壊鍏ㄩ儴淇濈暀銆?",
+      "rev": "                 // 仅迁移旧系统默认值；用户自定义过的壁纸、文字色和主题色全部保留�?",
+      "head": "                 // 仅迁移旧系统默认值；用户自定义过的壁纸、文字色和主题色全部保留。"
+    },
+    {
+      "line": 1352,
+      "kind": "hunk-damaged",
+      "f": "                 // LS 閲岀粷涓嶈鏈?data:锛堟棫鍖咃級鎴?blob:锛堜笂浼氳瘽涓存椂 objectURL锛岄噸鍚嵆澶辨晥锛夊绾糕€斺€?",
+      "rev": "                 // LS 里绝不该�?data:（旧包）�?blob:（上会话临时 objectURL，重启即失效）壁纸—�?",
+      "head": "                 // LS 里绝不该有 data:（旧包）或 blob:（上会话临时 objectURL，重启即失效）壁纸——"
+    },
+    {
+      "line": 1353,
+      "kind": "hunk-damaged",
+      "f": "                 // 鐪熷€煎湪 assets 'wallpaper'锛屼笅闈細瑙ｆ瀽瑕嗙洊锛涜繖閲屽厛鍥為€€榛樿閬垮厤闂竴甯у潖鍥俱€?",
+      "rev": "                 // 真值在 assets 'wallpaper'，下面会解析覆盖；这里先回退默认避免闪一帧坏图�?",
+      "head": "                 // 真值在 assets 'wallpaper'，下面会解析覆盖；这里先回退默认避免闪一帧坏图。"
+    },
+    {
+      "line": 1360,
+      "kind": "hunk-damaged",
+      "f": "                 // Deprecated legacy fields are forcibly stripped 鈥?they never render again.",
+      "rev": "                 // Deprecated legacy fields are forcibly stripped �?they never render again.",
+      "head": "                 // Deprecated legacy fields are forcibly stripped — they never render again."
+    },
+    {
+      "line": 1394,
+      "kind": "hunk-damaged",
+      "f": "                // 灏忕孩涔?serverUrl 鐙珛鎸佷箙鍖栵紝瀛橀噺鑻ユ寚鍚戝凡姝荤殑鍘嗗彶 worker 鍩熷悕鍒欒縼鍒板綋鍓嶅疄渚?",
+      "rev": "                // 小红�?serverUrl 独立持久化，存量若指向已死的历史 worker 域名则迁到当前实�?",
+      "head": "                // 小红书 serverUrl 独立持久化，存量若指向已死的历史 worker 域名则迁到当前实例"
+    },
+    {
+      "line": 1411,
+      "kind": "hunk-damaged",
+      "f": "                    // assets 'wallpaper' 鐜板湪瀛樼殑鏄寚閽堬紙blobref 浠ょ墝 / 鏃?data: / http锛夈€?",
+      "rev": "                    // assets 'wallpaper' 现在存的是指针（blobref 令牌 / �?data: / http）�?",
+      "head": "                    // assets 'wallpaper' 现在存的是指针（blobref 令牌 / 旧 data: / http）。"
+    },
+    {
+      "line": 1412,
+      "kind": "hunk-damaged",
+      "f": "                    // 瑙ｆ瀽鎴愬彲娓叉煋 url锛堜护鐗屸啋objectURL锛涙棫 data: 椤烘墜杩佺Щ鎴?Blob锛夈€?",
+      "rev": "                    // 解析成可渲染 url（令牌→objectURL；旧 data: 顺手迁移�?Blob）�?",
+      "head": "                    // 解析成可渲染 url（令牌→objectURL；旧 data: 顺手迁移成 Blob）。"
+    },
+    {
+      "line": 1427,
+      "kind": "hunk-damaged",
+      "f": "                // Deprecated legacy asset 鈥?purge silently so it can never be rendered again.",
+      "rev": "                // Deprecated legacy asset �?purge silently so it can never be rendered again.",
+      "head": "                // Deprecated legacy asset — purge silently so it can never be rendered again."
+    },
+    {
+      "line": 1458,
+      "kind": "hunk-damaged",
+      "f": "                initPwaIcon(loadedIcons); // 鍚姩鏃舵仮澶嶈嚜瀹氫箟 PWA 鍥炬爣锛堣 utils/appIcon.ts锛?",
+      "rev": "                initPwaIcon(loadedIcons); // 启动时恢复自定义 PWA 图标（见 utils/appIcon.ts�?",
+      "head": "                initPwaIcon(loadedIcons); // 启动时恢复自定义 PWA 图标（见 utils/appIcon.ts）"
+    },
+    {
+      "line": 1505,
+      "kind": "hunk-damaged",
+      "f": "        // 璇锋眰鎸佷箙鍖栧瓨鍌細鏍囪鍚庢祻瑙堝櫒鍦ㄧ鐩樺帇鍔涙椂涓嶄細浼樺厛椹遍€愭垜浠殑 IndexedDB锛?",
+      "rev": "        // 请求持久化存储：标记后浏览器在磁盘压力时不会优先驱逐我们的 IndexedDB�?",
+      "head": "        // 请求持久化存储：标记后浏览器在磁盘压力时不会优先驱逐我们的 IndexedDB，"
+    },
+    {
+      "line": 1506,
+      "kind": "hunk-damaged",
+      "f": "        // 瑙掕壊 / 鑱婂ぉ / 璧勪骇杩欎簺澶т綋绉暟鎹榛樿闅忔墜娓呮帀鐨勬鐜囨樉钁楅檷浣庛€?",
+      "rev": "        // 角色 / 聊天 / 资产这些大体积数据被默认随手清掉的概率显著降低�?",
+      "head": "        // 角色 / 聊天 / 资产这些大体积数据被默认随手清掉的概率显著降低。"
+    },
+    {
+      "line": 1507,
+      "kind": "hunk-damaged",
+      "f": "        // 鎺ュ彛鏈巿鏉冧細鐩存帴 reject 鈥斺€?鎴戜滑涓嶅湪涔庣粨鏋滐紝鍚炴帀寮傚父銆?",
+      "rev": "        // 接口未授权会直接 reject —�?我们不在乎结果，吞掉异常�?",
+      "head": "        // 接口未授权会直接 reject —— 我们不在乎结果，吞掉异常。"
+    },
+    {
+      "line": 1512,
+      "kind": "hunk-damaged",
+      "f": "        // localStorage 闀滃儚鍥炲～锛氶儴鍒嗘祻瑙堝櫒/娓呯悊宸ュ叿浼氬彧娓?localStorage 鑰岀暀涓?IndexedDB锛?",
+      "rev": "        // localStorage 镜像回填：部分浏览器/清理工具会只�?localStorage 而留�?IndexedDB�?",
+      "head": "        // localStorage 镜像回填：部分浏览器/清理工具会只清 localStorage 而留下 IndexedDB，"
+    },
+    {
+      "line": 1513,
+      "kind": "hunk-damaged",
+      "f": "        // 瀵艰嚧銆屼富棰樺洖鍒濆 / 鐩茬洅鏀惰棌鍐屾竻绌?/ API 閰嶇疆涓㈠け銆嶄笁杩炪€傚繀椤诲湪 loadSettings",
+      "rev": "        // 导致「主题回初始 / 盲盒收藏册清�?/ API 配置丢失」三连。必须在 loadSettings",
+      "head": "        // 导致「主题回初始 / 盲盒收藏册清空 / API 配置丢失」三连。必须在 loadSettings"
+    },
+    {
+      "line": 1514,
+      "kind": "hunk-damaged",
+      "f": "        // 璇?localStorage 涔嬪墠瀹屾垚鍥炲～銆傝 utils/lsMirror.ts銆?",
+      "rev": "        // �?localStorage 之前完成回填。见 utils/lsMirror.ts�?",
+      "head": "        // 读 localStorage 之前完成回填。见 utils/lsMirror.ts。"
+    },
+    {
+      "line": 1518,
+      "kind": "hunk-damaged",
+      "f": "            setTimeout(() => addToast(`妫€娴嬪埌鏈湴璁剧疆鏇捐娴忚鍣ㄦ竻闄わ紝宸茶嚜鍔ㄦ仮澶?${healedKeys.length} 椤癸紙涓婚 / API 绛夛級`, 'info'), 2500);",
+      "rev": "            setTimeout(() => addToast(`检测到本地设置曾被浏览器清除，已自动恢�?${healedKeys.length} 项（主题 / API 等）`, 'info'), 2500);",
+      "head": "            setTimeout(() => addToast(`检测到本地设置曾被浏览器清除，已自动恢复 ${healedKeys.length} 项（主题 / API 等）`, 'info'), 2500);"
+    },
+    {
+      "line": 1523,
+      "kind": "hunk-damaged",
+      "f": "        // 鑰佺敤鎴峰簱瀛樼殑椴ㄧ洏鍥鹃摼鎺ュ氨鍦版敼鍐欐垚 jsDelivr锛堝箓绛夈€佽窇涓€娆★級銆傛斁鍦ㄨ characters 涔嬪墠锛?",
+      "rev": "        // 老用户库存的鲨盘图链接就地改写成 jsDelivr（幂等、跑一次）。放在读 characters 之前�?",
+      "head": "        // 老用户库存的鲨盘图链接就地改写成 jsDelivr（幂等、跑一次）。放在读 characters 之前，"
+    },
+    {
+      "line": 1524,
+      "kind": "hunk-damaged",
+      "f": "        // 璁╀笅闈?getAllCharacters 鎷垮埌鐨勫氨鏄敼濂界殑鏁版嵁銆傝 utils/sharkpanAssetMigration.ts銆?",
+      "rev": "        // 让下�?getAllCharacters 拿到的就是改好的数据。见 utils/sharkpanAssetMigration.ts�?",
+      "head": "        // 让下面 getAllCharacters 拿到的就是改好的数据。见 utils/sharkpanAssetMigration.ts。"
+    },
+    {
+      "line": 1527,
+      "kind": "hunk-damaged",
+      "f": "        // 鐢?allSettled 鑰岄潪 all锛氭棭鏈?Promise.all 鍙浠绘剰涓€涓?store 璇诲彇 reject锛?",
+      "rev": "        // �?allSettled 而非 all：早�?Promise.all 只要任意一�?store 读取 reject�?",
+      "head": "        // 用 allSettled 而非 all：早期 Promise.all 只要任意一个 store 读取 reject，"
+    },
+    {
+      "line": 1528,
+      "kind": "hunk-damaged",
+      "f": "        // 鏁存壒鍔犺浇灏卞叏鎸?鈫?setCharacters / setWorldbooks 閮戒笉鎵ц 鈫?瑙掕壊鍜屼笘鐣屼功\"鍑┖娑堝け\"",
+      "rev": "        // 整批加载就全�?�?setCharacters / setWorldbooks 都不执行 �?角色和世界书\"凭空消失\"",
+      "head": "        // 整批加载就全挂 → setCharacters / setWorldbooks 都不执行 → 角色和世界书\"凭空消失\""
+    },
+    {
+      "line": 1529,
+      "kind": "hunk-damaged",
+      "f": "        // 锛堟暟鎹叾瀹炶繕鍦?IndexedDB 閲岋紝鍙槸娌¤杩?state锛夆啋 Chat 娓叉煋鏃?char 涓?undefined 鐩存帴宕┿€?",
+      "rev": "        // （数据其实还�?IndexedDB 里，只是没读�?state）→ Chat 渲染�?char �?undefined 直接崩�?",
+      "head": "        // （数据其实还在 IndexedDB 里，只是没读进 state）→ Chat 渲染时 char 为 undefined 直接崩。"
+    },
+    {
+      "line": 1530,
+      "kind": "hunk-damaged",
+      "f": "        // 鏀规垚鍚?store 鐙珛澶辫触锛屼竴涓潖鎺変笉杩炵疮鍏朵綑锛屾渶澶ч檺搴︿繚浣忕敤鎴锋暟鎹€?",
+      "rev": "        // 改成�?store 独立失败，一个坏掉不连累其余，最大限度保住用户数据�?",
+      "head": "        // 改成各 store 独立失败，一个坏掉不连累其余，最大限度保住用户数据。"
+    },
+    {
+      "line": 1580,
+      "kind": "hunk-damaged",
+      "f": "                 // 榛樿澶村儚鏇惧厛鍚庝娇鐢ㄦ棫鍥惧簥鍜屼緷璧栭儴缃叉牴璺緞鐨勬湰鍦板湴鍧€銆?",
+      "rev": "                 // 默认头像曾先后使用旧图床和依赖部署根路径的本地地址�?",
+      "head": "                 // 默认头像曾先后使用旧图床和依赖部署根路径的本地地址。"
+    },
+    {
+      "line": 1581,
+      "kind": "hunk-damaged",
+      "f": "                 // 杩欎簺鍦板潃鍦ㄥ浠芥仮澶嶆垨 GitHub Pages 瀛愯矾寰勫彉鍖栧悗浼?404锛涚粺涓€杩佺Щ鍒拌祫浜т粨搴撱€?",
+      "rev": "                 // 这些地址在备份恢复或 GitHub Pages 子路径变化后�?404；统一迁移到资产仓库�?",
+      "head": "                 // 这些地址在备份恢复或 GitHub Pages 子路径变化后会 404；统一迁移到资产仓库。"
+    },
+    {
+      "line": 1582,
+      "kind": "hunk-damaged",
+      "f": "                 // 鐢ㄦ埛鑷繁鏀硅繃鐨勫ご鍍忎笉鍦ㄨ縼绉诲悕鍗曞唴锛屼繚鎸佷笉鍔ㄣ€?",
+      "rev": "                 // 用户自己改过的头像不在迁移名单内，保持不动�?",
+      "head": "                 // 用户自己改过的头像不在迁移名单内，保持不动。"
+    },
+    {
+      "line": 1584,
+      "kind": "hunk-damaged",
+      "f": "                  // 鍐呯疆妯″瀷鍙ˉ缁欒繕娌℃湁瑙嗛褰㈣薄鐨?Sully銆傜敤鎴疯嚜宸卞鍏ョ殑",
+      "rev": "                  // 内置模型只补给还没有视频形象�?Sully。用户自己导入的",
+      "head": "                  // 内置模型只补给还没有视频形象的 Sully。用户自己导入的"
+    },
+    {
+      "line": 1585,
+      "kind": "hunk-damaged",
+      "f": "                  // VRM / Live2D 濮嬬粓浼樺厛锛岀粷涓嶅湪鍚姩淇鏃惰瑕嗙洊銆?",
+      "rev": "                  // VRM / Live2D 始终优先，绝不在启动修复时被覆盖�?",
+      "head": "                  // VRM / Live2D 始终优先，绝不在启动修复时被覆盖。"
+    },
+    {
+      "line": 1589,
+      "kind": "hunk-damaged",
+      "f": "                 // 涔嬪墠璇妸瀹跺洯 chibi 鏇挎崲鎴愪簡鍍忕礌灏忓眿鐨勫儚绱犵珛缁?鈫?杩樺師涓哄師鐗?sharkpan 绔嬬粯",
+      "rev": "                 // 之前误把家园 chibi 替换成了像素小屋的像素立�?�?还原为原�?sharkpan 立绘",
+      "head": "                 // 之前误把家园 chibi 替换成了像素小屋的像素立绘 → 还原为原版 sharkpan 立绘"
+    },
+    {
+      "line": 1652,
+      "kind": "hunk-damaged",
+      "f": "            `涓婁笅鏂囪寖鍥村凡鍗囩骇锛?{resetAutoContextCount} 涓叏鑷姩璁板繂瑙掕壊宸叉仮澶嶄负鑷€傚簲妯″紡銆傞渶瑕佽鍙栨洿澶氭棫鍘熸枃鏃讹紝鍙湪鑱婂ぉ璁剧疆涓墜鍔ㄨ皟鏁淬€俙,",
+      "rev": "            `上下文范围已升级�?{resetAutoContextCount} 个全自动记忆角色已恢复为自适应模式。需要读取更多旧原文时，可在聊天设置中手动调整。`,",
+      "head": "            `上下文范围已升级：${resetAutoContextCount} 个全自动记忆角色已恢复为自适应模式。需要读取更多旧原文时，可在聊天设置中手动调整。`,"
+    },
+    {
+      "line": 1681,
+      "kind": "hunk-damaged",
+      "f": "        // amsg2 鑴忔爣璁板厹搴曡ˉ浼狅細涓婃浼氳瘽鎵撲簡鑴忋€佷絾璇锋眰杩樻病钀藉湴锛堝湪椋炴垨韬哄湪閫€閬块噸鎺掗噷锛?",
+      "rev": "        // amsg2 脏标记兜底补传：上次会话打了脏、但请求还没落地（在飞或躺在退避重排里�?",
+      "head": "        // amsg2 脏标记兜底补传：上次会话打了脏、但请求还没落地（在飞或躺在退避重排里）"
+    },
+    {
+      "line": 1682,
+      "kind": "hunk-damaged",
+      "f": "        // 灏辫鏉€杩涚▼鐨勮鑹诧紝鎸?localStorage 搴曡处鐢ㄥ垰浠?DB 璇诲洖鐨勬暟鎹噸寤哄揩鐓т紶涓€娆°€?",
+      "rev": "        // 就被杀进程的角色，�?localStorage 底账用刚�?DB 读回的数据重建快照传一次�?",
+      "head": "        // 就被杀进程的角色，按 localStorage 底账用刚从 DB 读回的数据重建快照传一次。"
+    },
+    {
+      "line": 1683,
+      "kind": "hunk-damaged",
+      "f": "        // realtimeConfig / apiConfig 鐨?state 姝ゅ埢鍙兘閮借繕娌″氨浣嶏紝鐩存帴璇诲悇鑷殑鎸佷箙鍖栨潵婧愩€?",
+      "rev": "        // realtimeConfig / apiConfig �?state 此刻可能都还没就位，直接读各自的持久化来源�?",
+      "head": "        // realtimeConfig / apiConfig 的 state 此刻可能都还没就位，直接读各自的持久化来源。"
+    },
+    {
+      "line": 1694,
+      "kind": "hunk-damaged",
+      "f": "            // 涓婃娌′紶鎴愬姛鐨?LLM 鍑嵁琛屾寜杩欎唤閲嶇畻琛ヤ紶锛涙病鏈夊氨璺宠繃閭ｄ竴椤广€?",
+      "rev": "            // 上次没传成功�?LLM 凭据行按这份重算补传；没有就跳过那一项�?",
+      "head": "            // 上次没传成功的 LLM 凭据行按这份重算补传；没有就跳过那一项。"
+    },
+    {
+      "line": 1698,
+      "kind": "hunk-damaged",
+      "f": "          console.warn('[AmsgStateSync] 鍚姩琛ヤ紶澶辫触锛堜笉褰卞搷鍚姩锛?, err);",
+      "rev": "          console.warn('[AmsgStateSync] 启动补传失败（不影响启动�?, err);",
+      "head": "          console.warn('[AmsgStateSync] 启动补传失败（不影响启动）', err);"
+    },
+    {
+      "line": 1721,
+      "kind": "hunk-damaged",
+      "f": "                    setTimeout(() => addToast(`鏈湴鏈?${localCount} 鏉″悜閲忥紝杩滅▼浠?${remoteCount} 鏉°€傚缓璁幓璁剧疆椤靛悓姝ュ埌杩滅▼銆俙, 'info'), 3000);",
+      "rev": "                    setTimeout(() => addToast(`本地�?${localCount} 条向量，远程�?${remoteCount} 条。建议去设置页同步到远程。`, 'info'), 3000);",
+      "head": "                    setTimeout(() => addToast(`本地有 ${localCount} 条向量，远程仅 ${remoteCount} 条。建议去设置页同步到远程。`, 'info'), 3000);"
+    },
+    {
+      "line": 1743,
+      "kind": "hunk-damaged",
+      "f": "      // 鑱婂ぉ琛ㄦ儏鍖呭昂瀵革紙澶栬 鈫?琛ㄦ儏鍖呭ぇ灏忥紝涓夋尅锛夛細灏?96 / 涓?128 / 澶?160锛堟棫鐗堝昂瀵革級銆?",
+      "rev": "      // 聊天表情包尺寸（外观 �?表情包大小，三挡）：�?96 / �?128 / �?160（旧版尺寸）�?",
+      "head": "      // 聊天表情包尺寸（外观 → 表情包大小，三挡）：小 96 / 中 128 / 大 160（旧版尺寸）。"
+    },
+    {
+      "line": 1744,
+      "kind": "hunk-damaged",
+      "f": "      // 绉佽亰 MessageItem 涓庣兢鑱婄殑琛ㄦ儏 img 閮界敤 var(--sully-emoji-size, 96px) 娑堣垂銆?",
+      "rev": "      // 私聊 MessageItem 与群聊的表情 img 都用 var(--sully-emoji-size, 96px) 消费�?",
+      "head": "      // 私聊 MessageItem 与群聊的表情 img 都用 var(--sully-emoji-size, 96px) 消费。"
+    },
+    {
+      "line": 1748,
+      "kind": "hunk-damaged",
+      "f": "      // 妗岄潰鐨偆锛氬啓鍒?<html data-skin>锛屼緵鍏ㄥ眬 CSS锛坕ndex.html锛変笌缁勪欢璇诲彇銆?",
+      "rev": "      // 桌面皮肤：写�?<html data-skin>，供全局 CSS（index.html）与组件读取�?",
+      "head": "      // 桌面皮肤：写到 <html data-skin>，供全局 CSS（index.html）与组件读取。"
+    },
+    {
+      "line": 1759,
+      "kind": "hunk-damaged",
+      "f": "  // 褰撳墠鑱婂ぉ瑙嗗浘蹇収 鈫?妯″潡绾?slot锛坲tils/chatGenEvents锛夈€傛牴绾?ChatBroadcast 鎸傚湪",
+      "rev": "  // 当前聊天视图快照 �?模块�?slot（utils/chatGenEvents）。根�?ChatBroadcast 挂在",
+      "head": "  // 当前聊天视图快照 → 模块级 slot（utils/chatGenEvents）。根级 ChatBroadcast 挂在"
+    },
+    {
+      "line": 1760,
+      "kind": "hunk-damaged",
+      "f": "  // OSProvider 涔嬪鎷夸笉鍒拌繖涓や釜 state锛岄潬蹇収鍒ゆ柇\"鐢ㄦ埛姝ｇ湅鐫€鐨勪細璇濅笉寮瑰叏灞€妯箙\"銆?",
+      "rev": "  // OSProvider 之外拿不到这两个 state，靠快照判断\"用户正看着的会话不弹全局横幅\"�?",
+      "head": "  // OSProvider 之外拿不到这两个 state，靠快照判断\"用户正看着的会话不弹全局横幅\"。"
+    },
+    {
+      "line": 1778,
+      "kind": "hunk-damaged",
+      "f": "                  // 鐢ㄦ埛姝ｅ湪 DateApp 閲屽拰杩欎釜瑙掕壊瑙侀潰 鈥斺€?瑙掕壊涔嬪墠鎺掑ソ鐨勫畾鏃舵秷鎭?",
+      "rev": "                  // 用户正在 DateApp 里和这个角色见面 —�?角色之前排好的定时消�?",
+      "head": "                  // 用户正在 DateApp 里和这个角色见面 —— 角色之前排好的定时消息"
+    },
+    {
+      "line": 1780,
+      "kind": "hunk-damaged",
+      "f": "                  // 绛夌敤鎴风寮€瑙侀潰鐣岄潰鍚庯紝涓嬩竴杞?5s 妫€鏌ヤ細鑷劧閫佽揪銆?",
+      "rev": "                  // 等用户离开见面界面后，下一�?5s 检查会自然送达�?",
+      "head": "                  // 等用户离开见面界面后，下一轮 5s 检查会自然送达。"
+    },
+    {
+      "line": 1782,
+      "kind": "hunk-damaged",
+      "f": "                  // 閫氳瘽涓紙鍚寕璧凤級鍚岀悊锛氬畾鏃舵秷鎭繖杞厛鍘嬬潃锛岀寮€閫氳瘽鍚庝笅涓€杞啀閫佽揪銆?",
+      "rev": "                  // 通话中（含挂起）同理：定时消息这轮先压着，离开通话后下一轮再送达�?",
+      "head": "                  // 通话中（含挂起）同理：定时消息这轮先压着，离开通话后下一轮再送达。"
+    },
+    {
+      "line": 1845,
+      "kind": "hunk-damaged",
+      "f": "          if (!prev[charId]) return prev; // no change needed 鈥?avoid unnecessary re-render",
+      "rev": "          if (!prev[charId]) return prev; // no change needed �?avoid unnecessary re-render",
+      "head": "          if (!prev[charId]) return prev; // no change needed — avoid unnecessary re-render"
+    },
+    {
+      "line": 1874,
+      "kind": "hunk-damaged",
+      "f": "              // Web Notification 鈥斺€?璧?Service Worker 鐨?showNotification锛堝拰\"娴嬭瘯鎺ㄩ€?",
+      "rev": "              // Web Notification —�?�?Service Worker �?showNotification（和\"测试推�?",
+      "head": "              // Web Notification —— 走 Service Worker 的 showNotification（和\"测试推送\""
+    },
+    {
+      "line": 1875,
+      "kind": "hunk-damaged",
+      "f": "              // 鍚屼竴鏉￠摼璺級銆傞〉闈㈢骇 `new Notification(...)` 鍦ㄦ爣绛惧悗鍙?/ PWA / 绉诲姩绔細",
+      "rev": "              // 同一条链路）。页面级 `new Notification(...)` 在标签后�?/ PWA / 移动端会",
+      "head": "              // 同一条链路）。页面级 `new Notification(...)` 在标签后台 / PWA / 移动端会"
+    },
+    {
+      "line": 1876,
+      "kind": "hunk-damaged",
+      "f": "              // 闈欓粯澶辫触锛屽繀椤昏蛋 SW registration 鎵嶇ǔ瀹氥€?",
+      "rev": "              // 静默失败，必须走 SW registration 才稳定�?",
+      "head": "              // 静默失败，必须走 SW registration 才稳定。"
+    },
+    {
+      "line": 1934,
+      "kind": "hunk-damaged",
+      "f": "              // SW push handler 宸茬粡 fire 杩囩郴缁熼€氱煡锛堜笉鍦ㄥ墠鍙版椂闇插嚭鐪熷疄鍐呭銆佸湪鍓嶅彴鏃?",
+      "rev": "              // SW push handler 已经 fire 过系统通知（不在前台时露出真实内容、在前台�?",
+      "head": "              // SW push handler 已经 fire 过系统通知（不在前台时露出真实内容、在前台时"
+    },
+    {
+      "line": 1935,
+      "kind": "hunk-damaged",
+      "f": "              // silent + close 闈欓粯锛夛紝杩欓噷涓嶅啀琛ヤ竴娆★紝閬垮厤閲嶅寮圭獥銆?",
+      "rev": "              // silent + close 静默），这里不再补一次，避免重复弹窗�?",
+      "head": "              // silent + close 静默），这里不再补一次，避免重复弹窗。"
+    },
+    {
+      "line": 1955,
+      "kind": "hunk-damaged",
+      "f": "      // 浼氶€愭潯 saveMessage + fire 'active-msg-progress'; 杩欓噷鍙帹 lastMsgTimestamp 璁?",
+      "rev": "      // 会逐条 saveMessage + fire 'active-msg-progress'; 这里只推 lastMsgTimestamp �?",
+      "head": "      // 会逐条 saveMessage + fire 'active-msg-progress'; 这里只推 lastMsgTimestamp 让"
+    },
+    {
+      "line": 1956,
+      "kind": "hunk-damaged",
+      "f": "      // Chat.tsx 鐨?useEffect 閲嶆柊 reloadMessages, 涓嶅脊 toast / 涓嶅鍔犳湭璇?/ 涓?resolve",
+      "rev": "      // Chat.tsx �?useEffect 重新 reloadMessages, 不弹 toast / 不增加未�?/ �?resolve",
+      "head": "      // Chat.tsx 的 useEffect 重新 reloadMessages, 不弹 toast / 不增加未读 / 不 resolve"
+    },
+    {
+      "line": 1957,
+      "kind": "hunk-damaged",
+      "f": "      // sendInstantPush 閭ｆ潯 one-shot promise (閭ｄ簺鍙湪 'active-msg-received' 瑙﹀彂涓€娆?銆?",
+      "rev": "      // sendInstantPush 那条 one-shot promise (那些只在 'active-msg-received' 触发一�?�?",
+      "head": "      // sendInstantPush 那条 one-shot promise (那些只在 'active-msg-received' 触发一次)。"
+    },
+    {
+      "line": 1962,
+      "kind": "hunk-damaged",
+      "f": "      // 鎯呯华 buff 钀藉湴鍚庡悓姝ヨ繘鍐呭瓨 characters 鈥斺€?蹇呴』鏄?App 绾с€佷笉闄愬綋鍓嶆墦寮€鐨勮鑹?",
+      "rev": "      // 情绪 buff 落地后同步进内存 characters —�?必须�?App 级、不限当前打开的角�?",
+      "head": "      // 情绪 buff 落地后同步进内存 characters —— 必须是 App 级、不限当前打开的角色:"
+    },
+    {
+      "line": 1963,
+      "kind": "hunk-damaged",
+      "f": "      // instant 妯″紡涓?worker 鎺ㄥ洖 emotion_update 鏃剁敤鎴峰父涓嶅湪璇ヨ鑹茶亰澶╅〉 (鍦ㄥ埆鐨勮鑹?/",
+      "rev": "      // instant 模式�?worker 推回 emotion_update 时用户常不在该角色聊天页 (在别的角�?/",
+      "head": "      // instant 模式下 worker 推回 emotion_update 时用户常不在该角色聊天页 (在别的角色 /"
+    },
+    {
+      "line": 1964,
+      "kind": "hunk-damaged",
+      "f": "      // 鍒楄〃 / 鍚庡彴 / 杩樻病鐐硅繘鍘?. 涔嬪墠鍙湁 Chat.tsx 閲岄偅涓?`charId === activeCharacterId`",
+      "rev": "      // 列表 / 后台 / 还没点进�?. 之前只有 Chat.tsx 里那�?`charId === activeCharacterId`",
+      "head": "      // 列表 / 后台 / 还没点进去). 之前只有 Chat.tsx 里那个 `charId === activeCharacterId`"
+    },
+    {
+      "line": 1965,
+      "kind": "hunk-damaged",
+      "f": "      // 瀹堝崼鐨?handler 鍚屾鍐呭瓨, 涓嶅尮閰嶅氨鐩存帴 return 鈥斺€?buff 鍙惤浜?DB, 鍐呭瓨娌℃洿鏂? 鑰?",
+      "rev": "      // 守卫�?handler 同步内存, 不匹配就直接 return —�?buff 只落�?DB, 内存没更�? �?",
+      "head": "      // 守卫的 handler 同步内存, 不匹配就直接 return —— buff 只落了 DB, 内存没更新; 而"
+    },
+    {
+      "line": 1966,
+      "kind": "hunk-damaged",
+      "f": "      // OSContext 鍙湪鍚姩鏃?getAllCharacters, 鍒囧洖璇ヨ鑹蹭篃涓嶉噸璇?DB, 浜庢槸 buff \"鍥炰笉鍒板墠绔?.",
+      "rev": "      // OSContext 只在启动�?getAllCharacters, 切回该角色也不重�?DB, 于是 buff \"回不到前�?.",
+      "head": "      // OSContext 只在启动时 getAllCharacters, 切回该角色也不重读 DB, 于是 buff \"回不到前端\"."
+    },
+    {
+      "line": 1967,
+      "kind": "hunk-damaged",
+      "f": "      // 鏇寸碂: 涔嬪悗浠讳竴 updateCharacter 浼氭嬁鏃у唴瀛樺悎骞跺啓鍥?DB, 鎶婂悗鍙板垰鐢熸垚鐨?buff 鎶规帀.",
+      "rev": "      // 更糟: 之后任一 updateCharacter 会拿旧内存合并写�?DB, 把后台刚生成�?buff 抹掉.",
+      "head": "      // 更糟: 之后任一 updateCharacter 会拿旧内存合并写回 DB, 把后台刚生成的 buff 抹掉."
+    },
+    {
+      "line": 1973,
+      "kind": "hunk-damaged",
+      "f": "          // 鍐呭瓨鍚屾 + 浜戠蹇収鎵撹剰鍚堟垚涓€姝ャ€傛墦鑴忔斁杩欓噷鐨勭悊鐢?",
+      "rev": "          // 内存同步 + 云端快照打脏合成一步。打脏放这里的理�?",
+      "head": "          // 内存同步 + 云端快照打脏合成一步。打脏放这里的理由:"
+    },
+    {
+      "line": 1974,
+      "kind": "hunk-damaged",
+      "f": "          //   1. 涓婚摼璺洖鍚堟敹灏鹃偅娆℃墦鑴忚窇鍦ㄦ儏缁瘎浼拌惤搴撲箣鍓? 涓嶈ˉ杩欎竴涓嬩簯绔偅浠芥儏缁亽鎱竴鎷?",
+      "rev": "          //   1. 主链路回合收尾那次打脏跑在情绪评估落库之�? 不补这一下云端那份情绪恒慢一�?",
+      "head": "          //   1. 主链路回合收尾那次打脏跑在情绪评估落库之前, 不补这一下云端那份情绪恒慢一拍;"
+    },
+    {
+      "line": 1975,
+      "kind": "hunk-damaged",
+      "f": "          //   2. 鎯呯华骞挎挱婧愪笉姝竴涓?(鏈湴璇勪及 / 璁板繂娼滄按 / instant push 鍥炲啓), 鍏ㄦ眹鍒拌繖涓簨浠?",
+      "rev": "          //   2. 情绪广播源不止一�?(本地评估 / 记忆潜水 / instant push 回写), 全汇到这个事�?",
+      "head": "          //   2. 情绪广播源不止一个 (本地评估 / 记忆潜水 / instant push 回写), 全汇到这个事件,"
+    },
+    {
+      "line": 1976,
+      "kind": "hunk-damaged",
+      "f": "          //      鍫佃繖涓€涓偣灏卞, 涓嶇敤鍘绘敼姣忎釜涓婃父銆?",
+      "rev": "          //      堵这一个点就够, 不用去改每个上游�?",
+      "head": "          //      堵这一个点就够, 不用去改每个上游。"
+    },
+    {
+      "line": 1977,
+      "kind": "hunk-damaged",
+      "f": "          // 蹇収瑕佺殑鏄悎骞跺悗鐨勮鑹? 鎵€浠ヨ窡 updateCharacter 涓€鏍峰湪 updater 閲屽彇; 鍏ㄥ眬鐘舵€佽 ref",
+      "rev": "          // 快照要的是合并后的角�? 所以跟 updateCharacter 一样在 updater 里取; 全局状态读 ref",
+      "head": "          // 快照要的是合并后的角色, 所以跟 updateCharacter 一样在 updater 里取; 全局状态读 ref"
+    },
+    {
+      "line": 1978,
+      "kind": "hunk-damaged",
+      "f": "          // 鑰屼笉鏄棴鍖呭彉閲忊€斺€旀湰 effect 鍙湪 sendProactiveNativeNotification 鍙樺寲鏃堕噸寤? 闂寘閲?",
+      "rev": "          // 而不是闭包变量——本 effect 只在 sendProactiveNativeNotification 变化时重�? 闭包�?",
+      "head": "          // 而不是闭包变量——本 effect 只在 sendProactiveNativeNotification 变化时重建, 闭包里"
+    },
+    {
+      "line": 1979,
+      "kind": "hunk-damaged",
+      "f": "          // 鐨?userProfile / groups / realtimeConfig 浼氫竴鐩村仠鍦ㄩ甯с€?",
+      "rev": "          // �?userProfile / groups / realtimeConfig 会一直停在首帧�?",
+      "head": "          // 的 userProfile / groups / realtimeConfig 会一直停在首帧。"
+    },
+    {
+      "line": 2003,
+      "kind": "hunk-damaged",
+      "f": "          // 鏃?buffs 鐨勭函鍒锋柊淇″彿 (runPushTailPipeline 绛?: 浠?DB 鍏滃簳閲嶈璇ヨ鑹?buff.",
+      "rev": "          // �?buffs 的纯刷新信号 (runPushTailPipeline �?: �?DB 兜底重读该角�?buff.",
+      "head": "          // 无 buffs 的纯刷新信号 (runPushTailPipeline 等): 从 DB 兜底重读该角色 buff."
+    },
+    {
+      "line": 2011,
+      "kind": "hunk-damaged",
+      "f": "      // 鏈湴 fetch 鑱婂ぉ鍥炲鐨勫叏灞€鍥炶惤锛歵riggerAI 鐨勫紓姝ラ棴鍖呭湪 Chat 鍗歌浇鍚庣户缁窇瀹?",
+      "rev": "      // 本地 fetch 聊天回复的全局回落：triggerAI 的异步闭包在 Chat 卸载后继续跑�?",
+      "head": "      // 本地 fetch 聊天回复的全局回落：triggerAI 的异步闭包在 Chat 卸载后继续跑完"
+    },
+    {
+      "line": 2012,
+      "kind": "hunk-damaged",
+      "f": "      // 骞惰惤搴擄紝浣嗗畠鎹曡幏鐨?setMessages 鎸囧悜宸插嵏杞界殑瀹炰緥銆傝繖閲屾槸瀹冭窡褰撳墠 UI 鐨勫敮涓€妗ワ細",
+      "rev": "      // 并落库，但它捕获�?setMessages 指向已卸载的实例。这里是它跟当前 UI 的唯一桥：",
+      "head": "      // 并落库，但它捕获的 setMessages 指向已卸载的实例。这里是它跟当前 UI 的唯一桥："
+    },
+    {
+      "line": 2013,
+      "kind": "hunk-damaged",
+      "f": "      //   - replyArrived锛堝悗澶勭悊绠＄嚎鍏ㄩ儴钀藉簱鍚庯級鈫?bump lastMsgTimestamp 璁╁綋鍓嶆寕杞界殑",
+      "rev": "      //   - replyArrived（后处理管线全部落库后）�?bump lastMsgTimestamp 让当前挂载的",
+      "head": "      //   - replyArrived（后处理管线全部落库后）→ bump lastMsgTimestamp 让当前挂载的"
+    },
+    {
+      "line": 2015,
+      "kind": "hunk-damaged",
+      "f": "      //     鐨?'active-msg-received' 琛屼负瀵归綈銆?",
+      "rev": "      //     �?'active-msg-received' 行为对齐�?",
+      "head": "      //     的 'active-msg-received' 行为对齐。"
+    },
+    {
+      "line": 2016,
+      "kind": "hunk-damaged",
+      "f": "      //   - replyEnd锛坒inally锛屽惈澶辫触璺緞锛夆啋 鍙?bump 鏃堕棿鎴筹紝鎶?catch 閲岃惤搴撶殑",
+      "rev": "      //   - replyEnd（finally，含失败路径）→ �?bump 时间戳，�?catch 里落库的",
+      "head": "      //   - replyEnd（finally，含失败路径）→ 只 bump 时间戳，把 catch 里落库的"
+    },
+    {
+      "line": 2017,
+      "kind": "hunk-damaged",
+      "f": "      //     閿欒绯荤粺娑堟伅涔熷埛鍑烘潵銆?",
+      "rev": "      //     错误系统消息也刷出来�?",
+      "head": "      //     错误系统消息也刷出来。"
+    },
+    {
+      "line": 2034,
+      "kind": "hunk-damaged",
+      "f": "      // 鎯呯华璇勪及澶辫触 鈫?toast 鍛婄煡锛堟瘡瑙掕壊 60s 鍐峰嵈闃插埛灞忥級銆傝瘎浼板け璐ヨ繃鍘诲彧鍐?console锛?",
+      "rev": "      // 情绪评估失败 �?toast 告知（每角色 60s 冷却防刷屏）。评估失败过去只�?console�?",
+      "head": "      // 情绪评估失败 → toast 告知（每角色 60s 冷却防刷屏）。评估失败过去只写 console，"
+    },
+    {
+      "line": 2036,
+      "kind": "hunk-damaged",
+      "f": "      // 瀹屽叏娌℃硶鑷煡銆備簨浠舵潵婧愶細evaluateEmotionBackground锛堟湰鍦拌姹傚け璐?绌哄搷搴旓級銆?",
+      "rev": "      // 完全没法自查。事件来源：evaluateEmotionBackground（本地请求失�?空响应）�?",
+      "head": "      // 完全没法自查。事件来源：evaluateEmotionBackground（本地请求失败/空响应）、"
+    },
+    {
+      "line": 2037,
+      "kind": "hunk-damaged",
+      "f": "      // applyEmotionEvalRaw锛堣В鏋愬叏鐏?钀藉簱澶辫触锛夈€乤ctiveMsgRuntime锛坵orker 鎺ㄥ洖绌虹粨鏋滐級銆?",
+      "rev": "      // applyEmotionEvalRaw（解析全�?落库失败）、activeMsgRuntime（worker 推回空结果）�?",
+      "head": "      // applyEmotionEvalRaw（解析全灭/落库失败）、activeMsgRuntime（worker 推回空结果）。"
+    },
+    {
+      "line": 2048,
+      "kind": "hunk-damaged",
+      "f": "      // 涓诲姩娑堟伅澶勭悊澶辫触寰堝皯鍙戠敓锛屼絾濡傛灉闈欓粯鍚炴帀锛岀敤鎴峰彧浼氫互涓鸿鑹叉病鏈夌悊浜恒€?",
+      "rev": "      // 主动消息处理失败很少发生，但如果静默吞掉，用户只会以为角色没有理人�?",
+      "head": "      // 主动消息处理失败很少发生，但如果静默吞掉，用户只会以为角色没有理人。"
+    },
+    {
+      "line": 2049,
+      "kind": "hunk-damaged",
+      "f": "      // 鍚屼竴瑙掕壊 60 绉掑唴鍙彁绀轰竴娆★紝閬垮厤澶氭潯閲嶈瘯鍚屾椂鍒峰睆銆?",
+      "rev": "      // 同一角色 60 秒内只提示一次，避免多条重试同时刷屏�?",
+      "head": "      // 同一角色 60 秒内只提示一次，避免多条重试同时刷屏。"
+    },
+    {
+      "line": 2067,
+      "kind": "hunk-damaged",
+      "f": "      // 璁板繂瀹姘翠綅绾胯Е鍙戠殑鍏ㄥ眬鎻愮ず锛氳亰澶?瑙侀潰/閫氳瘽鍏辩敤鍚屼竴鏉℃秷鎭祦锛?",
+      "rev": "      // 记忆宫殿水位线触发的全局提示：聊�?见面/通话共用同一条消息流�?",
+      "head": "      // 记忆宫殿水位线触发的全局提示：聊天/见面/通话共用同一条消息流，"
+    },
+    {
+      "line": 2068,
+      "kind": "hunk-damaged",
+      "f": "      // pipeline 鐪熸寮€濮嬫暣鐞嗘椂浼氬箍鎾浜嬩欢鈥斺€旀棤璁虹敤鎴锋鍒诲湪鍝釜 App锛?",
+      "rev": "      // pipeline 真正开始整理时会广播此事件——无论用户此刻在哪个 App�?",
+      "head": "      // pipeline 真正开始整理时会广播此事件——无论用户此刻在哪个 App，"
+    },
+    {
+      "line": 2069,
+      "kind": "hunk-damaged",
+      "f": "      // 閮界粺涓€寮广€寈x姝ｅ湪鏁寸悊璁板繂銆嶃€?",
+      "rev": "      // 都统一弹「xx正在整理记忆」�?",
+      "head": "      // 都统一弹「xx正在整理记忆」。"
+    },
+    {
+      "line": 2072,
+      "kind": "hunk-damaged",
+      "f": "          addToast(`${charName || '瑙掕壊'}姝ｅ湪鏁寸悊璁板繂${count ? `锛?{count} 鏉″璇濓級` : ''}鈥, 'info');",
+      "rev": "          addToast(`${charName || '角色'}正在整理记忆${count ? `�?{count} 条对话）` : ''}…`, 'info');",
+      "head": "          addToast(`${charName || '角色'}正在整理记忆${count ? `（${count} 条对话）` : ''}…`, 'info');"
+    },
+    {
+      "line": 2101,
+      "kind": "hunk-damaged",
+      "f": "  // Per-character innerState cache for proactive turns 鈥?mirrors useChatAI's",
+      "rev": "  // Per-character innerState cache for proactive turns �?mirrors useChatAI's",
+      "head": "  // Per-character innerState cache for proactive turns — mirrors useChatAI's"
+    },
+    {
+      "line": 2109,
+      "kind": "hunk-damaged",
+      "f": "  // 鍚屾 charId 鈫?瑙掕壊鍚?娉ㄥ唽琛紝璁?utils 灞傦紙缇よ亰鑳屾櫙娉ㄥ叆绛夛級鑳芥爣鍑虹湡瀹炲彂瑷€浜哄悕銆?",
+      "rev": "  // 同步 charId �?角色�?注册表，�?utils 层（群聊背景注入等）能标出真实发言人名�?",
+      "head": "  // 同步 charId → 角色名 注册表，让 utils 层（群聊背景注入等）能标出真实发言人名。"
+    },
+    {
+      "line": 2121,
+      "kind": "hunk-damaged",
+      "f": "  // 鍚屾 TTS 鏈嶅姟鍟嗛€夋嫨锛岃鎷夸笉鍒?apiConfig 鐨勫湴鏂癸紙濡?chatPrompts 璇煶鏍煎紡鎸囧锛夎鍒版渶鏂板€笺€?",
+      "rev": "  // 同步 TTS 服务商选择，让拿不�?apiConfig 的地方（�?chatPrompts 语音格式指导）读到最新值�?",
+      "head": "  // 同步 TTS 服务商选择，让拿不到 apiConfig 的地方（如 chatPrompts 语音格式指导）读到最新值。"
+    },
+    {
+      "line": 2125,
+      "kind": "hunk-damaged",
+      "f": "  // 鍚屾鐢ㄦ埛鑷畾涔夎闊宠〃婕旀寚鍗楋紙鍚屼笂锛歝hatPrompts 鎷夸笉鍒?apiConfig锛岄潬鍗曚緥璇绘渶鏂板€硷級銆?",
+      "rev": "  // 同步用户自定义语音表演指南（同上：chatPrompts 拿不�?apiConfig，靠单例读最新值）�?",
+      "head": "  // 同步用户自定义语音表演指南（同上：chatPrompts 拿不到 apiConfig，靠单例读最新值）。"
+    },
+    {
+      "line": 2176,
+      "kind": "hunk-damaged",
+      "f": "          // 鐢ㄦ埛姝ｅ湪 DateApp 閲屽拰杩欎釜瑙掕壊瑙侀潰 鈥斺€?浜哄氨鍦ㄥ鏂圭溂鍓嶏紝鍐嶅彂涓€鏉?",
+      "rev": "          // 用户正在 DateApp 里和这个角色见面 —�?人就在对方眼前，再发一�?",
+      "head": "          // 用户正在 DateApp 里和这个角色见面 —— 人就在对方眼前，再发一条"
+    },
+    {
+      "line": 2178,
+      "kind": "hunk-damaged",
+      "f": "          // lastFire 宸插湪璋冨害灞傝褰曪紝涓嬩釜鍛ㄦ湡浼氶噸鏂拌瘎浼般€?",
+      "rev": "          // lastFire 已在调度层记录，下个周期会重新评估�?",
+      "head": "          // lastFire 已在调度层记录，下个周期会重新评估。"
+    },
+    {
+      "line": 2185,
+      "kind": "hunk-damaged",
+      "f": "          // 鐢ㄦ埛姝ｅ湪鍜岃繖涓鑹查€氳瘽锛堝惈閫氳瘽琚寕璧峰埌鍚庡彴锛夆€斺€?閫氳瘽閲屽啀濉炰竴鏉＄嚎涓?",
+      "rev": "          // 用户正在和这个角色通话（含通话被挂起到后台）—�?通话里再塞一条线�?",
+      "head": "          // 用户正在和这个角色通话（含通话被挂起到后台）—— 通话里再塞一条线上"
+    },
+    {
+      "line": 2187,
+      "kind": "hunk-damaged",
+      "f": "          // 甯︽垚绾夸笂娑堟伅鏍煎紡銆傛湰杞潤榛樿烦杩囷紱涓嬩釜鍛ㄦ湡浼氶噸鏂拌瘎浼般€?",
+      "rev": "          // 带成线上消息格式。本轮静默跳过；下个周期会重新评估�?",
+      "head": "          // 带成线上消息格式。本轮静默跳过；下个周期会重新评估。"
+    },
+    {
+      "line": 2224,
+      "kind": "hunk-damaged",
+      "f": "                  else timeSinceUser = `${Math.floor(gapMin / 1440)}澶?{Math.floor((gapMin % 1440) / 60)}灏忔椂`;",
+      "rev": "                  else timeSinceUser = `${Math.floor(gapMin / 1440)}�?{Math.floor((gapMin % 1440) / 60)}小时`;",
+      "head": "                  else timeSinceUser = `${Math.floor(gapMin / 1440)}天${Math.floor((gapMin % 1440) / 60)}小时`;"
+    },
+    {
+      "line": 2231,
+      "kind": "hunk-damaged",
+      "f": "              // recentMsgs 浼氭紡鍒わ紝鎵€浠ュ崟鐙敤 includeProcessed=true 璇绘渶鍚庝竴鏉＄湡瀹炴秷鎭€?",
+      "rev": "              // recentMsgs 会漏判，所以单独用 includeProcessed=true 读最后一条真实消息�?",
+      "head": "              // recentMsgs 会漏判，所以单独用 includeProcessed=true 读最后一条真实消息。"
+    },
+    {
+      "line": 2232,
+      "kind": "hunk-damaged",
+      "f": "              // 鍒氳瀹岄潰杩樺彂\"浣犲ソ涔呮病鎵炬垜浜?浼氭樉寰楀瑙侀潰姣笉鐭ユ儏锛屾崲鎴愯闈㈠悗鐨勮澧冦€?",
+      "rev": "              // 刚见完面还发\"你好久没找我�?会显得对见面毫不知情，换成见面后的语境�?",
+      "head": "              // 刚见完面还发\"你好久没找我了\"会显得对见面毫不知情，换成见面后的语境。"
+    },
+    {
+      "line": 2241,
+      "kind": "hunk-damaged",
+      "f": "                      ? `[绯荤粺鎻愮ず锛堥潪${userName}鍙戣█锛? 鐜板湪鏄?${timeStr}銆備綘鍜?{userName}鍒氬垰鍦ㄧ嚎涓嬭杩囬潰锛堝鏋滀笂涓嬫枃閲屾湁鏍囩潃 [绾︿細] 鐨勫唴瀹癸紝閭ｅ氨鏄綘浠闈㈡椂鍙戠敓鐨勪簨锛夛紝鐜板湪浣犱滑鏆傛椂鍒嗗紑浜嗭紝浣犳嬁璧锋墜鏈烘兂缁?{userName}鍙戞潯娑堟伅銆傝鍩轰簬鍒氭墠鐨勮闈㈡潵鍙戔€斺€斿彲浠ュ洖鍛宠闈㈤噷鐨勬煇涓粏鑺傘€佽ˉ涓€鍙ュ綋鏃舵病璇村嚭鍙ｇ殑璇濄€佸叧蹇?{userName}鍒板浜嗘病锛屾垨鑰呭氨鏄垰鍒嗗紑灏辨湁鐐规兂蹇点€傜粷瀵逛笉瑕佽〃鐜板緱濂藉儚寰堜箙娌¤仈绯伙紝鏇翠笉瑕佸鍒氭墠鐨勮闈㈡涓嶇煡鎯呫€備竴涓ゅ彞璇濆氨濂姐€俔`",
+      "rev": "                      ? `[系统提示（非${userName}发言�? 现在�?${timeStr}。你�?{userName}刚刚在线下见过面（如果上下文里有标着 [约会] 的内容，那就是你们见面时发生的事），现在你们暂时分开了，你拿起手机想�?{userName}发条消息。请基于刚才的见面来发——可以回味见面里的某个细节、补一句当时没说出口的话、关�?{userName}到家了没，或者就是刚分开就有点想念。绝对不要表现得好像很久没联系，更不要对刚才的见面毫不知情。一两句话就好。]`",
+      "head": "                      ? `[系统提示（非${userName}发言）: 现在是 ${timeStr}。你和${userName}刚刚在线下见过面（如果上下文里有标着 [约会] 的内容，那就是你们见面时发生的事），现在你们暂时分开了，你拿起手机想给${userName}发条消息。请基于刚才的见面来发——可以回味见面里的某个细节、补一句当时没说出口的话、关心${userName}到家了没，或者就是刚分开就有点想念。绝对不要表现得好像很久没联系，更不要对刚才的见面毫不知情。一两句话就好。]`"
+    },
+    {
+      "line": 2242,
+      "kind": "hunk-damaged",
+      "f": "                      : `[绯荤粺鎻愮ず锛堥潪${userName}鍙戣█锛? 鐜板湪鏄?${timeStr}銆?{timeSinceUser ? `${userName}宸茬粡 ${timeSinceUser} 娌℃湁鎵句綘璇磋瘽浜嗐€俙 : ''}杩欐槸绯荤粺缁欎綘鐨勪竴娆′富鍔ㄥ彂娑堟伅鏈轰細鈥斺€?{userName}骞舵病鏈夊湪璺熶綘璇磋瘽锛屾槸浣犳兂涓诲姩鎵?{userName}銆傚儚鐪熶汉涓€鏍烽殢鎰忓湴鍙戞潯娑堟伅鍚э紝姣斿锛氶殢鎵嬫媿浜嗗紶鐓х墖鎯冲垎浜€佸垰鐪嬪埌涓湁瓒ｇ殑浜嬫兂璇淬€佺獊鐒舵兂鍒颁釜鍐风煡璇嗐€佸悙妲戒粖澶╃殑澶╂皵/椋熺墿/瑙侀椈銆佹垨鑰呭氨鏄崟绾兂鎵?{userName}鑱婂嚑鍙ャ€備笉瑕佸埢鎰忥紝涓嶈鍍忓湪\"姹囨姤杩戝喌\"锛屽氨鍍忎綘鐪熺殑鎷胯捣鎵嬫満闅忔墜鍙戜簡鏉℃秷鎭€備竴涓ゅ彞璇濆氨濂姐€?{timeSinceUser && parseInt(timeSinceUser) > 2 ? `锛?{userName}鎸轰箙娌℃壘浣犱簡锛屼綘涔熷彲浠ヨ〃杈炬兂蹇点€佸ソ濂?{userName}鍦ㄥ共鍢涖€佹垨鑰呭皬灏忓湴鎶辨€ㄤ竴涓嬨€傦級` : ''}]`;",
+      "rev": "                      : `[系统提示（非${userName}发言�? 现在�?${timeStr}�?{timeSinceUser ? `${userName}已经 ${timeSinceUser} 没有找你说话了。` : ''}这是系统给你的一次主动发消息机会—�?{userName}并没有在跟你说话，是你想主动�?{userName}。像真人一样随意地发条消息吧，比如：随手拍了张照片想分享、刚看到个有趣的事想说、突然想到个冷知识、吐槽今天的天气/食物/见闻、或者就是单纯想�?{userName}聊几句。不要刻意，不要像在\"汇报近况\"，就像你真的拿起手机随手发了条消息。一两句话就好�?{timeSinceUser && parseInt(timeSinceUser) > 2 ? `�?{userName}挺久没找你了，你也可以表达想念、好�?{userName}在干嘛、或者小小地抱怨一下。）` : ''}]`;",
+      "head": "                      : `[系统提示（非${userName}发言）: 现在是 ${timeStr}。${timeSinceUser ? `${userName}已经 ${timeSinceUser} 没有找你说话了。` : ''}这是系统给你的一次主动发消息机会——${userName}并没有在跟你说话，是你想主动找${userName}。像真人一样随意地发条消息吧，比如：随手拍了张照片想分享、刚看到个有趣的事想说、突然想到个冷知识、吐槽今天的天气/食物/见闻、或者就是单纯想找${userName}聊几句。不要刻意，不要像在\"汇报近况\"，就像你真的拿起手机随手发了条消息。一两句话就好。${timeSinceUser && parseInt(timeSinceUser) > 2 ? `（${userName}挺久没找你了，你也可以表达想念、好奇${userName}在干嘛、或者小小地抱怨一下。）` : ''}]`;"
+    },
+    {
+      "line": 2252,
+      "kind": "hunk-damaged",
+      "f": "              // 3. Build prompt & message history 鈥?璧板拰 useChatAI / emotion eval 鍚屼竴涓?helper锛?",
+      "rev": "              // 3. Build prompt & message history �?走和 useChatAI / emotion eval 同一�?helper�?",
+      "head": "              // 3. Build prompt & message history — 走和 useChatAI / emotion eval 同一个 helper，"
+    },
+    {
+      "line": 2253,
+      "kind": "hunk-damaged",
+      "f": "              //    淇濊瘉涓夊鎷垮埌鐨?鏉愭枡\"瀹屽叏涓€鑷达紱鍖哄埆鍙湪鍓嶉潰杩藉姞鐨?鐜板湪涓诲姩鎵剧敤鎴?閭ｆ潯 hint銆?",
+      "rev": "              //    保证三家拿到�?材料\"完全一致；区别只在前面追加�?现在主动找用�?那条 hint�?",
+      "head": "              //    保证三家拿到的\"材料\"完全一致；区别只在前面追加的\"现在主动找用户\"那条 hint。"
+    },
+    {
+      "line": 2259,
+      "kind": "hunk-damaged",
+      "f": "              // 1.0 鏈湴涓诲姩娑堟伅涓嶄細缁忚繃 Chat.tsx 鐨?aiVisibleEmojis銆?",
+      "rev": "              // 1.0 本地主动消息不会经过 Chat.tsx �?aiVisibleEmojis�?",
+      "head": "              // 1.0 本地主动消息不会经过 Chat.tsx 的 aiVisibleEmojis。"
+    },
+    {
+      "line": 2261,
+      "kind": "hunk-damaged",
+      "f": "              // 鍙慨鎻愮ず璇嶄粛鎸′笉浣忔ā鍨嬪杩版棫涓婁笅鏂囬噷鐨勮〃鎯呭悕锛涘彧淇惤搴撳垯妯″瀷浠嶄細鐪嬪埌瓒婃潈琛ㄦ儏銆?",
+      "rev": "              // 只修提示词仍挡不住模型复述旧上下文里的表情名；只修落库则模型仍会看到越权表情�?",
+      "head": "              // 只修提示词仍挡不住模型复述旧上下文里的表情名；只修落库则模型仍会看到越权表情。"
+    },
+    {
+      "line": 2262,
+      "kind": "hunk-damaged",
+      "f": "              // 2.0 鎺ㄩ€佽矾寰勫凡鍦?activeMsgClient / activeMsgRuntime 鍋氬悓鏍风殑鍙屽眰鏀跺彛銆?",
+      "rev": "              // 2.0 推送路径已�?activeMsgClient / activeMsgRuntime 做同样的双层收口�?",
+      "head": "              // 2.0 推送路径已在 activeMsgClient / activeMsgRuntime 做同样的双层收口。"
+    },
+    {
+      "line": 2269,
+      "kind": "hunk-damaged",
+      "f": "              // 涓婁竴杞紦瀛樼殑鎰忚瘑娴佺嫭鐧?鈥斺€?涓昏矾寰勭敤 React state锛屼富鍔ㄦ秷鎭繖閲岀敤 ref Map",
+      "rev": "              // 上一轮缓存的意识流独�?—�?主路径用 React state，主动消息这里用 ref Map",
+      "head": "              // 上一轮缓存的意识流独白 —— 主路径用 React state，主动消息这里用 ref Map"
+    },
+    {
+      "line": 2279,
+      "kind": "hunk-damaged",
+      "f": "                  // 瀹炴椂闊充箰鎾斁鐘舵€?鈥斺€?OSContext 鍦?MusicProvider 涓婂眰鐢ㄤ笉浜?useMusic()锛?",
+      "rev": "                  // 实时音乐播放状�?—�?OSContext �?MusicProvider 上层用不�?useMusic()�?",
+      "head": "                  // 实时音乐播放状态 —— OSContext 在 MusicProvider 上层用不了 useMusic()，"
+    },
+    {
+      "line": 2280,
+      "kind": "hunk-damaged",
+      "f": "                  // 璧?MusicContext 鏆撮湶鐨勬ā鍧楃骇蹇収锛圥rovider mount 鍚庝細鎸佺画鍐欏叆锛?",
+      "rev": "                  // �?MusicContext 暴露的模块级快照（Provider mount 后会持续写入�?",
+      "head": "                  // 走 MusicContext 暴露的模块级快照（Provider mount 后会持续写入）"
+    },
+    {
+      "line": 2282,
+      "kind": "hunk-damaged",
+      "f": "                  // translationConfig / mcdMiniSnap 鏄?chat-app 浼氳瘽绾?UI 鐘舵€侊紝涓诲姩娑堟伅瑙﹀彂鏃?",
+      "rev": "                  // translationConfig / mcdMiniSnap �?chat-app 会话�?UI 状态，主动消息触发�?",
+      "head": "                  // translationConfig / mcdMiniSnap 是 chat-app 会话级 UI 状态，主动消息触发时"
+    },
+    {
+      "line": 2283,
+      "kind": "hunk-damaged",
+      "f": "                  // 涓嶅瓨鍦紱淇濇寔 undefined 鍗冲彲锛屼笌\"鐢ㄦ埛褰撴椂鏍规湰娌″湪 chat 鐣岄潰\"鐨勮涔変竴鑷?",
+      "rev": "                  // 不存在；保持 undefined 即可，与\"用户当时根本没在 chat 界面\"的语义一�?",
+      "head": "                  // 不存在；保持 undefined 即可，与\"用户当时根本没在 chat 界面\"的语义一致"
+    },
+    {
+      "line": 2292,
+      "kind": "hunk-damaged",
+      "f": "              // 3c. 鎯呯华璇勪及 fire-and-forget 鈥?涓庝富 API 骞惰锛屾部鐢?useChatAI 鐨?API 閫夋嫨閫昏緫锛?",
+      "rev": "              // 3c. 情绪评估 fire-and-forget �?与主 API 并行，沿�?useChatAI �?API 选择逻辑�?",
+      "head": "              // 3c. 情绪评估 fire-and-forget — 与主 API 并行，沿用 useChatAI 的 API 选择逻辑："
+    },
+    {
+      "line": 2293,
+      "kind": "hunk-damaged",
+      "f": "              //     瑙掕壊涓撳睘鎯呯华 API > 涓?apiConfig锛堜笌璁板繂瀹鍓?API 瀹屽叏鐙珛锛?",
+      "rev": "              //     角色专属情绪 API > �?apiConfig（与记忆宫殿�?API 完全独立�?",
+      "head": "              //     角色专属情绪 API > 主 apiConfig（与记忆宫殿副 API 完全独立）"
+    },
+    {
+      "line": 2311,
+      "kind": "hunk-damaged",
+      "f": "              // 鎬濊€冮摼寮€鍚椂鏄惧紡鍚戝悗绔姹?extended thinking 鈥?涓?useChatAI 鍚屾,",
+      "rev": "              // 思考链开启时显式向后端请�?extended thinking �?�?useChatAI 同步,",
+      "head": "              // 思考链开启时显式向后端请求 extended thinking — 与 useChatAI 同步,"
+    },
+    {
+      "line": 2312,
+      "kind": "hunk-damaged",
+      "f": "              // 涓嶅悓浠ｇ悊璁や笉鍚屽叆鍙?鍏ㄩ兘璇曚竴閬?浠ｇ悊涓嶈瘑鍒殑浼氳嚜鍔ㄥ拷鐣?",
+      "rev": "              // 不同代理认不同入�?全都试一�?代理不识别的会自动忽�?",
+      "head": "              // 不同代理认不同入口,全都试一遍,代理不识别的会自动忽略"
+    },
+    {
+      "line": 2321,
+      "kind": "hunk-damaged",
+      "f": "                  // 寮€鎬濊€冩椂涓嶅甫閲囨牱鍙傛暟: Claude 绯诲湪 thinking 鍚敤鏃跺彧鎺ュ彈 temperature=1锛?",
+      "rev": "                  // 开思考时不带采样参数: Claude 系在 thinking 启用时只接受 temperature=1�?",
+      "head": "                  // 开思考时不带采样参数: Claude 系在 thinking 启用时只接受 temperature=1，"
+    },
+    {
+      "line": 2322,
+      "kind": "hunk-damaged",
+      "f": "                  // 浼?0.85 浼氳 400銆傚垹鎺夌敤鏈嶅姟绔粯璁わ紱瀵归潪 Claude 妯″瀷鍚屾牱瀹夊叏銆?",
+      "rev": "                  // �?0.85 会被 400。删掉用服务端默认；对非 Claude 模型同样安全�?",
+      "head": "                  // 传 0.85 会被 400。删掉用服务端默认；对非 Claude 模型同样安全。"
+    },
+    {
+      "line": 2333,
+      "kind": "hunk-damaged",
+      "f": "              // 鎬濊€冮摼鎶藉彇 鈥?涓?useChatAI 淇濇寔涓€鑷?reasoning_content 瀛楁 + 涓?content 閲岀殑 <think>/<thinking>/<thought> 鍧?",
+      "rev": "              // 思考链抽取 �?�?useChatAI 保持一�?reasoning_content 字段 + �?content 里的 <think>/<thinking>/<thought> �?",
+      "head": "              // 思考链抽取 — 与 useChatAI 保持一致:reasoning_content 字段 + 主 content 里的 <think>/<thinking>/<thought> 块,"
+    },
+    {
+      "line": 2334,
+      "kind": "hunk-damaged",
+      "f": "              // 鎷兼帴鍚庢寕鍒版湰鍥炲悎棣栨潯 assistant 娑堟伅鐨?metadata.thinkingChain",
+      "rev": "              // 拼接后挂到本回合首条 assistant 消息�?metadata.thinkingChain",
+      "head": "              // 拼接后挂到本回合首条 assistant 消息的 metadata.thinkingChain"
+    },
+    {
+      "line": 2362,
+      "kind": "hunk-damaged",
+      "f": "              // 鎬濊€冮摼鍙寕鍒版湰鍥炲悎棣栨潯 assistant 娑堟伅涓?閬垮厤姣忎釜姘旀场閲嶅",
+      "rev": "              // 思考链只挂到本回合首条 assistant 消息�?避免每个气泡重复",
+      "head": "              // 思考链只挂到本回合首条 assistant 消息上,避免每个气泡重复"
+    },
+    {
+      "line": 2370,
+      "kind": "hunk-damaged",
+      "f": "              // HTML 鍗＄墖锛氬湪 sanitize 涔嬪墠鎶藉嚭 [html]...[/html] 鍧?涓?useChatAI 淇濇寔涓€鑷淬€?",
+      "rev": "              // HTML 卡片：在 sanitize 之前抽出 [html]...[/html] �?�?useChatAI 保持一致�?",
+      "head": "              // HTML 卡片：在 sanitize 之前抽出 [html]...[/html] 块,与 useChatAI 保持一致。"
+    },
+    {
+      "line": 2371,
+      "kind": "hunk-damaged",
+      "f": "              // 娌¤繖涓€姝ヤ富鍔ㄦ秷鎭細鎶婃暣娈?[html] 褰撶函鏂囨湰钀藉簱,鍓嶇鍙兘娓叉煋鎴愪贡鐮併€?",
+      "rev": "              // 没这一步主动消息会把整�?[html] 当纯文本落库,前端只能渲染成乱码�?",
+      "head": "              // 没这一步主动消息会把整段 [html] 当纯文本落库,前端只能渲染成乱码。"
+    },
+    {
+      "line": 2401,
+      "kind": "hunk-damaged",
+      "f": "                  // 鍙岃缈昏瘧:娌跨敤 useChatAI 鐨?<缈昏瘧><鍘熸枃>..</鍘熸枃><璇戞枃>..</璇戞枃></缈昏瘧> 鍗忚,",
+      "rev": "                  // 双语翻译:沿用 useChatAI �?<翻译><原文>..</原文><译文>..</译文></翻译> 协议,",
+      "head": "                  // 双语翻译:沿用 useChatAI 的 <翻译><原文>..</原文><译文>..</译文></翻译> 协议,"
+    },
+    {
+      "line": 2402,
+      "kind": "hunk-damaged",
+      "f": "                  // 鎶婃瘡瀵瑰師鏂?璇戞枃钀芥垚涓€鏉?text 娑堟伅,鍐呭鐢?`\\n%%BILINGUAL%%\\n` 涓茶仈渚涙覆鏌撶璇嗗埆銆?",
+      "rev": "                  // 把每对原�?译文落成一�?text 消息,内容�?`\\n%%BILINGUAL%%\\n` 串联供渲染端识别�?",
+      "head": "                  // 把每对原文/译文落成一条 text 消息,内容用 `\\n%%BILINGUAL%%\\n` 串联供渲染端识别。"
+    },
+    {
+      "line": 2429,
+      "kind": "hunk-damaged",
+      "f": "                      // 琛ㄦ儏鍖呮寜妯″瀷鍐欑殑浣嶇疆鍘熷湴鎻掑彂锛堜笌 applyAssistantPostProcessing 鍙岃鍒嗘敮鍚屾淇锛夈€?",
+      "rev": "                      // 表情包按模型写的位置原地插发（与 applyAssistantPostProcessing 双语分支同款修复）�?",
+      "head": "                      // 表情包按模型写的位置原地插发（与 applyAssistantPostProcessing 双语分支同款修复）。"
+    },
+    {
+      "line": 2430,
+      "kind": "hunk-damaged",
+      "f": "                      // 鏃у疄鐜板厛鎶婃墍鏈?[[SEND_EMOJI:]] 鎶借蛋銆佹鏂囧彂瀹屽悗缁熶竴杩藉姞鍒版渶鍚庯紙杩樺幓浜嗛噸锛夛紝",
+      "rev": "                      // 旧实现先把所�?[[SEND_EMOJI:]] 抽走、正文发完后统一追加到最后（还去了重），",
+      "head": "                      // 旧实现先把所有 [[SEND_EMOJI:]] 抽走、正文发完后统一追加到最后（还去了重），"
+    },
+    {
+      "line": 2431,
+      "kind": "hunk-damaged",
+      "f": "                      // 琛ㄧ幇涓恒€岀炕璇戞ā寮忎笅瑙掕壊姘歌繙鏈€鍚庢墠鍙戣〃鎯呭寘銆嶃€?",
+      "rev": "                      // 表现为「翻译模式下角色永远最后才发表情包」�?",
+      "head": "                      // 表现为「翻译模式下角色永远最后才发表情包」。"
+    },
+    {
+      "line": 2432,
+      "kind": "hunk-damaged",
+      "f": "                      // 缈昏瘧鏍囩涔嬪鐨勬櫘閫氭枃鏈锛歴plitResponse 鎸夊嚭鐜伴『搴忔媶鍑烘枃瀛?/ 琛ㄦ儏閫愭潯鍙?",
+      "rev": "                      // 翻译标签之外的普通文本段：splitResponse 按出现顺序拆出文�?/ 表情逐条�?",
+      "head": "                      // 翻译标签之外的普通文本段：splitResponse 按出现顺序拆出文字 / 表情逐条发"
+    },
+    {
+      "line": 2465,
+      "kind": "hunk-damaged",
+      "f": "                          // 娣疯繘 <鍘熸枃>/<璇戞枃> 閲岀殑琛ㄦ儏鏍囩鍓ュ嚭鏉ワ紝绱ц窡杩欐潯鍙岃姘旀场涔嬪悗鍙?",
+      "rev": "                          // 混进 <原文>/<译文> 里的表情标签剥出来，紧跟这条双语气泡之后�?",
+      "head": "                          // 混进 <原文>/<译文> 里的表情标签剥出来，紧跟这条双语气泡之后发"
+    },
+    {
+      "line": 2552,
+      "kind": "hunk-damaged",
+      "f": "      // 銆屽郊鏂广€嶈嚜涓荤櫥鍏?鈥斺€?鐙珛璋冨害锛屽鐢ㄥ悓涓€鎵?refs 鎷挎渶鏂扮姸鎬?",
+      "rev": "      // 「彼方」自主登�?—�?独立调度，复用同一�?refs 拿最新状�?",
+      "head": "      // 「彼方」自主登入 —— 独立调度，复用同一批 refs 拿最新状态"
+    },
+    {
+      "line": 2555,
+      "kind": "hunk-damaged",
+      "f": "          // 璋冨害琛ㄩ噷杩樻帓鐫€闃燂紝瑙掕壊鍗村凡缁忎笉鎺ュ叆浜嗭紙鎴栬€呭帇鏍硅鍒犱簡锛夛細杩欐潯璋冨害涓嶈缁х画瀛樺湪銆?",
+      "rev": "          // 调度表里还排着队，角色却已经不接入了（或者压根被删了）：这条调度不该继续存在�?",
+      "head": "          // 调度表里还排着队，角色却已经不接入了（或者压根被删了）：这条调度不该继续存在。"
+    },
+    {
+      "line": 2556,
+      "kind": "hunk-damaged",
+      "f": "          // 灏卞湴鎾ゆ帀骞剁暀涓€琛岃褰?鈥斺€?涓嶆挙鐨勮瘽瀹冧細涓€鐩寸┖杞紝鑰岀┖杞槸瀹屽叏闈欓粯鐨勶紝",
+      "rev": "          // 就地撤掉并留一行记�?—�?不撤的话它会一直空转，而空转是完全静默的，",
+      "head": "          // 就地撤掉并留一行记录 —— 不撤的话它会一直空转，而空转是完全静默的，"
+    },
+    {
+      "line": 2557,
+      "kind": "hunk-damaged",
+      "f": "          // 鐢ㄦ埛閭ｈ竟鍙湅寰楀埌銆屾槑鏄庡叏鍏充簡锛岃皟鐢ㄨ褰曡繕鍦ㄦ定銆嶏紝璋佷篃璇翠笉娓呮槸鍝竴杈归敊浜嗐€?",
+      "rev": "          // 用户那边只看得到「明明全关了，调用记录还在涨」，谁也说不清是哪一边错了�?",
+      "head": "          // 用户那边只看得到「明明全关了，调用记录还在涨」，谁也说不清是哪一边错了。"
+    },
+    {
+      "line": 2563,
+      "kind": "hunk-damaged",
+      "f": "                  note: char ? '瑙掕壊鏈帴鍏ュ郊鏂癸紝宸叉挙鎺夎繖鏉℃畫鐣欒皟搴? : '瑙掕壊宸蹭笉瀛樺湪锛屽凡鎾ゆ帀杩欐潯娈嬬暀璋冨害',",
+      "rev": "                  note: char ? '角色未接入彼方，已撤掉这条残留调�? : '角色已不存在，已撤掉这条残留调度',",
+      "head": "                  note: char ? '角色未接入彼方，已撤掉这条残留调度' : '角色已不存在，已撤掉这条残留调度',"
+    },
+    {
+      "line": 2583,
+      "kind": "hunk-damaged",
+      "f": "              // 娌′功娌℃瓕銆佹埧闂磋鍒汉鍗犵潃杩欎簺閮戒笉绠楄处锛屽彧鏈夌湡鐨勬病璋冮€氭ā鍨嬫墠璁颁竴绗斿け璐?",
+      "rev": "              // 没书没歌、房间被别人占着这些都不算账，只有真的没调通模型才记一笔失�?",
+      "head": "              // 没书没歌、房间被别人占着这些都不算账，只有真的没调通模型才记一笔失败"
+    },
+    {
+      "line": 2593,
+      "kind": "hunk-damaged",
+      "f": "          // 鍏嶅緱鍙堝彉鎴愩€屾樉绀烘湭鎺ュ叆銆佸悗鍙拌繕鍦ㄥ姩銆嶃€傜敤鍑芥暟寮忔洿鏂版嬁鏈€鏂扮殑 vrState锛?",
+      "rev": "          // 免得又变成「显示未接入、后台还在动」。用函数式更新拿最新的 vrState�?",
+      "head": "          // 免得又变成「显示未接入、后台还在动」。用函数式更新拿最新的 vrState，"
+    },
+    {
+      "line": 2594,
+      "kind": "hunk-damaged",
+      "f": "          // 鍒嬁浼氳瘽寮€澶撮偅浠藉揩鐓у啓鍥炲幓锛岄偅浼氭妸杩欎竴杞垰璁颁笅鐨勬埧闂村拰鏃堕棿鎶规帀銆?",
+      "rev": "          // 别拿会话开头那份快照写回去，那会把这一轮刚记下的房间和时间抹掉�?",
+      "head": "          // 别拿会话开头那份快照写回去，那会把这一轮刚记下的房间和时间抹掉。"
+    },
+    {
+      "line": 2601,
+      "kind": "hunk-damaged",
+      "f": "              note: `杩炵画 ${streak} 娆℃病鑳借皟閫氭ā鍨嬶紝宸叉殏鍋?${char.name} 鐨勮嚜涓荤櫥鍏,",
+      "rev": "              note: `连续 ${streak} 次没能调通模型，已暂�?${char.name} 的自主登入`,",
+      "head": "              note: `连续 ${streak} 次没能调通模型，已暂停 ${char.name} 的自主登入`,"
+    },
+    {
+      "line": 2603,
+      "kind": "hunk-damaged",
+      "f": "          addToast(`${char.name} 杩炵画 ${streak} 娆℃病鑳借皟閫氭ā鍨嬶紝宸叉殏鍋?ta 鍦ㄥ郊鏂圭殑鑷富鐧诲叆`, 'error');",
+      "rev": "          addToast(`${char.name} 连续 ${streak} 次没能调通模型，已暂�?ta 在彼方的自主登入`, 'error');",
+      "head": "          addToast(`${char.name} 连续 ${streak} 次没能调通模型，已暂停 ta 在彼方的自主登入`, 'error');"
+    },
+    {
+      "line": 2607,
+      "kind": "hunk-damaged",
+      "f": "      // 浠ヨ鑹?vrState 涓哄噯瀵硅处璋冨害琛細璋冨害琛ㄥ瓨 localStorage銆佷笉闅忓浠借縼绉伙紝",
+      "rev": "      // 以角�?vrState 为准对账调度表：调度表存 localStorage、不随备份迁移，",
+      "head": "      // 以角色 vrState 为准对账调度表：调度表存 localStorage、不随备份迁移，"
+    },
+    {
+      "line": 2608,
+      "kind": "hunk-damaged",
+      "f": "      // 瀵煎叆澶囦唤鍚庤鑹茶櫧 enabled 浣嗚皟搴﹁〃涓虹┖锛岃繖閲岃ˉ寤?娓呯悊浣垮叾鎸夋椂瑙﹀彂銆?",
+      "rev": "      // 导入备份后角色虽 enabled 但调度表为空，这里补�?清理使其按时触发�?",
+      "head": "      // 导入备份后角色虽 enabled 但调度表为空，这里补建/清理使其按时触发。"
+    },
+    {
+      "line": 2615,
+      "kind": "hunk-damaged",
+      "f": "      // 銆屽鍥€嶆紨缁?鈥斺€?寮曟搸璺戝湪鍏ㄥ眬锛氱敤鎴蜂笉鍦ㄥ鍥晫闈紙鍙兘姝ｅ湪鍜屽埆浜虹鑱婏級鏃讹紝",
+      "rev": "      // 「家园」演�?—�?引擎跑在全局：用户不在家园界面（可能正在和别人私聊）时，",
+      "head": "      // 「家园」演绎 —— 引擎跑在全局：用户不在家园界面（可能正在和别人私聊）时，"
+    },
+    {
+      "line": 2616,
+      "kind": "hunk-damaged",
+      "f": "      // 瑙傛祴/绂荤嚎 tick 瑙﹀彂鐨勪竴杞摼寮忔紨缁庣収鏍峰畬鎴愬苟娉ㄥ叆 world_card銆?",
+      "rev": "      // 观测/离线 tick 触发的一轮链式演绎照样完成并注入 world_card�?",
+      "head": "      // 观测/离线 tick 触发的一轮链式演绎照样完成并注入 world_card。"
+    },
+    {
+      "line": 2638,
+      "kind": "hunk-damaged",
+      "f": "      // 鍗曚釜瑙掕壊閲?roll锛堝鍥?WorldView 娲惧彂 world-reroll-request 浜嬩欢锛屽甫 worldId/charId/direction锛?",
+      "rev": "      // 单个角色�?roll（家�?WorldView 派发 world-reroll-request 事件，带 worldId/charId/direction�?",
+      "head": "      // 单个角色重 roll（家园 WorldView 派发 world-reroll-request 事件，带 worldId/charId/direction）"
+    },
+    {
+      "line": 2684,
+      "kind": "hunk-damaged",
+      "f": "  // 鈹€鈹€鈹€ utils 灞傜洿鍐?DB 鍚庣殑鍐呭瓨鍥炵亴 鈹€鈹€鈹€",
+      "rev": "  // ─── utils 层直�?DB 后的内存回灌 ───",
+      "head": "  // ─── utils 层直写 DB 后的内存回灌 ───"
+    },
+    {
+      "line": 2686,
+      "kind": "hunk-damaged",
+      "f": "  // 涔嬪悗闅忎究鍝釜 updateCharacter 閮戒細鎷挎棫鍐呭瓨鍚堝苟鍐欏洖锛屾妸鍒氬啓杩涘幓鐨勪笢瑗垮弽鍚戞姽鎺?",
+      "rev": "  // 之后随便哪个 updateCharacter 都会拿旧内存合并写回，把刚写进去的东西反向抹�?",
+      "head": "  // 之后随便哪个 updateCharacter 都会拿旧内存合并写回，把刚写进去的东西反向抹掉"
+    },
+    {
+      "line": 2687,
+      "kind": "hunk-damaged",
+      "f": "  // 锛堟儏缁?buff 鏃╁氨韪╄繃杩欎釜鍧戯紝瑙佷笂闈?buffSyncHandler 鐨勬敞閲婏級锛屼簯绔揩鐓т篃璺熺潃鍋滄牸銆?",
+      "rev": "  // （情�?buff 早就踩过这个坑，见上�?buffSyncHandler 的注释），云端快照也跟着停格�?",
+      "head": "  // （情绪 buff 早就踩过这个坑，见上面 buffSyncHandler 的注释），云端快照也跟着停格。"
+    },
+    {
+      "line": 2689,
+      "kind": "hunk-damaged",
+      "f": "      // 瑙掕壊鑷帓鍚庣画浠诲姟琚噰绾筹紙銆屾堡鐐栦笂浜嗭紝涓ゅ皬鏃跺悗鍙綘銆嶏級锛氫换鍔℃竻鍗曞彧钀藉湪 DB锛?",
+      "rev": "      // 角色自排后续任务被采纳（「汤炖上了，两小时后叫你」）：任务清单只落在 DB�?",
+      "head": "      // 角色自排后续任务被采纳（「汤炖上了，两小时后叫你」）：任务清单只落在 DB，"
+    },
+    {
+      "line": 2690,
+      "kind": "hunk-damaged",
+      "f": "      // React 涓嶇煡鎯呬細鍚屾椂鏂帀 presence 闂ㄣ€佹墦鑴忛棬鍜岄潰鏉夸笂鐨勫緟瑙﹀彂娓呭崟涓夋潯绾裤€?",
+      "rev": "      // React 不知情会同时断掉 presence 门、打脏门和面板上的待触发清单三条线�?",
+      "head": "      // React 不知情会同时断掉 presence 门、打脏门和面板上的待触发清单三条线。"
+    },
+    {
+      "line": 2700,
+      "kind": "hunk-damaged",
+      "f": "                  // 瀛楁锛堟瘮濡傚悓涓€鏃跺埢鍒氳惤鍦扮殑鎯呯华锛夊€掗€€锛屽弽杩囨潵鐢ㄦ棫鍐呭瓨鏁村璞″啓 DB 鍙堜細鎶?",
+      "rev": "                  // 字段（比如同一时刻刚落地的情绪）倒退，反过来用旧内存整对象写 DB 又会�?",
+      "head": "                  // 字段（比如同一时刻刚落地的情绪）倒退，反过来用旧内存整对象写 DB 又会把"
+    },
+    {
+      "line": 2701,
+      "kind": "hunk-damaged",
+      "f": "                  // 鍒氶噰绾崇殑浠诲姟娓呭崟鎶规帀銆?",
+      "rev": "                  // 刚采纳的任务清单抹掉�?",
+      "head": "                  // 刚采纳的任务清单抹掉。"
+    },
+    {
+      "line": 2714,
+      "kind": "hunk-damaged",
+      "f": "      // 鍚瓕鏃惰鑹叉妸姝屽姞杩涜嚜宸辩殑姝屽崟锛圡usicContext 鐩村啓 DB锛夛細姝屽崟杩?fire_pack锛?",
+      "rev": "      // 听歌时角色把歌加进自己的歌单（MusicContext 直写 DB）：歌单�?fire_pack�?",
+      "head": "      // 听歌时角色把歌加进自己的歌单（MusicContext 直写 DB）：歌单进 fire_pack，"
+    },
+    {
+      "line": 2715,
+      "kind": "hunk-damaged",
+      "f": "      // 涓嶆墦鑴忚鑹插埌鐐硅繕浠ヤ负閭ｉ姝屾病鏀惰棌杩囥€?",
+      "rev": "      // 不打脏角色到点还以为那首歌没收藏过�?",
+      "head": "      // 不打脏角色到点还以为那首歌没收藏过。"
+    },
+    {
+      "line": 2733,
+      "kind": "hunk-damaged",
+      "f": "      // Push / 褰兼柟 / 瀹跺洯绛?React 澶栧叆鍙ｅ畬鎴愬叏鑷姩璁板繂鍙屽啓鍚庯紝鍙妸澧為噺鎼洖鍐呭瓨銆?",
+      "rev": "      // Push / 彼方 / 家园�?React 外入口完成全自动记忆双写后，只把增量搬回内存�?",
+      "head": "      // Push / 彼方 / 家园等 React 外入口完成全自动记忆双写后，只把增量搬回内存。"
+    },
+    {
+      "line": 2734,
+      "kind": "hunk-damaged",
+      "f": "      // 鍐嶅熀浜庡綋鍓?state 淇濆瓨涓€娆★紝鍫典綇鍚庡彴 DB 鍐欏叆鍜屽墠鍙拌鑹叉洿鏂板悓鏃跺彂鐢熸椂鐨勫弽鍚戣鐩栥€?",
+      "rev": "      // 再基于当�?state 保存一次，堵住后台 DB 写入和前台角色更新同时发生时的反向覆盖�?",
+      "head": "      // 再基于当前 state 保存一次，堵住后台 DB 写入和前台角色更新同时发生时的反向覆盖。"
+    },
+    {
+      "line": 2773,
+      "kind": "hunk-damaged",
+      "f": "  // 鏃х増鏈浘鍦?Push 鍚庡鐞嗛噷鍙啓瀹銆佹病鍐欑缁忛摼鎺ャ€傛瘡涓鑹插崌绾у悗淇濆畧淇竴娆★細",
+      "rev": "  // 旧版本曾�?Push 后处理里只写宫殿、没写神经链接。每个角色升级后保守修一次：",
+      "head": "  // 旧版本曾在 Push 后处理里只写宫殿、没写神经链接。每个角色升级后保守修一次："
+    },
+    {
+      "line": 2774,
+      "kind": "hunk-damaged",
+      "f": "  // 鍙ˉ鈥滄渶鍚庝竴鏉?palace 鏃ュ織涔嬪悗鏁村ぉ瀹屽叏绌虹櫧鈥濈殑鑱婂ぉ鎻愬彇鑺傜偣锛屼笉璋?API銆佷笉鍔ㄦ按浣嶇嚎銆?",
+      "rev": "  // 只补“最后一�?palace 日志之后整天完全空白”的聊天提取节点，不�?API、不动水位线�?",
+      "head": "  // 只补“最后一条 palace 日志之后整天完全空白”的聊天提取节点，不调 API、不动水位线。"
+    },
+    {
+      "line": 2796,
+      "kind": "hunk-damaged",
+      "f": "  // 鍙湪鏈鏁版嵁鍒濆鍖栧畬鎴愭椂鎵ц锛涘悗缁柊鏁版嵁璧板凡淇鐨勭粺涓€鍙屽啓鍏ュ彛銆?",
+      "rev": "  // 只在本次数据初始化完成时执行；后续新数据走已修复的统一双写入口�?",
+      "head": "  // 只在本次数据初始化完成时执行；后续新数据走已修复的统一双写入口。"
+    },
+    {
+      "line": 2802,
+      "kind": "hunk-damaged",
+      "f": "    // Legacy slots are banned 鈥?never let them enter state, regardless of caller intent.",
+      "rev": "    // Legacy slots are banned �?never let them enter state, regardless of caller intent.",
+      "head": "    // Legacy slots are banned — never let them enter state, regardless of caller intent."
+    },
+    {
+      "line": 2815,
+      "kind": "hunk-damaged",
+      "f": "    // 澹佺焊鏀瑰瓨 Blob锛氭妸鎸囬拡锛堜护鐗岋級钀藉簱骞惰В鏋愭垚鍙覆鏌?url 鍚庡啀杩?state銆?",
+      "rev": "    // 壁纸改存 Blob：把指针（令牌）落库并解析成可渲�?url 后再�?state�?",
+      "head": "    // 壁纸改存 Blob：把指针（令牌）落库并解析成可渲染 url 后再进 state。"
+    },
+    {
+      "line": 2816,
+      "kind": "hunk-damaged",
+      "f": "    // theme.wallpaper 鍦ㄥ唴瀛橀噷濮嬬粓鏄兘鐩存帴鍠?CSS 鐨勫€硷紙objectURL / http / 娓愬彉锛夛紝",
+      "rev": "    // theme.wallpaper 在内存里始终是能直接�?CSS 的值（objectURL / http / 渐变），",
+      "head": "    // theme.wallpaper 在内存里始终是能直接喂 CSS 的值（objectURL / http / 渐变），"
+    },
+    {
+      "line": 2817,
+      "kind": "hunk-damaged",
+      "f": "    // 涓嶆槸 blobref 浠ょ墝銆?",
+      "rev": "    // 不是 blobref 令牌�?",
+      "head": "    // 不是 blobref 令牌。"
+    },
+    {
+      "line": 2829,
+      "kind": "hunk-damaged",
+      "f": "    // Legacy single-image asset is permanently banned 鈥?always delete, never save.",
+      "rev": "    // Legacy single-image asset is permanently banned �?always delete, never save.",
+      "head": "    // Legacy single-image asset is permanently banned — always delete, never save."
+    },
+    {
+      "line": 2868,
+      "kind": "hunk-damaged",
+      "f": "    // still triggers the reset branch 鈥?`customFont !== undefined` would skip it.",
+      "rev": "    // still triggers the reset branch �?`customFont !== undefined` would skip it.",
+      "head": "    // still triggers the reset branch — `customFont !== undefined` would skip it."
+    },
+    {
+      "line": 2886,
+      "kind": "hunk-damaged",
+      "f": "    // blob: objectURL 鏄湰娆′細璇濅复鏃剁殑锛岄噸鍚悗澶辨晥鈥斺€斾笉鑳借繘 LS锛屾竻绌鸿鍔犺浇璺緞浠?assets 閲嶆柊瑙ｆ瀽銆?",
+      "rev": "    // blob: objectURL 是本次会话临时的，重启后失效——不能进 LS，清空让加载路径�?assets 重新解析�?",
+      "head": "    // blob: objectURL 是本次会话临时的，重启后失效——不能进 LS，清空让加载路径从 assets 重新解析。"
+    },
+    {
+      "line": 2890,
+      "kind": "hunk-damaged",
+      "f": "    // Banned legacy field 鈥?never persist.",
+      "rev": "    // Banned legacy field �?never persist.",
+      "head": "    // Banned legacy field — never persist."
+    },
+    {
+      "line": 2916,
+      "kind": "hunk-damaged",
+      "f": "        // quota 婊℃椂闈欓粯澶辫触 = 鐢ㄦ埛杩欐鐪嬬潃姝ｅ父銆佷笅娆″惎鍔ㄤ富棰樺洖鍒濆銆傚繀椤昏鐢ㄦ埛鐭ラ亾銆?",
+      "rev": "        // quota 满时静默失败 = 用户这次看着正常、下次启动主题回初始。必须让用户知道�?",
+      "head": "        // quota 满时静默失败 = 用户这次看着正常、下次启动主题回初始。必须让用户知道。"
+    },
+    {
+      "line": 2931,
+      "kind": "hunk-damaged",
+      "f": "  // Backup provider router 鈥?picks the right client module based on",
+      "rev": "  // Backup provider router �?picks the right client module based on",
+      "head": "  // Backup provider router — picks the right client module based on"
+    },
+    {
+      "line": 2947,
+      "kind": "hunk-damaged",
+      "f": "          setSysOperation({ status: 'processing', message: '姝ｅ湪涓婁紶鍒颁簯绔?..', progress: 50 });",
+      "rev": "          setSysOperation({ status: 'processing', message: '正在上传到云�?..', progress: 50 });",
+      "head": "          setSysOperation({ status: 'processing', message: '正在上传到云端...', progress: 50 });"
+    },
+    {
+      "line": 2950,
+      "kind": "hunk-damaged",
+      "f": "              setSysOperation(prev => ({ ...prev, message: `涓婁紶涓?${pct}%...`, progress: 50 + pct * 0.45 }));",
+      "rev": "              setSysOperation(prev => ({ ...prev, message: `上传�?${pct}%...`, progress: 50 + pct * 0.45 }));",
+      "head": "              setSysOperation(prev => ({ ...prev, message: `上传中 ${pct}%...`, progress: 50 + pct * 0.45 }));"
+    },
+    {
+      "line": 2965,
+      "kind": "hunk-damaged",
+      "f": "          // provider / mode 閮芥槸浠ｇ爜閲屽啓姝荤殑鏋氫妇锛涜繛鎺ュ湴鍧€銆佽处鍙枫€侀敊璇師鏂囦竴姒備笉甯︺€?",
+      "rev": "          // provider / mode 都是代码里写死的枚举；连接地址、账号、错误原文一概不带�?",
+      "head": "          // provider / mode 都是代码里写死的枚举；连接地址、账号、错误原文一概不带。"
+    },
+    {
+      "line": 2966,
+      "kind": "hunk-damaged",
+      "f": "          trackEvent('涓婁紶澶囦唤鍒颁簯绔?, {",
+      "rev": "          trackEvent('上传备份到云�?, {",
+      "head": "          trackEvent('上传备份到云端', {"
+    },
+    {
+      "line": 2974,
+      "kind": "hunk-damaged",
+      "f": "          trackEvent('涓婁紶澶囦唤鍒颁簯绔?, {",
+      "rev": "          trackEvent('上传备份到云�?, {",
+      "head": "          trackEvent('上传备份到云端', {"
+    },
+    {
+      "line": 2986,
+      "kind": "hunk-damaged",
+      "f": "          setSysOperation({ status: 'processing', message: '姝ｅ湪浠庝簯绔笅杞?..', progress: 0 });",
+      "rev": "          setSysOperation({ status: 'processing', message: '正在从云端下�?..', progress: 0 });",
+      "head": "          setSysOperation({ status: 'processing', message: '正在从云端下载...', progress: 0 });"
+    },
+    {
+      "line": 2988,
+      "kind": "hunk-damaged",
+      "f": "              setSysOperation(prev => ({ ...prev, message: `涓嬭浇涓?${pct}%...`, progress: pct * 0.5 }));",
+      "rev": "              setSysOperation(prev => ({ ...prev, message: `下载�?${pct}%...`, progress: pct * 0.5 }));",
+      "head": "              setSysOperation(prev => ({ ...prev, message: `下载中 ${pct}%...`, progress: pct * 0.5 }));"
+    },
+    {
+      "line": 3019,
+      "kind": "hunk-damaged",
+      "f": "  // 鍚勮鑹茶嚜韬殑 enabled 鏍囧織淇濇寔涓嶅彉銆?",
+      "rev": "  // 各角色自身的 enabled 标志保持不变�?",
+      "head": "  // 各角色自身的 enabled 标志保持不变。"
+    },
+    {
+      "line": 3020,
+      "kind": "hunk-damaged",
+      "f": "  // 娉ㄦ剰锛氫笌璁板繂瀹鍓?API锛坢emoryPalaceConfig.lightLLM锛夊畬鍏ㄧ嫭绔嬶紝涓よ€呭悇绠″悇鐨勩€?",
+      "rev": "  // 注意：与记忆宫殿�?API（memoryPalaceConfig.lightLLM）完全独立，两者各管各的�?",
+      "head": "  // 注意：与记忆宫殿副 API（memoryPalaceConfig.lightLLM）完全独立，两者各管各的。"
+    },
+    {
+      "line": 3052,
+      "kind": "hunk-damaged",
+      "f": "    // 榛樿寮€鍚?emotionConfig.enabled锛岃\"寮€鏃ョ▼ = 寮€鎯呯华\"杩欐潯闅愬惈绾﹀畾瀵规柊瑙掕壊涔熸垚绔嬨€?",
+      "rev": "    // 默认开�?emotionConfig.enabled，让\"开日程 = 开情绪\"这条隐含约定对新角色也成立�?",
+      "head": "    // 默认开启 emotionConfig.enabled，让\"开日程 = 开情绪\"这条隐含约定对新角色也成立。"
+    },
+    {
+      "line": 3054,
+      "kind": "hunk-damaged",
+      "f": "    // 鏃跺壇 API 涓嶄細瑙﹀彂锛屾墍浠ヨ繖閲岄粯璁?true 瀹夊叏銆?",
+      "rev": "    // 时副 API 不会触发，所以这里默�?true 安全�?",
+      "head": "    // 时副 API 不会触发，所以这里默认 true 安全。"
+    },
+    {
+      "line": 3055,
+      "kind": "hunk-damaged",
+      "f": "    // 娉ㄦ剰锛歮emoryPalaceEnabled 涓嶅湪杩欓噷榛樿寮€ 鈥斺€?閭ｆ槸鐢ㄦ埛鍦ㄨ蹇嗗娈?App 鏄惧紡 opt-in",
+      "rev": "    // 注意：memoryPalaceEnabled 不在这里默认开 —�?那是用户在记忆宫�?App 显式 opt-in",
+      "head": "    // 注意：memoryPalaceEnabled 不在这里默认开 —— 那是用户在记忆宫殿 App 显式 opt-in"
+    },
+    {
+      "line": 3056,
+      "kind": "hunk-damaged",
+      "f": "    // 鐨勫姛鑳斤紝鑷姩寮€浼氭浛鐢ㄦ埛鍐崇瓥銆?",
+      "rev": "    // 的功能，自动开会替用户决策�?",
+      "head": "    // 的功能，自动开会替用户决策。"
+    },
+    {
+      "line": 3080,
+      "kind": "hunk-damaged",
+      "f": "        // 钀藉簱鎴愬姛鍚庣粰 amsg2 浜戠蹇収鎵撹剰锛氭敼浜鸿 / 鏀硅蹇?/ 闈㈡澘鍙栨秷浠诲姟绛夋墍鏈夎惤搴撹矾寰勯兘",
+      "rev": "        // 落库成功后给 amsg2 云端快照打脏：改人设 / 改记�?/ 面板取消任务等所有落库路径都",
+      "head": "        // 落库成功后给 amsg2 云端快照打脏：改人设 / 改记忆 / 面板取消任务等所有落库路径都"
+    },
+    {
+      "line": 3081,
+      "kind": "hunk-damaged",
+      "f": "        // 姹囧埌杩欓噷锛屼笉鎵撶殑璇濅簯绔?fire_pack 鍋滃湪涓婁竴杞亰澶╋紝瑙掕壊鍒扮偣鎷挎棫涓栫晫璇磋瘽銆?",
+      "rev": "        // 汇到这里，不打的话云�?fire_pack 停在上一轮聊天，角色到点拿旧世界说话�?",
+      "head": "        // 汇到这里，不打的话云端 fire_pack 停在上一轮聊天，角色到点拿旧世界说话。"
+    },
+    {
+      "line": 3082,
+      "kind": "hunk-damaged",
+      "f": "        // markDirty 鍐呴儴鑷甫銆屾病寮€ 2.0 / 娌℃寕 AI 浠诲姟灏?return銆嶇殑闂紝鏅€氳鑹查浂鎴愭湰銆?",
+      "rev": "        // markDirty 内部自带「没开 2.0 / 没挂 AI 任务�?return」的门，普通角色零成本�?",
+      "head": "        // markDirty 内部自带「没开 2.0 / 没挂 AI 任务就 return」的门，普通角色零成本。"
+    },
+    {
+      "line": 3085,
+      "kind": "hunk-damaged",
+      "f": "          // 鏃跺尯鍜屽悕瀛楁槸鍙︿竴鏉¤矾锛氬畠浠喕鍦ㄨ繙绔换鍔¤閲岋紝fire_pack 鍒锋柊鐩栦笉鍒般€?",
+      "rev": "          // 时区和名字是另一条路：它们冻在远端任务行里，fire_pack 刷新盖不到�?",
+      "head": "          // 时区和名字是另一条路：它们冻在远端任务行里，fire_pack 刷新盖不到。"
+    },
+    {
+      "line": 3086,
+      "kind": "hunk-damaged",
+      "f": "          // 涓婃父鎸変换鍔¤鐨?tzId 鎺ㄨ繘寰幆浠诲姟鐨勪笅娆¤Е鍙戞椂鍒伙紱fixed 妯″紡鐨勬帹閫佹爣棰樹篃鐩存帴",
+      "rev": "          // 上游按任务行�?tzId 推进循环任务的下次触发时刻；fixed 模式的推送标题也直接",
+      "head": "          // 上游按任务行的 tzId 推进循环任务的下次触发时刻；fixed 模式的推送标题也直接"
+    },
+    {
+      "line": 3087,
+      "kind": "hunk-damaged",
+      "f": "          // 璇讳换鍔¤鐨?contactName銆傚彧鍒风湡鐨勫彉浜嗙殑閭ｅ嚑椤癸紝鍒惌鍒殑鎿嶄綔鐨勪究杞︺€?",
+      "rev": "          // 读任务行�?contactName。只刷真的变了的那几项，别搭别的操作的便车�?",
+      "head": "          // 读任务行的 contactName。只刷真的变了的那几项，别搭别的操作的便车。"
+    },
+    {
+      "line": 3103,
+      "kind": "hunk-damaged",
+      "f": "    // 鍒扮偣鐓ф牱璺戜竴鏁磋疆鐢熸垚 + 鎺ㄩ€侊紝鐢ㄦ埛浼氭敹鍒颁竴涓凡缁忓垹鎺夌殑瑙掕壊鍙戞潵鐨勬秷鎭紙杩樻瘡娆?",
+      "rev": "    // 到点照样跑一整轮生成 + 推送，用户会收到一个已经删掉的角色发来的消息（还每�?",
+      "head": "    // 到点照样跑一整轮生成 + 推送，用户会收到一个已经删掉的角色发来的消息（还每次"
+    },
+    {
+      "line": 3104,
+      "kind": "hunk-damaged",
+      "f": "    // 鐪熺儳涓€杞?LLM锛夈€傛湰鍦拌褰曚竴鍒犲氨鍐嶆病鏈?uuid 鍙彇娑堬紝鎵€浠ュ繀椤昏刀鍦ㄥ垹闄や箣鍓嶆竻銆?",
+      "rev": "    // 真烧一�?LLM）。本地记录一删就再没�?uuid 可取消，所以必须赶在删除之前清�?",
+      "head": "    // 真烧一轮 LLM）。本地记录一删就再没有 uuid 可取消，所以必须赶在删除之前清。"
+    },
+    {
+      "line": 3105,
+      "kind": "hunk-damaged",
+      "f": "    // 娌℃帓杩囦换鍔＄殑瑙掕壊涓嶅彂浠讳綍璇锋眰銆?",
+      "rev": "    // 没排过任务的角色不发任何请求�?",
+      "head": "    // 没排过任务的角色不发任何请求。"
+    },
+    {
+      "line": 3109,
+      "kind": "hunk-damaged",
+      "f": "    // 浜戠鍠勫悗鎸″湪鏈湴鍒犻櫎**鍓嶉潰**锛氭棭鍓嶄涪鍚庡彴璺戠殑鐗堟湰鍦ㄦ柇缃?/ 绉掑叧 App 鏃舵牴鏈窇涓嶅畬锛?",
+      "rev": "    // 云端善后挡在本地删除**前面**：早前丢后台跑的版本在断�?/ 秒关 App 时根本跑不完�?",
+      "head": "    // 云端善后挡在本地删除**前面**：早前丢后台跑的版本在断网 / 秒关 App 时根本跑不完，"
+    },
+    {
+      "line": 3112,
+      "kind": "hunk-damaged",
+      "f": "    // 浠庢病閰嶈繃 2.0 鎴栨病濉?worker 鍦板潃鐨勮鑹蹭竴涓姹傞兘涓嶅彂锛岃矾寰勮窡鍘熸潵涓€鏍峰揩銆?",
+      "rev": "    // 从没配过 2.0 或没�?worker 地址的角色一个请求都不发，路径跟原来一样快�?",
+      "head": "    // 从没配过 2.0 或没填 worker 地址的角色一个请求都不发，路径跟原来一样快。"
+    },
+    {
+      "line": 3117,
+      "kind": "hunk-damaged",
+      "f": "      } catch { /* 閰嶇疆璇讳笉鍒版寜娌￠厤澶勭悊锛屼笌 purgeCharCloudState 鍚屽彛寰?*/ }",
+      "rev": "      } catch { /* 配置读不到按没配处理，与 purgeCharCloudState 同口�?*/ }",
+      "head": "      } catch { /* 配置读不到按没配处理，与 purgeCharCloudState 同口径 */ }"
+    },
+    {
+      "line": 3120,
+      "kind": "hunk-damaged",
+      "f": "        // 鏈夋病鏈変换鍔′互杩滅娓呭崟浼樺厛锛坈ancelAllTasksForChar 鍐呴儴鍏堟煡杩滅銆佹煡涓嶅埌鎵嶉€€鍥?",
+      "rev": "        // 有没有任务以远端清单优先（cancelAllTasksForChar 内部先查远端、查不到才退�?",
+      "head": "        // 有没有任务以远端清单优先（cancelAllTasksForChar 内部先查远端、查不到才退回"
+    },
+    {
+      "line": 3121,
+      "kind": "hunk-damaged",
+      "f": "        // 鏈湴娓呭崟锛夆€斺€斿彧鐪嬫湰鍦颁細婕忔帀鎺掔▼璁板綍涓㈠け鐨勫菇鐏典换鍔°€?",
+      "rev": "        // 本地清单）——只看本地会漏掉排程记录丢失的幽灵任务�?",
+      "head": "        // 本地清单）——只看本地会漏掉排程记录丢失的幽灵任务。"
+    },
+    {
+      "line": 3135,
+      "kind": "hunk-damaged",
+      "f": "            // 浠诲姟鍙栨秷鎺変簡锛屼簯绔繕鐣欑潃杩欎釜瑙掕壊鐨?client_state 鈥斺€?閭ｉ噷闈㈡槸瀹屾暣鐨勮鑹茬郴缁?",
+      "rev": "            // 任务取消掉了，云端还留着这个角色�?client_state —�?那里面是完整的角色系�?",
+      "head": "            // 任务取消掉了，云端还留着这个角色的 client_state —— 那里面是完整的角色系统"
+    },
+    {
+      "line": 3136,
+      "kind": "hunk-damaged",
+      "f": "            // 鎻愮ず璇嶅姞鏈€杩?30 鏉″璇濆師鏂囷紙fire_pack锛夈€傚垹闄ょ‘璁ゆ鍐欑殑鏄€岃蹇嗗皢琚竻绌恒€嶏紝",
+      "rev": "            // 提示词加最�?30 条对话原文（fire_pack）。删除确认框写的是「记忆将被清空」，",
+      "head": "            // 提示词加最近 30 条对话原文（fire_pack）。删除确认框写的是「记忆将被清空」，"
+    },
+    {
+      "line": 3137,
+      "kind": "hunk-damaged",
+      "f": "            // 閭ｅ氨寰楄繛浜戠閭ｄ唤涓€璧锋竻锛屼笉鐒惰亰澶╄褰曚細涓€鐩磋汉鍦?D1 閲屻€佹瘡鍒犱竴涓鑹插啀鍫嗕竴浠姐€?",
+      "rev": "            // 那就得连云端那份一起清，不然聊天记录会一直躺�?D1 里、每删一个角色再堆一份�?",
+      "head": "            // 那就得连云端那份一起清，不然聊天记录会一直躺在 D1 里、每删一个角色再堆一份。"
+    },
+    {
+      "line": 3140,
+      "kind": "hunk-damaged",
+      "f": "              console.warn('[deleteCharacter] 浜戠鐘舵€佹竻鐞嗗け璐?, cloudCleanup.error);",
+      "rev": "              console.warn('[deleteCharacter] 云端状态清理失�?, cloudCleanup.error);",
+      "head": "              console.warn('[deleteCharacter] 云端状态清理失败', cloudCleanup.error);"
+    },
+    {
+      "line": 3145,
+      "kind": "hunk-damaged",
+      "f": "            // 浜戠娌℃竻骞插噣锛氭湰鍦板厛涓嶅垹銆傝皟鐢ㄦ柟锛堣鑹?App锛夎礋璐ｅ脊銆岄噸璇?/ 浠嶇劧鍒犻櫎銆嶃€?",
+      "rev": "            // 云端没清干净：本地先不删。调用方（角�?App）负责弹「重�?/ 仍然删除」�?",
+      "head": "            // 云端没清干净：本地先不删。调用方（角色 App）负责弹「重试 / 仍然删除」。"
+    },
+    {
+      "line": 3149,
+      "kind": "hunk-damaged",
+      "f": "          // 鍚嶄笅娌℃湁浠诲姟锛氫笉浼氬啀鏈夋帹閫侊紝client_state 娓呯悊缁存寔鏃ц妭濂忎涪鍚庡彴锛屼笉鎸″垹闄ゃ€?",
+      "rev": "          // 名下没有任务：不会再有推送，client_state 清理维持旧节奏丢后台，不挡删除�?",
+      "head": "          // 名下没有任务：不会再有推送，client_state 清理维持旧节奏丢后台，不挡删除。"
+    },
+    {
+      "line": 3153,
+      "kind": "hunk-damaged",
+      "f": "              console.warn('[deleteCharacter] 浜戠鐘舵€佹竻鐞嗗け璐ワ紙瑙掕壊鐓у父鍒犻櫎锛?, cloudCleanup.error);",
+      "rev": "              console.warn('[deleteCharacter] 云端状态清理失败（角色照常删除�?, cloudCleanup.error);",
+      "head": "              console.warn('[deleteCharacter] 云端状态清理失败（角色照常删除）', cloudCleanup.error);"
+    },
+    {
+      "line": 3154,
+      "kind": "hunk-damaged",
+      "f": "              addToast('ta 鍦ㄤ簯绔殑鑱婂ぉ涓婁笅鏂囨病鑳芥竻鎺夛紝鍙互鍘昏缃噷銆屾竻闄や簯绔姸鎬併€嶅厹涓€涓?, 'error');",
+      "rev": "              addToast('ta 在云端的聊天上下文没能清掉，可以去设置里「清除云端状态」兜一�?, 'error');",
+      "head": "              addToast('ta 在云端的聊天上下文没能清掉，可以去设置里「清除云端状态」兜一下', 'error');"
+    },
+    {
+      "line": 3160,
+      "kind": "hunk-damaged",
+      "f": "      // 銆屼粛鐒跺垹闄ゃ€嶆斁琛屽悗浠嶆棫灏藉姏娓呬竴娆★細鑳芥竻鎺夊灏戠畻澶氬皯锛屽け璐ュ彧鎻愮ず銆佷笉鍐嶆嫤銆?",
+      "rev": "      // 「仍然删除」放行后仍旧尽力清一次：能清掉多少算多少，失败只提示、不再拦�?",
+      "head": "      // 「仍然删除」放行后仍旧尽力清一次：能清掉多少算多少，失败只提示、不再拦。"
+    },
+    {
+      "line": 3171,
+      "kind": "hunk-damaged",
+      "f": "            console.warn('[deleteCharacter] 浜戠鐘舵€佹竻鐞嗗け璐ワ紙瑙掕壊鐓у父鍒犻櫎锛?, cloudCleanup.error);",
+      "rev": "            console.warn('[deleteCharacter] 云端状态清理失败（角色照常删除�?, cloudCleanup.error);",
+      "head": "            console.warn('[deleteCharacter] 云端状态清理失败（角色照常删除）', cloudCleanup.error);"
+    },
+    {
+      "line": 3172,
+      "kind": "hunk-damaged",
+      "f": "            addToast('ta 鍦ㄤ簯绔殑鑱婂ぉ涓婁笅鏂囨病鑳芥竻鎺夛紝鍙互鍘昏缃噷銆屾竻闄や簯绔姸鎬併€嶅厹涓€涓?, 'error');",
+      "rev": "            addToast('ta 在云端的聊天上下文没能清掉，可以去设置里「清除云端状态」兜一�?, 'error');",
+      "head": "            addToast('ta 在云端的聊天上下文没能清掉，可以去设置里「清除云端状态」兜一下', 'error');"
+    },
+    {
+      "line": 3176,
+      "kind": "hunk-damaged",
+      "f": "          addToast('ta 鐨勪富鍔ㄦ秷鎭换鍔℃病鑳藉湪杩滅鍙栨秷锛屽彲鑳戒粛浼氬埌鐐规帹閫侊紝璇锋鏌?Worker 杩炴帴', 'error');",
+      "rev": "          addToast('ta 的主动消息任务没能在远端取消，可能仍会到点推送，请检�?Worker 连接', 'error');",
+      "head": "          addToast('ta 的主动消息任务没能在远端取消，可能仍会到点推送，请检查 Worker 连接', 'error');"
+    },
+    {
+      "line": 3184,
+      "kind": "hunk-damaged",
+      "f": "    // 缇よ亰闈㈡澘/鎻愮ず璇嶅嵈杩樿兘鐪嬪埌銆傚垹瀹岃鑹查『鎵嬫寜鍓╀綑瑙掕壊娓呬竴娆℃畫鐣欙紙璇﹁ DB.cleanupEmojiResidue锛夈€?",
+      "rev": "    // 群聊面板/提示词却还能看到。删完角色顺手按剩余角色清一次残留（详见 DB.cleanupEmojiResidue）�?",
+      "head": "    // 群聊面板/提示词却还能看到。删完角色顺手按剩余角色清一次残留（详见 DB.cleanupEmojiResidue）。"
+    },
+    {
+      "line": 3189,
+      "kind": "hunk-damaged",
+      "f": "            addToast(`宸茶繛甯︽竻鐞?ta 鐨勪笓灞炶〃鎯呭垎绫伙細${report.removedCategories.map(c => `銆?{c.name}銆峘).join('')}`, 'info');",
+      "rev": "            addToast(`已连带清�?ta 的专属表情分类：${report.removedCategories.map(c => `�?{c.name}」`).join('')}`, 'info');",
+      "head": "            addToast(`已连带清理 ta 的专属表情分类：${report.removedCategories.map(c => `「${c.name}」`).join('')}`, 'info');"
+    },
+    {
+      "line": 3197,
+      "kind": "hunk-damaged",
+      "f": "  // 瑙掕壊鍒嗙粍鏂规硶锛堢缁忛摼鎺?鏂囦欢澶?锛?",
+      "rev": "  // 角色分组方法（神经链�?文件�?�?",
+      "head": "  // 角色分组方法（神经链接\"文件夹\"）"
+    },
+    {
+      "line": 3219,
+      "kind": "hunk-damaged",
+      "f": "  // 鏇存柊鍒嗙粍瀹氫箟锛堝叡浜笘鐣屼功 worldbookIds 绛夛級锛涘彧 merge 浼犲叆瀛楁锛屽畨鍏ㄥ箓绛夈€?",
+      "rev": "  // 更新分组定义（共享世界书 worldbookIds 等）；只 merge 传入字段，安全幂等�?",
+      "head": "  // 更新分组定义（共享世界书 worldbookIds 等）；只 merge 传入字段，安全幂等。"
+    },
+    {
+      "line": 3230,
+      "kind": "hunk-damaged",
+      "f": "  // 鍒犲垎缁?= 缁勫唴瑙掕壊鍥炶惤銆屾湭鍒嗙粍銆? 鍒犲垎缁勫畾涔夋湰韬紝瑙掕壊涓嶅彈褰卞搷",
+      "rev": "  // 删分�?= 组内角色回落「未分组�? 删分组定义本身，角色不受影响",
+      "head": "  // 删分组 = 组内角色回落「未分组」+ 删分组定义本身，角色不受影响"
+    },
+    {
+      "line": 3244,
+      "kind": "hunk-damaged",
+      "f": "  // 缇ょ殑鍚嶅瓧鍜屾垚鍛樺悕鍗曢兘浼氳繘姣忎釜鎴愬憳鐨?fire_pack锛堣鑹茬煡閬撹嚜宸卞湪鍝簺缇ゃ€佺兢閲岄兘鏈夎皝锛夛紝",
+      "rev": "  // 群的名字和成员名单都会进每个成员�?fire_pack（角色知道自己在哪些群、群里都有谁），",
+      "head": "  // 群的名字和成员名单都会进每个成员的 fire_pack（角色知道自己在哪些群、群里都有谁），"
+    },
+    {
+      "line": 3245,
+      "kind": "hunk-damaged",
+      "f": "  // 缇や竴鍙樺氨瑕佽鍙楀奖鍝嶇殑鎴愬憳鍚勫埛涓€娆′簯绔揩鐓э紝鍚﹀垯瑙掕壊鍒扮偣杩樻寜鏃х兢鍚?/ 鏃ф垚鍛樿璇濄€?",
+      "rev": "  // 群一变就要让受影响的成员各刷一次云端快照，否则角色到点还按旧群�?/ 旧成员说话�?",
+      "head": "  // 群一变就要让受影响的成员各刷一次云端快照，否则角色到点还按旧群名 / 旧成员说话。"
+    },
+    {
+      "line": 3246,
+      "kind": "hunk-damaged",
+      "f": "  // nextGroups 浼犲彉鏇村悗鐨勫畬鏁?groups 鍒楄〃锛歮arkDirty 瀛樼殑鏄揩鐓э紝鎷挎棫鍒楄〃绛変簬娌℃敼銆?",
+      "rev": "  // nextGroups 传变更后的完�?groups 列表：markDirty 存的是快照，拿旧列表等于没改�?",
+      "head": "  // nextGroups 传变更后的完整 groups 列表：markDirty 存的是快照，拿旧列表等于没改。"
+    },
+    {
+      "line": 3268,
+      "kind": "hunk-damaged",
+      "f": "      // 鍏堟洿鏂板唴瀛樹腑鐨?groups锛堝垪琛ㄦ覆鏌撱€佸啀娆¤繘缇ら兘璇昏繖閲岋級锛屽啀鎸佷箙鍖栧埌 DB銆?",
+      "rev": "      // 先更新内存中�?groups（列表渲染、再次进群都读这里），再持久化到 DB�?",
+      "head": "      // 先更新内存中的 groups（列表渲染、再次进群都读这里），再持久化到 DB。"
+    },
+    {
+      "line": 3269,
+      "kind": "hunk-damaged",
+      "f": "      // 涓嶆洿鏂?context 浼氬鑷存敼浜嗙兢澶村儚/缇ゅ悕閫€鍑哄悗鍙堣鍥炴棫鍊硷紙鎭㈠榛樿锛夈€?",
+      "rev": "      // 不更�?context 会导致改了群头像/群名退出后又读回旧值（恢复默认）�?",
+      "head": "      // 不更新 context 会导致改了群头像/群名退出后又读回旧值（恢复默认）。"
+    },
+    {
+      "line": 3271,
+      "kind": "hunk-damaged",
+      "f": "      // 鎸佷箙鍖栧璞″熀浜庡綋鍓嶅凡鎻愪氦鐨?groups 鍚堟垚锛屼笉鍦?setGroups 鐨?updater 閲屾崟鑾封€斺€?",
+      "rev": "      // 持久化对象基于当前已提交�?groups 合成，不�?setGroups �?updater 里捕获—�?",
+      "head": "      // 持久化对象基于当前已提交的 groups 合成，不在 setGroups 的 updater 里捕获——"
+    },
+    {
+      "line": 3272,
+      "kind": "hunk-damaged",
+      "f": "      // React 涓嶄繚璇?updater 鍚屾鎵ц锛坋ager 姹傚€煎彧鏄紭鍖栵級锛屾棫鍐欐硶浼氭椂鑰屾嬁鍒版棫鍊笺€?",
+      "rev": "      // React 不保�?updater 同步执行（eager 求值只是优化），旧写法会时而拿到旧值�?",
+      "head": "      // React 不保证 updater 同步执行（eager 求值只是优化），旧写法会时而拿到旧值、"
+    },
+    {
+      "line": 3273,
+      "kind": "hunk-damaged",
+      "f": "      // 鏃惰€屾暣涓烦杩?saveGroup锛岃〃鐜颁负\"鍐呭瓨宸叉洿鏂般€侀€€鍑洪噸杩涜缃涪澶?銆?",
+      "rev": "      // 时而整个跳�?saveGroup，表现为\"内存已更新、退出重进设置丢�?�?",
+      "head": "      // 时而整个跳过 saveGroup，表现为\"内存已更新、退出重进设置丢失\"。"
+    },
+    {
+      "line": 3278,
+      "kind": "hunk-damaged",
+      "f": "      // 鑰佹垚鍛樹篃瑕佹墦鑴忥細琚Щ鍑虹兢鐨勮鑹诧紝浠栭偅浠藉揩鐓ч噷鐨勭兢鍚嶅崟鍚屾牱寰楁妸杩欎釜缇ゅ幓鎺夈€?",
+      "rev": "      // 老成员也要打脏：被移出群的角色，他那份快照里的群名单同样得把这个群去掉�?",
+      "head": "      // 老成员也要打脏：被移出群的角色，他那份快照里的群名单同样得把这个群去掉。"
+    },
+    {
+      "line": 3300,
+      "kind": "hunk-damaged",
+      "f": "      // inside a setState updater is unsafe 鈥?React calls updaters lazily",
+      "rev": "      // inside a setState updater is unsafe �?React calls updaters lazily",
+      "head": "      // inside a setState updater is unsafe — React calls updaters lazily"
+    },
+    {
+      "line": 3328,
+      "kind": "hunk-damaged",
+      "f": "                  // 杩欐潯钀藉簱缁曞紑浜?updateCharacter锛屽緱鑷繁鎵撹剰锛氫笘鐣屼功姝ｆ枃杩?fire_pack 鐨勭郴缁?",
+      "rev": "                  // 这条落库绕开�?updateCharacter，得自己打脏：世界书正文�?fire_pack 的系�?",
+      "head": "                  // 这条落库绕开了 updateCharacter，得自己打脏：世界书正文进 fire_pack 的系统"
+    },
+    {
+      "line": 3329,
+      "kind": "hunk-damaged",
+      "f": "                  // 鎻愮ず璇嶏紝涓嶅埛鐨勮瘽瑙掕壊鍒扮偣杩樼収鐫€鏀逛箣鍓嶇殑璁惧畾璇磋瘽銆?",
+      "rev": "                  // 提示词，不刷的话角色到点还照着改之前的设定说话�?",
+      "head": "                  // 提示词，不刷的话角色到点还照着改之前的设定说话。"
+    },
+    {
+      "line": 3338,
+      "kind": "hunk-damaged",
+      "f": "          addToast(`宸插悓姝ユ洿鏂?${charsToSync.length} 涓浉鍏宠鑹茬殑缂撳瓨`, 'info');",
+      "rev": "          addToast(`已同步更�?${charsToSync.length} 个相关角色的缓存`, 'info');",
+      "head": "          addToast(`已同步更新 ${charsToSync.length} 个相关角色的缓存`, 'info');"
+    },
+    {
+      "line": 3351,
+      "kind": "hunk-damaged",
+      "f": "              // 鍚?updateWorldbook锛氱粫寮€ updateCharacter 鐨勮惤搴撹鑷繁鎵撹剰锛屽惁鍒欎簯绔彁绀鸿瘝",
+      "rev": "              // �?updateWorldbook：绕开 updateCharacter 的落库要自己打脏，否则云端提示词",
+      "head": "              // 同 updateWorldbook：绕开 updateCharacter 的落库要自己打脏，否则云端提示词"
+    },
+    {
+      "line": 3352,
+      "kind": "hunk-damaged",
+      "f": "              // 閲岃繕鎸傜潃杩欐湰宸茬粡鍒犳帀鐨勪笘鐣屼功銆?",
+      "rev": "              // 里还挂着这本已经删掉的世界书�?",
+      "head": "              // 里还挂着这本已经删掉的世界书。"
+    },
+    {
+      "line": 3362,
+      "kind": "hunk-damaged",
+      "f": "      // 鍚屾娓呯悊鍒嗙粍鐨勫叡浜笘鐣屼功寮曠敤锛圕haracterGroup.worldbookIds 鍙瓨 id锛?",
+      "rev": "      // 同步清理分组的共享世界书引用（CharacterGroup.worldbookIds 只存 id�?",
+      "head": "      // 同步清理分组的共享世界书引用（CharacterGroup.worldbookIds 只存 id；"
+    },
+    {
+      "line": 3363,
+      "kind": "hunk-damaged",
+      "f": "      // 娈嬬暀姝?id 鐢辫В鏋愮瀹夊叏蹇界暐锛岃繖閲岄『鎵嬫竻鎺変繚鎸佹暟鎹共鍑€锛夈€?",
+      "rev": "      // 残留�?id 由解析端安全忽略，这里顺手清掉保持数据干净）�?",
+      "head": "      // 残留死 id 由解析端安全忽略，这里顺手清掉保持数据干净）。"
+    },
+    {
+      "line": 3420,
+      "kind": "hunk-damaged",
+      "f": "          // 鐢ㄦ埛璧勬枡鏄墍鏈夎鑹插叡浜殑绱犳潗锛堝悕瀛椼€佷汉璁剧洿鎺ョ儰杩?fire_pack 妯℃澘锛夛紝鏀瑰畬涓嶆墦鑴忕殑璇?",
+      "rev": "          // 用户资料是所有角色共享的素材（名字、人设直接烤�?fire_pack 模板），改完不打脏的�?",
+      "head": "          // 用户资料是所有角色共享的素材（名字、人设直接烤进 fire_pack 模板），改完不打脏的话"
+    },
+    {
+      "line": 3421,
+      "kind": "hunk-damaged",
+      "f": "          // 瑙掕壊鍒扮偣杩樻寜鏃у悕瀛楀彨浣犮€備豢琛ㄦ儏搴擄細閫愪釜鎵撹剰锛屾病寮€ 2.0 鐨勮鑹茶 markDirty 鐨勯棬绛涙帀銆?",
+      "rev": "          // 角色到点还按旧名字叫你。仿表情库：逐个打脏，没开 2.0 的角色被 markDirty 的门筛掉�?",
+      "head": "          // 角色到点还按旧名字叫你。仿表情库：逐个打脏，没开 2.0 的角色被 markDirty 的门筛掉。"
+    },
+    {
+      "line": 3446,
+      "kind": "hunk-damaged",
+      "f": "      // 涔熺粷涓嶆妸 title 鍘熸牱閫忎紶鍑哄幓锛堝厤寰楀摢澶╂湁浜哄線閲屽 URL 鎴栨姤閿欏師鏂囷級銆?",
+      "rev": "      // 也绝不把 title 原样透传出去（免得哪天有人往里塞 URL 或报错原文）�?",
+      "head": "      // 也绝不把 title 原样透传出去（免得哪天有人往里塞 URL 或报错原文）。"
+    },
+    {
+      "line": 3447,
+      "kind": "hunk-damaged",
+      "f": "      if (title === 'Instant Push 鍙戦€佸け璐?) trackEvent('寮瑰嚭鎶ラ敊璇︽儏寮圭獥', { 鎶ラ敊鏉ユ簮: 'Instant Push 鍙戦€佸け璐? });",
+      "rev": "      if (title === 'Instant Push 发送失�?) trackEvent('弹出报错详情弹窗', { 报错来源: 'Instant Push 发送失�? });",
+      "head": "      if (title === 'Instant Push 发送失败') trackEvent('弹出报错详情弹窗', { 报错来源: 'Instant Push 发送失败' });"
+    },
+    {
+      "line": 3455,
+      "kind": "hunk-damaged",
+      "f": "      // theme.wallpaper 鍦ㄥ唴瀛橀噷鏄?blob: objectURL锛堜細璇濅复鏃讹級锛屼笉鑳藉瓨杩涢璁俱€?",
+      "rev": "      // theme.wallpaper 在内存里�?blob: objectURL（会话临时），不能存进预设�?",
+      "head": "      // theme.wallpaper 在内存里是 blob: objectURL（会话临时），不能存进预设。"
+    },
+    {
+      "line": 3456,
+      "kind": "hunk-damaged",
+      "f": "      // 鎹㈡垚 assets 'wallpaper' 閲岀殑鎸佷箙鎸囬拡锛坆lobref 浠ょ墝 / http / 娓愬彉锛夈€?",
+      "rev": "      // 换成 assets 'wallpaper' 里的持久指针（blobref 令牌 / http / 渐变）�?",
+      "head": "      // 换成 assets 'wallpaper' 里的持久指针（blobref 令牌 / http / 渐变）。"
+    },
+    {
+      "line": 3474,
+      "kind": "hunk-damaged",
+      "f": "      addToast(`澶栬棰勮銆?{name}銆嶅凡淇濆瓨`, 'success');",
+      "rev": "      addToast(`外观预设�?{name}」已保存`, 'success');",
+      "head": "      addToast(`外观预设「${name}」已保存`, 'success');"
+    },
+    {
+      "line": 3480,
+      "kind": "hunk-damaged",
+      "f": "      // Strip banned legacy widget data from preset before applying 鈥?old beautification packs",
+      "rev": "      // Strip banned legacy widget data from preset before applying �?old beautification packs",
+      "head": "      // Strip banned legacy widget data from preset before applying — old beautification packs"
+    },
+    {
+      "line": 3489,
+      "kind": "hunk-damaged",
+      "f": "      // 澹佺焊鏀瑰瓨 Blob锛氭妸棰勮閲岀殑鎸囬拡锛坆lobref 浠ょ墝 / 鏃?data:锛夎惤搴撳苟瑙ｆ瀽鎴?objectURL 鍐嶈繘 state銆?",
+      "rev": "      // 壁纸改存 Blob：把预设里的指针（blobref 令牌 / �?data:）落库并解析�?objectURL 再进 state�?",
+      "head": "      // 壁纸改存 Blob：把预设里的指针（blobref 令牌 / 旧 data:）落库并解析成 objectURL 再进 state。"
+    },
+    {
+      "line": 3506,
+      "kind": "hunk-damaged",
+      "f": "      // 鍐?LS 鍓嶅繀椤诲墺 data URI / blob: objectURL锛屽惁鍒?base64 澹佺焊鎾戠垎 quota銆乥lob: 閲嶅惎鍗冲け鏁?",
+      "rev": "      // �?LS 前必须剥 data URI / blob: objectURL，否�?base64 壁纸撑爆 quota、blob: 重启即失�?",
+      "head": "      // 写 LS 前必须剥 data URI / blob: objectURL，否则 base64 壁纸撑爆 quota、blob: 重启即失效"
+    },
+    {
+      "line": 3529,
+      "kind": "hunk-damaged",
+      "f": "          // 闈欓粯璺宠繃 = 棰勮杩欐鐪嬬潃宸插簲鐢ㄣ€佷笅娆″惎鍔ㄥ嵈鍥炲垵濮嬩富棰樸€傚繀椤绘彁绀恒€?",
+      "rev": "          // 静默跳过 = 预设这次看着已应用、下次启动却回初始主题。必须提示�?",
+      "head": "          // 静默跳过 = 预设这次看着已应用、下次启动却回初始主题。必须提示。"
+    },
+    {
+      "line": 3559,
+      "kind": "hunk-damaged",
+      "f": "      // 澹佺焊鎸囬拡宸插湪涓婇潰 resolveWallpaperStoredValue 閲岃惤搴擄紙浠ょ墝鈫抋ssets锛夛紝姝ゅ涓嶅啀閲嶅鍐欍€?",
+      "rev": "      // 壁纸指针已在上面 resolveWallpaperStoredValue 里落库（令牌→assets），此处不再重复写�?",
+      "head": "      // 壁纸指针已在上面 resolveWallpaperStoredValue 里落库（令牌→assets），此处不再重复写。"
+    },
+    {
+      "line": 3567,
+      "kind": "hunk-damaged",
+      "f": "      addToast(`宸插簲鐢ㄩ璁俱€?{preset.name}銆峘, 'success');",
+      "rev": "      addToast(`已应用预设�?{preset.name}」`, 'success');",
+      "head": "      addToast(`已应用预设「${preset.name}」`, 'success');"
+    },
+    {
+      "line": 3573,
+      "kind": "hunk-damaged",
+      "f": "      addToast('棰勮宸插垹闄?, 'info');",
+      "rev": "      addToast('预设已删�?, 'info');",
+      "head": "      addToast('预设已删除', 'info');"
+    },
+    {
+      "line": 3576,
+      "kind": "hunk-damaged",
+      "f": "  // 涓€閿繕鍘熷瑙傦細鎶婁富棰樸€佸浘鏍囥€佸绾搞€佸皬缁勪欢銆佽楗般€佸瓧浣撳叏閮ㄥ洖鍒板嚭鍘傜姸鎬併€?",
+      "rev": "  // 一键还原外观：把主题、图标、壁纸、小组件、装饰、字体全部回到出厂状态�?",
+      "head": "  // 一键还原外观：把主题、图标、壁纸、小组件、装饰、字体全部回到出厂状态。"
+    },
+    {
+      "line": 3577,
+      "kind": "hunk-damaged",
+      "f": "  // 鐢ㄦ埛鍦ㄤ笉鍚岀増鏈?涓嶅悓澶囦唤涔嬮棿鍙嶅瀵煎叆鏃讹紝customIcons 涓?IndexedDB 閲岀殑 widget_/deco_/icon_",
+      "rev": "  // 用户在不同版�?不同备份之间反复导入时，customIcons �?IndexedDB 里的 widget_/deco_/icon_",
+      "head": "  // 用户在不同版本/不同备份之间反复导入时，customIcons 与 IndexedDB 里的 widget_/deco_/icon_"
+    },
+    {
+      "line": 3578,
+      "kind": "hunk-damaged",
+      "f": "  // 娈嬬暀缁忓父瀵艰嚧鍥炬爣閿欎贡锛岃繖閲岀洿鎺ユ暣浣撴竻绌哄啀鍐欏洖 default銆?",
+      "rev": "  // 残留经常导致图标错乱，这里直接整体清空再写回 default�?",
+      "head": "  // 残留经常导致图标错乱，这里直接整体清空再写回 default。"
+    },
+    {
+      "line": 3579,
+      "kind": "hunk-damaged",
+      "f": "  // 宸蹭繚瀛樼殑澶栬棰勮涓嶅姩锛岀敤鎴烽殢鏃惰繕鑳藉垏鍥炲幓銆?",
+      "rev": "  // 已保存的外观预设不动，用户随时还能切回去�?",
+      "head": "  // 已保存的外观预设不动，用户随时还能切回去。"
+    },
+    {
+      "line": 3591,
+      "kind": "hunk-damaged",
+      "f": "          // 鑷畾涔夌殑涓诲睆鍥炬爣涔熷湪 customIcons 閲岋紙_pwa_锛夛紝浣嗗畠棰濆寰€ DOM 娉ㄥ叆杩囦竴鏉?",
+      "rev": "          // 自定义的主屏图标也在 customIcons 里（_pwa_），但它额外往 DOM 注入过一�?",
+      "head": "          // 自定义的主屏图标也在 customIcons 里（_pwa_），但它额外往 DOM 注入过一条"
+    },
+    {
+      "line": 3593,
+      "kind": "hunk-damaged",
+      "f": "          // 宸茬粡涓嶅瓨鍦ㄧ殑鍥炬爣锛岀洿鍒颁笅娆″埛鏂般€?",
+      "rev": "          // 已经不存在的图标，直到下次刷新�?",
+      "head": "          // 已经不存在的图标，直到下次刷新。"
+    },
+    {
+      "line": 3618,
+      "kind": "hunk-damaged",
+      "f": "          addToast('澶栬宸茶繕鍘熶负鍒濆鐘舵€?, 'success');",
+      "rev": "          addToast('外观已还原为初始状�?, 'success');",
+      "head": "          addToast('外观已还原为初始状态', 'success');"
+    },
+    {
+      "line": 3636,
+      "kind": "hunk-damaged",
+      "f": "      if (!preset) throw new Error('棰勮涓嶅瓨鍦?);",
+      "rev": "      if (!preset) throw new Error('预设不存�?);",
+      "head": "      if (!preset) throw new Error('预设不存在');"
+    },
+    {
+      "line": 3637,
+      "kind": "hunk-damaged",
+      "f": "      // 棰勮閲岀殑澹佺焊鍙兘鏄?blobref 浠ょ墝锛堟湰鏈?blob_assets锛夛紝瀵煎嚭鍒板埆鐨勮澶囦細澶辨晥鈥斺€?",
+      "rev": "      // 预设里的壁纸可能�?blobref 令牌（本�?blob_assets），导出到别的设备会失效—�?",
+      "head": "      // 预设里的壁纸可能是 blobref 令牌（本机 blob_assets），导出到别的设备会失效——"
+    },
+    {
+      "line": 3638,
+      "kind": "hunk-damaged",
+      "f": "      // 鍏堟繁鎷疯礉鍐嶆妸浠ょ墝瑙ｆ瀽鍥?data:image锛屼繚璇佸鍑烘枃浠惰嚜鍖呭惈鍙Щ妞嶃€?",
+      "rev": "      // 先深拷贝再把令牌解析�?data:image，保证导出文件自包含可移植�?",
+      "head": "      // 先深拷贝再把令牌解析回 data:image，保证导出文件自包含可移植。"
+    },
+    {
+      "line": 3652,
+      "kind": "hunk-damaged",
+      "f": "      // 鍏煎涓ょ鏍煎紡锛氭柊鐗?.zip锛堝唴鍚?preset.json锛? 鏃х増 .json 鏄庢枃",
+      "rev": "      // 兼容两种格式：新�?.zip（内�?preset.json�? 旧版 .json 明文",
+      "head": "      // 兼容两种格式：新版 .zip（内含 preset.json）/ 旧版 .json 明文"
+    },
+    {
+      "line": 3660,
+      "kind": "hunk-damaged",
+      "f": "          if (!entry) throw new Error('鍘嬬缉鍖呭唴鏈壘鍒?preset.json');",
+      "rev": "          if (!entry) throw new Error('压缩包内未找�?preset.json');",
+      "head": "          if (!entry) throw new Error('压缩包内未找到 preset.json');"
+    },
+    {
+      "line": 3667,
+      "kind": "hunk-damaged",
+      "f": "      if (raw.type !== 'sully_appearance_preset') throw new Error('鏃犳晥鐨勫瑙傞璁炬枃浠?);",
+      "rev": "      if (raw.type !== 'sully_appearance_preset') throw new Error('无效的外观预设文�?);",
+      "head": "      if (raw.type !== 'sully_appearance_preset') throw new Error('无效的外观预设文件');"
+    },
+    {
+      "line": 3670,
+      "kind": "hunk-damaged",
+      "f": "          name: raw.name || '瀵煎叆鐨勯璁?,",
+      "rev": "          name: raw.name || '导入的预�?,",
+      "head": "          name: raw.name || '导入的预设',"
+    },
+    {
+      "line": 3679,
+      "kind": "hunk-damaged",
+      "f": "      addToast(`宸插鍏ラ璁俱€?{preset.name}銆峘, 'success');",
+      "rev": "      addToast(`已导入预设�?{preset.name}」`, 'success');",
+      "head": "      addToast(`已导入预设「${preset.name}」`, 'success');"
+    },
+    {
+      "line": 3685,
+      "kind": "hunk-damaged",
+      "f": "          setSysOperation({ status: 'processing', message: '姝ｅ湪鍒濆鍖栨墦鍖呭紩鎿?..', progress: 0 });",
+      "rev": "          setSysOperation({ status: 'processing', message: '正在初始化打包引�?..', progress: 0 });",
+      "head": "          setSysOperation({ status: 'processing', message: '正在初始化打包引擎...', progress: 0 });"
+    },
+    {
+      "line": 3692,
+      "kind": "hunk-damaged",
+      "f": "          // Dedup table 鈥?same base64 payload reused across stores (瑙掕壊澶村儚鍦?",
+      "rev": "          // Dedup table �?same base64 payload reused across stores (角色头像�?",
+      "head": "          // Dedup table — same base64 payload reused across stores (角色头像在"
+    },
+    {
+      "line": 3701,
+      "kind": "hunk-damaged",
+      "f": "                  // text_only 妯″紡鍓ユ帀鎵€鏈夊浘鐗囷細data:image 涓?blobref 浠ょ墝锛堜护鐗屾棤浜岃繘鍒堕殢琛岋紝",
+      "rev": "                  // text_only 模式剥掉所有图片：data:image �?blobref 令牌（令牌无二进制随行，",
+      "head": "                  // text_only 模式剥掉所有图片：data:image 与 blobref 令牌（令牌无二进制随行，"
+    },
+    {
+      "line": 3702,
+      "kind": "hunk-damaged",
+      "f": "                  // 鎭㈠绔涓嶅緱锛岀瓑鍚屼竴寮犱涪澶辩殑鍥撅級閮芥竻绌恒€?",
+      "rev": "                  // 恢复端认不得，等同一张丢失的图）都清空�?",
+      "head": "                  // 恢复端认不得，等同一张丢失的图）都清空。"
+    },
+    {
+      "line": 3740,
+      "kind": "hunk-damaged",
+      "f": "          // 鎶婁竴鏉?data:image base64 钀借繘 ZIP 鐨?assets/ 鏂囦欢澶癸紝杩斿洖瀹冪殑 assets/* 璺緞銆?",
+      "rev": "          // 把一�?data:image base64 落进 ZIP �?assets/ 文件夹，返回它的 assets/* 路径�?",
+      "head": "          // 把一条 data:image base64 落进 ZIP 的 assets/ 文件夹，返回它的 assets/* 路径。"
+    },
+    {
+      "line": 3741,
+      "kind": "hunk-damaged",
+      "f": "          // 鍚屼竴浠?base64 鍏ㄥ眬鍙瓨涓€浠斤紙assetDedupMap 鎸夊畬鏁?base64 鍘婚噸锛夛紱鏃犳硶璇嗗埆鐨?",
+      "rev": "          // 同一�?base64 全局只存一份（assetDedupMap 按完�?base64 去重）；无法识别�?",
+      "head": "          // 同一份 base64 全局只存一份（assetDedupMap 按完整 base64 去重）；无法识别的"
+    },
+    {
+      "line": 3742,
+      "kind": "hunk-damaged",
+      "f": "          // data url 鍘熸牱杩斿洖锛屼笉鍔ㄥ畠銆?",
+      "rev": "          // data url 原样返回，不动它�?",
+      "head": "          // data url 原样返回，不动它。"
+    },
+    {
+      "line": 3752,
+      "kind": "hunk-damaged",
+      "f": "                  // JPEG/PNG/WebP/GIF 鏈韩宸插帇缂╋紝鍐嶈窇 DEFLATE 鍙細娴垂鎵嬫満 CPU锛涚洿鎺ュ瓨鍌ㄣ€?",
+      "rev": "                  // JPEG/PNG/WebP/GIF 本身已压缩，再跑 DEFLATE 只会浪费手机 CPU；直接存储�?",
+      "head": "                  // JPEG/PNG/WebP/GIF 本身已压缩，再跑 DEFLATE 只会浪费手机 CPU；直接存储。"
+    },
+    {
+      "line": 3764,
+      "kind": "hunk-damaged",
+      "f": "          // 鍘熷湴鎶?base64 鎹㈡垚 assets/* 璺緞锛屼笉鍐嶅彟寤轰竴妫靛璞℃爲锛屽鍑哄ぇ store 鏃跺嘲鍊煎唴瀛樻洿鐪併€?",
+      "rev": "          // 原地�?base64 换成 assets/* 路径，不再另建一棵对象树，导出大 store 时峰值内存更省�?",
+      "head": "          // 原地把 base64 换成 assets/* 路径，不再另建一棵对象树，导出大 store 时峰值内存更省。"
+    },
+    {
+      "line": 3765,
+      "kind": "hunk-damaged",
+      "f": "          // 浼犺繘鏉ョ殑蹇呴』鏄嫭绔嬪壇鏈細store 鏁版嵁鏄?IDB 缁撴瀯鍖栧厠闅嗗壇鏈紙瀹夊叏锛夛紱theme /",
+      "rev": "          // 传进来的必须是独立副本：store 数据�?IDB 结构化克隆副本（安全）；theme /",
+      "head": "          // 传进来的必须是独立副本：store 数据是 IDB 结构化克隆副本（安全）；theme /"
+    },
+    {
+      "line": 3766,
+      "kind": "hunk-damaged",
+      "f": "          // customIcons / appearancePresets 寮曠敤浜嗚繍琛屾€?state锛屽凡鍦ㄤ笂闈?backupData 閲屾繁鎷疯礉銆?",
+      "rev": "          // customIcons / appearancePresets 引用了运行�?state，已在上�?backupData 里深拷贝�?",
+      "head": "          // customIcons / appearancePresets 引用了运行态 state，已在上面 backupData 里深拷贝。"
+    },
+    {
+      "line": 3788,
+      "kind": "hunk-damaged",
+      "f": "              // character_groups锛堣鑹插垎缁勫畾涔夛級蹇呴』涓?characters 鍚岃繘閫€锛?",
+      "rev": "              // character_groups（角色分组定义）必须�?characters 同进退�?",
+      "head": "              // character_groups（角色分组定义）必须与 characters 同进退："
+    },
+    {
+      "line": 3789,
+      "kind": "hunk-damaged",
+      "f": "              // 瑙掕壊韬笂鐨?groupId 鎸囧悜杩欏紶琛紝婕忓浼氳瀵煎叆绔叏鍛樺洖钀姐€屾湭鍒嗙粍銆?",
+      "rev": "              // 角色身上�?groupId 指向这张表，漏导会让导入端全员回落「未分组�?",
+      "head": "              // 角色身上的 groupId 指向这张表，漏导会让导入端全员回落「未分组」"
+    },
+    {
+      "line": 3801,
+      "kind": "hunk-damaged",
+      "f": "              // 銆屽郊鏂广€嶈櫄鎷熶笘鐣屽悇鎴块棿 store 鈥斺€?鏃╂湡瀵煎嚭娓呭崟婕忎簡锛屽鑷村浠戒笉鍚埧闂存暟鎹?",
+      "rev": "              // 「彼方」虚拟世界各房间 store —�?早期导出清单漏了，导致备份不含房间数�?",
+      "head": "              // 「彼方」虚拟世界各房间 store —— 早期导出清单漏了，导致备份不含房间数据"
+    },
+    {
+      "line": 3802,
+      "kind": "hunk-damaged",
+      "f": "              // 鍓ч櫌鐨?vr_scripts(鎶曠鍓ф湰) / vr_plays(瑙掕壊婕旇繃鐨勮瘽鍓? / vr_presets(鍐欎綔椋庢牸棰勮)",
+      "rev": "              // 剧院�?vr_scripts(投稿剧本) / vr_plays(角色演过的话�? / vr_presets(写作风格预设)",
+      "head": "              // 剧院的 vr_scripts(投稿剧本) / vr_plays(角色演过的话剧) / vr_presets(写作风格预设)"
+    },
+    {
+      "line": 3806,
+      "kind": "hunk-damaged",
+      "f": "              // 瀹跺洯锛堝悓涓栫晫瑙傚瑙掕壊澶т笘鐣岋級鈥斺€斾笘鐣屽畾涔?+ 婕旂粠鍘嗗彶銆傚鍏ョ鏃╁凡鏀寔鎭㈠",
+      "rev": "              // 家园（同世界观多角色大世界）——世界定�?+ 演绎历史。导入端早已支持恢复",
+      "head": "              // 家园（同世界观多角色大世界）——世界定义 + 演绎历史。导入端早已支持恢复"
+    },
+    {
+      "line": 3807,
+      "kind": "hunk-damaged",
+      "f": "              // 锛坵orldHomeLocal 鏈満閰嶇疆涔熷凡闅忓鍑哄甫璧帮級锛屼絾杩欎袱涓?store 涔嬪墠婕忓湪娓呭崟澶栵紝",
+      "rev": "              // （worldHomeLocal 本机配置也已随导出带走），但这两�?store 之前漏在清单外，",
+      "head": "              // （worldHomeLocal 本机配置也已随导出带走），但这两个 store 之前漏在清单外，"
+    },
+    {
+      "line": 3808,
+      "kind": "hunk-damaged",
+      "f": "              // 瀵艰嚧瀵煎嚭鐨勫浠戒笉鍚鍥暟鎹€?",
+      "rev": "              // 导致导出的备份不含家园数据�?",
+      "head": "              // 导致导出的备份不含家园数据。"
+    },
+    {
+      "line": 3810,
+      "kind": "hunk-damaged",
+      "f": "              // Living World 琚姩鍩虹灞傦細state + append-only event ledger锛屾棤濯掍綋銆?",
+      "rev": "              // Living World 被动基础层：state + append-only event ledger，无媒体�?",
+      "head": "              // Living World 被动基础层：state + append-only event ledger，无媒体。"
+    },
+    {
+      "line": 3812,
+      "kind": "hunk-damaged",
+      "f": "              // 绀肩墿璁板綍锛圥hase 6锛夛細imageRef 鏄?blobref 浠ょ墝锛屽獟浣?鍏ㄩ噺瀵煎嚭璧颁笌 messages 鍚屾",
+      "rev": "              // 礼物记录（Phase 6）：imageRef �?blobref 令牌，媒�?全量导出走与 messages 同款",
+      "head": "              // 礼物记录（Phase 6）：imageRef 是 blobref 令牌，媒体/全量导出走与 messages 同款"
+    },
+    {
+      "line": 3813,
+      "kind": "hunk-damaged",
+      "f": "              // 鐨?resolveBlobRefsDeep锛堣涓嬫柟 store 寰幆锛夆啋 data: 鈫?zip assets 鎶藉彇 + 鍏ㄥ眬鍘婚噸銆?",
+      "rev": "              // �?resolveBlobRefsDeep（见下方 store 循环）→ data: �?zip assets 抽取 + 全局去重�?",
+      "head": "              // 的 resolveBlobRefsDeep（见下方 store 循环）→ data: → zip assets 抽取 + 全局去重。"
+    },
+    {
+      "line": 3815,
+      "kind": "hunk-damaged",
+      "f": "              // 鐢熸椿璁板綍锛堟。妗?App锛氱敓鐞嗘湡/鑽洅/閿荤偧 + 鑽洅璁″垝 + 璁剧疆锛涜璐﹁蛋 bank_transactions锛?",
+      "rev": "              // 生活记录（档�?App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions�?",
+      "head": "              // 生活记录（档案 App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions）"
+    },
+    {
+      "line": 3816,
+      "kind": "hunk-damaged",
+      "f": "              // 瀵煎叆绔?importFullData 宸叉敮鎸佹仮澶嶏紝杩欓噷蹇呴』鍚屾鐧昏锛屽惁鍒欏浠戒笉鍚敓娲昏褰曘€?",
+      "rev": "              // 导入�?importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录�?",
+      "head": "              // 导入端 importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录。"
+    },
+    {
+      "line": 3835,
+      "kind": "hunk-damaged",
+      "f": "          // theme / customIcons / appearancePresets 鐩存帴寮曠敤杩愯鎬?React state銆傚彧鏈?",
+      "rev": "          // theme / customIcons / appearancePresets 直接引用运行�?React state。只�?",
+      "head": "          // theme / customIcons / appearancePresets 直接引用运行态 React state。只有"
+    },
+    {
+      "line": 3837,
+      "kind": "hunk-damaged",
+      "f": "          // text_only 璧?stripBase64锛堣繑鍥炴柊鏍戙€佷笉鏀瑰師瀵硅薄锛夛紝鐩存帴鐢ㄥ紩鐢ㄥ嵆鍙紝鐪佹帀涓€娆?",
+      "rev": "          // text_only �?stripBase64（返回新树、不改原对象），直接用引用即可，省掉一�?",
+      "head": "          // text_only 走 stripBase64（返回新树、不改原对象），直接用引用即可，省掉一次"
+    },
+    {
+      "line": 3838,
+      "kind": "hunk-damaged",
+      "f": "          // 鍙兘澶氳揪鏁?MB锛堝绾?base64锛夌殑鍏嬮殕銆?",
+      "rev": "          // 可能多达�?MB（壁�?base64）的克隆�?",
+      "head": "          // 可能多达数 MB（壁纸 base64）的克隆。"
+    },
+    {
+      "line": 3881,
+      "kind": "hunk-damaged",
+      "f": "              // Memory Palace 姘翠綅绾?",
+      "rev": "              // Memory Palace 水位�?",
+      "head": "              // Memory Palace 水位线"
+    },
+    {
+      "line": 3894,
+      "kind": "hunk-damaged",
+      "f": "              // Memory Palace 姣忚鑹茬殑 UI 鏍囪锛堜汉鏍兼娴嬪凡璺戣繃銆侀娆″綊妗?banner 宸茬湅杩囩瓑锛?",
+      "rev": "              // Memory Palace 每角色的 UI 标记（人格检测已跑过、首次归�?banner 已看过等�?",
+      "head": "              // Memory Palace 每角色的 UI 标记（人格检测已跑过、首次归档 banner 已看过等）"
+    },
+    {
+      "line": 3895,
+      "kind": "hunk-damaged",
+      "f": "              // 涓簡浼氬鑷撮噸寮逛竴娆′汉鏍肩‘璁?/ 棣栨 banner锛屼綋楠屽櫔澹颁絾涓嶄涪鏁版嵁锛屼粛鐒跺簲璇ュ浠?",
+      "rev": "              // 丢了会导致重弹一次人格确�?/ 首次 banner，体验噪声但不丢数据，仍然应该备�?",
+      "head": "              // 丢了会导致重弹一次人格确认 / 首次 banner，体验噪声但不丢数据，仍然应该备份"
+    },
+    {
+      "line": 3975,
+      "kind": "hunk-damaged",
+      "f": "              // 鏈満 localStorage 閰嶇疆锛堝鍏ョ importFullData 宸叉敮鎸佹仮澶嶏紝涔嬪墠瀵煎嚭婕忓彂瀵艰嚧涓㈠け锛?",
+      "rev": "              // 本机 localStorage 配置（导入端 importFullData 已支持恢复，之前导出漏发导致丢失�?",
+      "head": "              // 本机 localStorage 配置（导入端 importFullData 已支持恢复，之前导出漏发导致丢失）"
+    },
+    {
+      "line": 3976,
+      "kind": "hunk-damaged",
+      "f": "              //  路 鐟炲垢 / 楹﹀綋鍔?MCP 鐨勭偣鍗?token + 鍚敤鐘舵€侊紙鐢ㄦ埛璇寸殑銆岄偅涓爜銆嶏級",
+      "rev": "              //  · 瑞幸 / 麦当�?MCP 的点�?token + 启用状态（用户说的「那个码」）",
+      "head": "              //  · 瑞幸 / 麦当劳 MCP 的点单 token + 启用状态（用户说的「那个码」）"
+    },
+    {
+      "line": 3979,
+      "kind": "hunk-damaged",
+      "f": "              vrSignal: (mode === 'text_only' || mode === 'full') ? exportSignalLocal() : undefined, // 淇″彿鍧犺惤澶勶細鍙ュ瓙褰掑睘銆屼綘路瑙掕壊銆? 鍙嶅鐢ㄦ竻鍗?",
+      "rev": "              vrSignal: (mode === 'text_only' || mode === 'full') ? exportSignalLocal() : undefined, // 信号坠落处：句子归属「你·角色�? 反复用清�?",
+      "head": "              vrSignal: (mode === 'text_only' || mode === 'full') ? exportSignalLocal() : undefined, // 信号坠落处：句子归属「你·角色」+ 反复用清单"
+    },
+    {
+      "line": 3985,
+      "kind": "hunk-damaged",
+      "f": "              // 姊﹀鐩茬洅鏀惰棌鍐岋紙璐﹀彿绾?localStorage锛屼笉鎸傚湪瑙掕壊涓婏紝闇€鍗曠嫭闅忓浠藉甫璧帮級",
+      "rev": "              // 梦境盲盒收藏册（账号�?localStorage，不挂在角色上，需单独随备份带走）",
+      "head": "              // 梦境盲盒收藏册（账号级 localStorage，不挂在角色上，需单独随备份带走）"
+    },
+    {
+      "line": 3989,
+      "kind": "hunk-damaged",
+      "f": "              // 鏄櫘閫氭秷鎭€侀殢 messages store 涓€璧峰鍑猴紝杩欓噷鍙ˉ甯﹁蛋杩欎釜绾瑙傚亸濂姐€?",
+      "rev": "              // 是普通消息、随 messages store 一起导出，这里只补带走这个纯外观偏好�?",
+      "head": "              // 是普通消息、随 messages store 一起导出，这里只补带走这个纯外观偏好。"
+    },
+    {
+      "line": 3993,
+      "kind": "hunk-damaged",
+      "f": "          // 涓诲姩娑堟伅 2.0 鐨勫叏灞€閰嶇疆锛圵orker 鍦板潃 / 瀵嗛挜 / 鍗虫椂瀵硅瘽寮€鍏筹級銆傚畠瀛樺湪鐙珛鐨?",
+      "rev": "          // 主动消息 2.0 的全局配置（Worker 地址 / 密钥 / 即时对话开关）。它存在独立�?",
+      "head": "          // 主动消息 2.0 的全局配置（Worker 地址 / 密钥 / 即时对话开关）。它存在独立的"
+    },
+    {
+      "line": 3994,
+      "kind": "hunk-damaged",
+      "f": "          // ActiveMsg 搴撻噷锛屼笉鍦ㄤ笂闈㈤偅浠?store 娓呭崟鍐咃紝鎵€浠ュ崟鐙彇涓€娆★紱寮傛锛屾晠鍦ㄥ瓧闈㈤噺澶栥€?",
+      "rev": "          // ActiveMsg 库里，不在上面那�?store 清单内，所以单独取一次；异步，故在字面量外�?",
+      "head": "          // ActiveMsg 库里，不在上面那份 store 清单内，所以单独取一次；异步，故在字面量外。"
+    },
+    {
+      "line": 3995,
+      "kind": "hunk-damaged",
+      "f": "          // 绾厤缃棤濯掍綋锛岃窡鐫€ text_only / full 璧般€?",
+      "rev": "          // 纯配置无媒体，跟着 text_only / full 走�?",
+      "head": "          // 纯配置无媒体，跟着 text_only / full 走。"
+    },
+    {
+      "line": 4000,
+      "kind": "hunk-damaged",
+      "f": "          // 妗岄潰鐨偆鍋忓ソ锛堢數瀛愬疇鐗?鎵嬫父椋庣殑鐣岄潰閰嶈壊 + 鐪嬫澘 banner锛夆€斺€斿紓姝ワ紙鐪嬫澘鍥句护鐗岄渶瑙ｆ瀽涓?",
+      "rev": "          // 桌面皮肤偏好（电子宠�?手游风的界面配色 + 看板 banner）——异步（看板图令牌需解析�?",
+      "head": "          // 桌面皮肤偏好（电子宠物/手游风的界面配色 + 看板 banner）——异步（看板图令牌需解析为"
+    },
+    {
+      "line": 4001,
+      "kind": "hunk-damaged",
+      "f": "          // data URL 鎵嶈兘璺ㄨ澶囷級锛屾墍浠ュ湪瀵硅薄瀛楅潰閲忓鍗曠嫭 await銆倀ext_only 鍙甫閰嶈壊鍋忓ソ銆佽烦杩囩湅鏉垮ぇ鍥俱€?",
+      "rev": "          // data URL 才能跨设备），所以在对象字面量外单独 await。text_only 只带配色偏好、跳过看板大图�?",
+      "head": "          // data URL 才能跨设备），所以在对象字面量外单独 await。text_only 只带配色偏好、跳过看板大图。"
+    },
+    {
+      "line": 4007,
+      "kind": "hunk-damaged",
+      "f": "          // Pre-process specialized image fields (Social App, Theme)銆俻rocessObject 鏄?",
+      "rev": "          // Pre-process specialized image fields (Social App, Theme)。processObject �?",
+      "head": "          // Pre-process specialized image fields (Social App, Theme)。processObject 是"
+    },
+    {
+      "line": 4008,
+      "kind": "hunk-damaged",
+      "f": "          // 鍘熷湴鏀癸紝鎵€浠ヨ繖閲屾寜璇彞璋冪敤銆佷笉鎺ヨ繑鍥炲€硷紝璇昏捣鏉ュ氨鏄€屽氨鍦板鐞嗚繖涓璞°€嶃€?",
+      "rev": "          // 原地改，所以这里按语句调用、不接返回值，读起来就是「就地处理这个对象」�?",
+      "head": "          // 原地改，所以这里按语句调用、不接返回值，读起来就是「就地处理这个对象」。"
+    },
+    {
+      "line": 4010,
+      "kind": "hunk-damaged",
+      "f": "              // 澹佺焊 / 灏忓眿鑷畾涔夌礌鏉?/ 澶栬棰勮閲屽彲鑳藉瓨鐨勬槸 blobref 浠ょ墝锛堟湰鏈?blob_assets锛夈€?",
+      "rev": "              // 壁纸 / 小屋自定义素�?/ 外观预设里可能存的是 blobref 令牌（本�?blob_assets）�?",
+      "head": "              // 壁纸 / 小屋自定义素材 / 外观预设里可能存的是 blobref 令牌（本机 blob_assets）。"
+    },
+    {
+      "line": 4011,
+      "kind": "hunk-damaged",
+      "f": "              // 鍏堟妸浠ょ墝瑙ｆ瀽鍥?data:image锛屽啀浜ょ粰涓嬮潰 processObject 鐨?data:鈫抸ip 鎶藉彇绠＄嚎锛?",
+      "rev": "              // 先把令牌解析�?data:image，再交给下面 processObject �?data:→zip 抽取管线�?",
+      "head": "              // 先把令牌解析回 data:image，再交给下面 processObject 的 data:→zip 抽取管线，"
+    },
+    {
+      "line": 4012,
+      "kind": "hunk-damaged",
+      "f": "              // 澶囦唤鏍煎紡涓庡彲绉绘鎬у畬鍏ㄤ笉鍙樸€倀heme.wallpaper 鍐呭瓨閲屾槸 blob: objectURL锛?",
+      "rev": "              // 备份格式与可移植性完全不变。theme.wallpaper 内存里是 blob: objectURL�?",
+      "head": "              // 备份格式与可移植性完全不变。theme.wallpaper 内存里是 blob: objectURL，"
+    },
+    {
+      "line": 4013,
+      "kind": "hunk-damaged",
+      "f": "              // resolveBlobRefsDeep 璁や笉寰?blob:锛屾墍浠ュ绾稿崟鐙寜浠ょ墝鎸囬拡璇?assets 杩樺師銆?",
+      "rev": "              // resolveBlobRefsDeep 认不�?blob:，所以壁纸单独按令牌指针�?assets 还原�?",
+      "head": "              // resolveBlobRefsDeep 认不得 blob:，所以壁纸单独按令牌指针读 assets 还原。"
+    },
+    {
+      "line": 4017,
+      "kind": "hunk-damaged",
+      "f": "                      const ptr = await DB.getAsset('wallpaper'); // blobref 浠ょ墝 / 鏃?data: / http",
+      "rev": "                      const ptr = await DB.getAsset('wallpaper'); // blobref 令牌 / �?data: / http",
+      "head": "                      const ptr = await DB.getAsset('wallpaper'); // blobref 令牌 / 旧 data: / http"
+    },
+    {
+      "line": 4051,
+      "kind": "hunk-damaged",
+      "f": "                  // blobref 浠ょ墝 stripBase64 宸叉竻绌衡€斺€旇繖閲岃ˉ娓?blob: 閬垮厤瀵煎嚭涓€涓閾炬帴澹佺焊銆?",
+      "rev": "                  // blobref 令牌 stripBase64 已清空——这里补�?blob: 避免导出一个死链接壁纸�?",
+      "head": "                  // blobref 令牌 stripBase64 已清空——这里补清 blob: 避免导出一个死链接壁纸。"
+    },
+    {
+      "line": 4066,
+      "kind": "hunk-damaged",
+      "f": "          // Stores that never contain base64 image data 鈥?skip recursive traversal",
+      "rev": "          // Stores that never contain base64 image data �?skip recursive traversal",
+      "head": "          // Stores that never contain base64 image data — skip recursive traversal"
+    },
+    {
+      "line": 4077,
+      "kind": "hunk-damaged",
+      "f": "          // Chunked processObject for large arrays 鈥?yields to main thread every 200 items",
+      "rev": "          // Chunked processObject for large arrays �?yields to main thread every 200 items",
+      "head": "          // Chunked processObject for large arrays — yields to main thread every 200 items"
+    },
+    {
+      "line": 4091,
+      "kind": "hunk-damaged",
+      "f": "          // 绾枃瀛楀浠界殑浣庡唴瀛樿矾寰勶細store 閫氳繃鍗曚簨鍔?IDB 娓告爣閫愭潯璇诲彇锛屽墺鍥惧悗绔嬪嵆搴忓垪鍖栬繘 ZIP 鍒嗙墖锛?",
+      "rev": "          // 纯文字备份的低内存路径：store 通过单事�?IDB 游标逐条读取，剥图后立即序列化进 ZIP 分片�?",
+      "head": "          // 纯文字备份的低内存路径：store 通过单事务 IDB 游标逐条读取，剥图后立即序列化进 ZIP 分片，"
+    },
+    {
+      "line": 4092,
+      "kind": "hunk-damaged",
+      "f": "          // 涓嶅啀 getAll 鏁磋〃椹荤暀銆俫allery/messages 涓嵆浣挎湁澶ч噺 base64 鍥剧墖锛屽嘲鍊间篃鍙槸涓€鏉¤褰曘€?",
+      "rev": "          // 不再 getAll 整表驻留。gallery/messages 中即使有大量 base64 图片，峰值也只是一条记录�?",
+      "head": "          // 不再 getAll 整表驻留。gallery/messages 中即使有大量 base64 图片，峰值也只是一条记录。"
+    },
+    {
+      "line": 4160,
+      "kind": "hunk-damaged",
+      "f": "          // 鍚戦噺浜岃繘鍒舵梺璺紙#2锛夛細memory_vectors 褰掍竴鍖栨嫾鎴?bin + 绱㈠紩锛堥€昏緫鍦?encodeVectorsForBackup锛?",
+      "rev": "          // 向量二进制旁路（#2）：memory_vectors 归一化拼�?bin + 索引（逻辑�?encodeVectorsForBackup�?",
+      "head": "          // 向量二进制旁路（#2）：memory_vectors 归一化拼成 bin + 索引（逻辑在 encodeVectorsForBackup，"
+    },
+    {
+      "line": 4161,
+      "kind": "hunk-damaged",
+      "f": "          // 閭ｈ竟鏈?ensureFloat32 缁熶竴 Uint8Array / Float32Array / 閬楃暀 number[] 涓夋€侊級锛屽鍑烘敹灏句氦缁?",
+      "rev": "          // 那边�?ensureFloat32 统一 Uint8Array / Float32Array / 遗留 number[] 三态），导出收尾交�?",
+      "head": "          // 那边有 ensureFloat32 统一 Uint8Array / Float32Array / 遗留 number[] 三态），导出收尾交给"
+    },
+    {
+      "line": 4162,
+      "kind": "hunk-damaged",
+      "f": "          // writeV2Backup 钀借繘 zip鈥斺€斾笉杩?backupData銆佷笉褰撴櫘閫氭暟缁勫垎鐗囷紝閬垮紑 number[] 杩?JSON 鐨勮啫鑳€銆?",
+      "rev": "          // writeV2Backup 落进 zip——不�?backupData、不当普通数组分片，避开 number[] �?JSON 的膨胀�?",
+      "head": "          // writeV2Backup 落进 zip——不进 backupData、不当普通数组分片，避开 number[] 进 JSON 的膨胀。"
+    },
+    {
+      "line": 4173,
+      "kind": "hunk-damaged",
+      "f": "              // 4500+ 鏉¤蹇嗚嫢浠嶆槸鏃╂湡 number[] 瀛樺偍锛実etAll 浼氬厛鍦?JS 鍫嗛噷鑶ㄨ儉鎴愭暟鐧?MB銆?",
+      "rev": "              // 4500+ 条记忆若仍是早期 number[] 存储，getAll 会先�?JS 堆里膨胀成数�?MB�?",
+      "head": "              // 4500+ 条记忆若仍是早期 number[] 存储，getAll 会先在 JS 堆里膨胀成数百 MB。"
+    },
+    {
+      "line": 4174,
+      "kind": "hunk-damaged",
+      "f": "              // 涓ら亶娓告爣閫愭潯鎵弿鍙父椹绘渶缁?Float32 绱у噾 bin锛涙牸寮忎粛鏄師鏉ョ殑鍗?bin + index銆?",
+      "rev": "              // 两遍游标逐条扫描只常驻最�?Float32 紧凑 bin；格式仍是原来的�?bin + index�?",
+      "head": "              // 两遍游标逐条扫描只常驻最终 Float32 紧凑 bin；格式仍是原来的单 bin + index。"
+    },
+    {
+      "line": 4183,
+      "kind": "hunk-damaged",
+      "f": "              // 绾枃瀛楁ā寮忕殑鏅€氭暟缁?store锛氶€愭潯鍓ュ浘鍚庣珛鍒诲啓鍒嗙墖銆傝繖閲?continue 鍚庝笉浼氬啀鎶?",
+      "rev": "              // 纯文字模式的普通数�?store：逐条剥图后立刻写分片。这�?continue 后不会再�?",
+      "head": "              // 纯文字模式的普通数组 store：逐条剥图后立刻写分片。这里 continue 后不会再把"
+    },
+    {
+      "line": 4184,
+      "kind": "hunk-damaged",
+      "f": "              // processedData 鎸傚埌 backupData锛屽洜姝ゅ凡澶勭悊鐨勬暣琛ㄤ笉浼氫竴鐩寸暀鍒版渶缁堝帇缂╅樁娈点€?",
+      "rev": "              // processedData 挂到 backupData，因此已处理的整表不会一直留到最终压缩阶段�?",
+      "head": "              // processedData 挂到 backupData，因此已处理的整表不会一直留到最终压缩阶段。"
+    },
+    {
+      "line": 4197,
+      "kind": "hunk-damaged",
+      "f": "                      // 鍚﹀垯 text_only 浼氱粫杩囦笅闈?getAll 鍒嗘敮锛屾妸鏃ч儴缃茬殑缁濆鏍锋澘鎴?URL 鍘熸牱甯﹁蛋銆?",
+      "rev": "                      // 否则 text_only 会绕过下�?getAll 分支，把旧部署的绝对样板�?URL 原样带走�?",
+      "head": "                      // 否则 text_only 会绕过下面 getAll 分支，把旧部署的绝对样板房 URL 原样带走。"
+    },
+    {
+      "line": 4216,
+      "kind": "hunk-damaged",
+      "f": "              // 鍚戦噺鏃佽矾锛氬綊涓€鍖栨嫾 bin + 绱㈠紩锛屼笉杩?backupData锛坵riteV2Backup 鏀跺熬钀?zip锛夈€傜洿鎺ヨ烦杩?",
+      "rev": "              // 向量旁路：归一化拼 bin + 索引，不�?backupData（writeV2Backup 收尾�?zip）。直接跳�?",
+      "head": "              // 向量旁路：归一化拼 bin + 索引，不进 backupData（writeV2Backup 收尾落 zip）。直接跳过"
+    },
+    {
+      "line": 4217,
+      "kind": "hunk-damaged",
+      "f": "              // 涓嬮潰鐨勫浘鐗囧鐞?/ switch锛堝悜閲忔棤鍥俱€佹棤 image base64锛夈€?",
+      "rev": "              // 下面的图片处�?/ switch（向量无图、无 image base64）�?",
+      "head": "              // 下面的图片处理 / switch（向量无图、无 image base64）。"
+    },
+    {
+      "line": 4224,
+      "kind": "hunk-damaged",
+      "f": "              // 杩欎簺 store 鐨勫浘鐗囧彲鑳藉瓨鐨勬槸 blobref 浠ょ墝锛屽獟浣?鍏ㄩ噺妯″紡涓嬪厛瑙ｆ瀽鍥?data:image锛?",
+      "rev": "              // 这些 store 的图片可能存的是 blobref 令牌，媒�?全量模式下先解析�?data:image�?",
+      "head": "              // 这些 store 的图片可能存的是 blobref 令牌，媒体/全量模式下先解析回 data:image，"
+    },
+    {
+      "line": 4226,
+      "kind": "hunk-damaged",
+      "f": "              //  路 characters锛氬皬灞?roomConfig.wallImage/floorImage/items[].image銆乻prites.chibi",
+      "rev": "              //  · characters：小�?roomConfig.wallImage/floorImage/items[].image、sprites.chibi",
+      "head": "              //  · characters：小屋 roomConfig.wallImage/floorImage/items[].image、sprites.chibi"
+    },
+    {
+      "line": 4227,
+      "kind": "hunk-damaged",
+      "f": "              //    锛坢edia_only 鐨?roomItems/backgrounds 鎻愬彇涔熶緷璧栧凡杩樺師鎴?data:锛?",
+      "rev": "              //    （media_only �?roomItems/backgrounds 提取也依赖已还原�?data:�?",
+      "head": "              //    （media_only 的 roomItems/backgrounds 提取也依赖已还原成 data:）"
+    },
+    {
+      "line": 4244,
+      "kind": "hunk-damaged",
+      "f": "              // 锛坢emory_vectors 宸插湪涓婇潰璧颁簩杩涘埗鏃佽矾 continue 鎺夛紝杩欓噷鍙墿鍏跺畠鏃犲浘 store锛?",
+      "rev": "              // （memory_vectors 已在上面走二进制旁路 continue 掉，这里只剩其它无图 store�?",
+      "head": "              // （memory_vectors 已在上面走二进制旁路 continue 掉，这里只剩其它无图 store）"
+    },
+    {
+      "line": 4307,
+      "kind": "hunk-damaged",
+      "f": "                  // 瑙掕壊鍒嗙粍瀹氫箟 鈥斺€?閿悕椤讳笌 importFullData 璇诲彇鐨勫瓧娈碉紙data.characterGroups锛夊榻?",
+      "rev": "                  // 角色分组定义 —�?键名须与 importFullData 读取的字段（data.characterGroups）对�?",
+      "head": "                  // 角色分组定义 —— 键名须与 importFullData 读取的字段（data.characterGroups）对齐"
+    },
+    {
+      "line": 4356,
+      "kind": "hunk-damaged",
+      "f": "                  // memory_vectors 璧颁簩杩涘埗鏃佽矾锛堜笂闈㈠凡 continue锛夛紝涓嶅湪姝?switch 钀?backupData",
+      "rev": "                  // memory_vectors 走二进制旁路（上面已 continue），不在�?switch �?backupData",
+      "head": "                  // memory_vectors 走二进制旁路（上面已 continue），不在此 switch 落 backupData"
+    },
+    {
+      "line": 4367,
+      "kind": "hunk-damaged",
+      "f": "                  // 銆屽郊鏂广€嶈櫄鎷熶笘鐣?鈥斺€?閿悕椤讳笌 importFullData 璇诲彇鐨勫瓧娈靛榻?",
+      "rev": "                  // 「彼方」虚拟世�?—�?键名须与 importFullData 读取的字段对�?",
+      "head": "                  // 「彼方」虚拟世界 —— 键名须与 importFullData 读取的字段对齐"
+    },
+    {
+      "line": 4374,
+      "kind": "hunk-damaged",
+      "f": "                  case 'vr_plays': backupData.vrStagedPlays = processedData; break;        // 瑙掕壊婕旇繃鐨勮瘽鍓?",
+      "rev": "                  case 'vr_plays': backupData.vrStagedPlays = processedData; break;        // 角色演过的话�?",
+      "head": "                  case 'vr_plays': backupData.vrStagedPlays = processedData; break;        // 角色演过的话剧"
+    },
+    {
+      "line": 4376,
+      "kind": "hunk-damaged",
+      "f": "                  // 鍗曚緥 store锛氬鍏ョ鏈熸湜鍗曚釜瀵硅薄锛堝彇棣栨潯锛夛紝闈炴暟缁?",
+      "rev": "                  // 单例 store：导入端期望单个对象（取首条），非数�?",
+      "head": "                  // 单例 store：导入端期望单个对象（取首条），非数组"
+    },
+    {
+      "line": 4379,
+      "kind": "hunk-damaged",
+      "f": "                  // 瀹跺洯 鈥斺€?閿悕椤讳笌 importFullData 璇诲彇鐨勫瓧娈碉紙data.worlds / data.worldEpisodes锛夊榻?",
+      "rev": "                  // 家园 —�?键名须与 importFullData 读取的字段（data.worlds / data.worldEpisodes）对�?",
+      "head": "                  // 家园 —— 键名须与 importFullData 读取的字段（data.worlds / data.worldEpisodes）对齐"
+    },
+    {
+      "line": 4383,
+      "kind": "hunk-damaged",
+      "f": "            // 绀肩墿 鈥斺€?閿悕椤讳笌 importFullData 璇诲彇鐨勫瓧娈碉紙data.gifts锛夊榻?",
+      "rev": "            // 礼物 —�?键名须与 importFullData 读取的字段（data.gifts）对�?",
+      "head": "            // 礼物 —— 键名须与 importFullData 读取的字段（data.gifts）对齐"
+    },
+    {
+      "line": 4390,
+      "kind": "hunk-damaged",
+      "f": "          // 杩涘害鏉″仠鍦?70% 璁╃敤鎴风湅鍒版帴涓嬫潵鐨?鍘嬬缉涓?X%\"瀹為檯鎺ㄨ繘锛岃€屼笉鏄崱鍦?95% 骞茬瓑銆?",
+      "rev": "          // 进度条停�?70% 让用户看到接下来�?压缩�?X%\"实际推进，而不是卡�?95% 干等�?",
+      "head": "          // 进度条停在 70% 让用户看到接下来的\"压缩中 X%\"实际推进，而不是卡在 95% 干等。"
+    },
+    {
+      "line": 4391,
+      "kind": "hunk-damaged",
+      "f": "          // text_only 鐢?level 6锛涘獟浣?鍏ㄩ噺浠嶇敤 level 9锛屽叿浣撹 generateAsync 閰嶇疆銆?",
+      "rev": "          // text_only �?level 6；媒�?全量仍用 level 9，具体见 generateAsync 配置�?",
+      "head": "          // text_only 用 level 6；媒体/全量仍用 level 9，具体见 generateAsync 配置。"
+    },
+    {
+      "line": 4392,
+      "kind": "hunk-damaged",
+      "f": "          setSysOperation({ status: 'processing', message: '姝ｅ湪鐢熸垚鍘嬬缉鍖?..', progress: 70 });",
+      "rev": "          setSysOperation({ status: 'processing', message: '正在生成压缩�?..', progress: 70 });",
+      "head": "          setSysOperation({ status: 'processing', message: '正在生成压缩包...', progress: 70 });"
+    },
+    {
+      "line": 4394,
+      "kind": "hunk-damaged",
+      "f": "          // --- v2 鍒嗙墖搴忓垪鍖栵紙鏇夸唬鑰佺殑鍗曟牴 data.json锛?--",
+      "rev": "          // --- v2 分片序列化（替代老的单根 data.json�?--",
+      "head": "          // --- v2 分片序列化（替代老的单根 data.json）---"
+    },
+    {
+      "line": 4395,
+      "kind": "hunk-damaged",
+      "f": "          // 涓嶅啀鎶婃墍鏈夋暟鎹嫾鎴愪竴鏍?data.json锛氬崟鏍瑰瓧绗︿覆閫艰繎 ~512M 浼氱‘瀹氭€?RangeError銆?",
+      "rev": "          // 不再把所有数据拼成一�?data.json：单根字符串逼近 ~512M 会确定�?RangeError�?",
+      "head": "          // 不再把所有数据拼成一根 data.json：单根字符串逼近 ~512M 会确定性 RangeError。"
+    },
+    {
+      "line": 4396,
+      "kind": "hunk-damaged",
+      "f": "          // 鏀规垚姣忎釜鏁扮粍瀛楁鍒嗙墖鍐欒繘 stores/<field>.NNN.json銆佸叾浣欓潪鏁扮粍瀛楁杩?metadata.json銆?",
+      "rev": "          // 改成每个数组字段分片写进 stores/<field>.NNN.json、其余非数组字段�?metadata.json�?",
+      "head": "          // 改成每个数组字段分片写进 stores/<field>.NNN.json、其余非数组字段进 metadata.json、"
+    },
+    {
+      "line": 4397,
+      "kind": "hunk-damaged",
+      "f": "          // 鏀跺熬鍐?manifest.json 褰撳鍏ュ绾︺€傚鍏ョ鎸?manifest 鎶婂悇鐗囨嫾鍥炰笌杩欓噷瀹屽叏鐩稿悓鐨?data",
+      "rev": "          // 收尾�?manifest.json 当导入契约。导入端�?manifest 把各片拼回与这里完全相同�?data",
+      "head": "          // 收尾写 manifest.json 当导入契约。导入端按 manifest 把各片拼回与这里完全相同的 data"
+    },
+    {
+      "line": 4399,
+      "kind": "hunk-damaged",
+      "f": "          // media_only 琛ヤ竵鈥︹€︼級涓嶅湪杩欓噷閲嶅啓銆傝瑙?utils/backupFormat.ts銆?",
+      "rev": "          // media_only 补丁……）不在这里重写。详�?utils/backupFormat.ts�?",
+      "head": "          // media_only 补丁……）不在这里重写。详见 utils/backupFormat.ts。"
+    },
+    {
+      "line": 4414,
+      "kind": "hunk-damaged",
+      "f": "          // 鏉′粠 70% 骞虫粦鐖埌 99%锛岀敤鎴疯兘纭垏鐪嬪埌\"鍦ㄥ姩\"銆?",
+      "rev": "          // 条从 70% 平滑爬到 99%，用户能确切看到\"在动\"�?",
+      "head": "          // 条从 70% 平滑爬到 99%，用户能确切看到\"在动\"。"
+    },
+    {
+      "line": 4421,
+      "kind": "hunk-damaged",
+      "f": "                  // 绾枃瀛楀浠戒紭鍏堟墜鏈虹ǔ瀹氭€э紱6 绾т綋绉樊寰堝皬锛屼絾姣?9 绾ф槑鏄剧渷鏃剁渷鍐呭瓨銆?",
+      "rev": "                  // 纯文字备份优先手机稳定性；6 级体积差很小，但�?9 级明显省时省内存�?",
+      "head": "                  // 纯文字备份优先手机稳定性；6 级体积差很小，但比 9 级明显省时省内存。"
+    },
+    {
+      "line": 4438,
+      "kind": "hunk-damaged",
+      "f": "          // 澶囦唤鎴愬姛 鈫?鎺ㄨ繘銆岃澶囦唤鍟︺€嶆彁閱掔殑璁℃椂锛堟湰鍦板鍑?/ 浜戝浠介兘璧拌繖閲岋紝涓€澶勮鐩栦袱鏉¤矾寰勶級",
+      "rev": "          // 备份成功 �?推进「该备份啦」提醒的计时（本地导�?/ 云备份都走这里，一处覆盖两条路径）",
+      "head": "          // 备份成功 → 推进「该备份啦」提醒的计时（本地导出 / 云备份都走这里，一处覆盖两条路径）"
+    },
+    {
+      "line": 4456,
+      "kind": "hunk-damaged",
+      "f": "      // 瀵煎叆鏀跺熬鎹鍚戠敤鎴锋樉寮忓憡璀︹€斺€斻€屾暟鎹仮澶嶄簡锛屼絾鏈夊嚑涓浘鐗囨病鍥炴潵銆嶄笉鑳藉啋鍏呫€屽叏閮ㄦ垚鍔熴€嶃€?",
+      "rev": "      // 导入收尾据此向用户显式告警——「数据恢复了，但有几个图片没回来」不能冒充「全部成功」�?",
+      "head": null
+    },
+    {
+      "line": 4470,
+      "kind": "hunk-damaged",
+      "f": "          if (current) lines.push(`褰撳墠閮ㄥ垎锛?{current}`);",
+      "rev": "          if (current) lines.push(`当前部分�?{current}`);",
+      "head": "          if (current) lines.push(`当前部分：${current}`);"
+    },
+    {
+      "line": 4472,
+      "kind": "hunk-damaged",
+      "f": "              lines.push(`鏉＄洰锛?{update.itemDone || 0}/${update.itemTotal}`);",
+      "rev": "              lines.push(`条目�?{update.itemDone || 0}/${update.itemTotal}`);",
+      "head": "              lines.push(`条目：${update.itemDone || 0}/${update.itemTotal}`);"
+    },
+    {
+      "line": 4476,
+      "kind": "hunk-damaged",
+      "f": "              lines.push(`褰撳墠鏂囦欢锛?{currentFile}${sizeText ? ` 路 ${sizeText}` : ''}`);",
+      "rev": "              lines.push(`当前文件�?{currentFile}${sizeText ? ` · ${sizeText}` : ''}`);",
+      "head": "              lines.push(`当前文件：${currentFile}${sizeText ? ` · ${sizeText}` : ''}`);"
+    },
+    {
+      "line": 4480,
+      "kind": "hunk-damaged",
+      "f": "              lines.push(`澶囦唤锛?{sourceName}${sizeText ? ` 路 ${sizeText}` : ''}`);",
+      "rev": "              lines.push(`备份�?{sourceName}${sizeText ? ` · ${sizeText}` : ''}`);",
+      "head": "              lines.push(`备份：${sourceName}${sizeText ? ` · ${sizeText}` : ''}`);"
+    },
+    {
+      "line": 4531,
+      "kind": "hunk-damaged",
+      "f": "                      throw new Error(\"鏃犳晥鐨勬枃浠舵牸寮忥紝璇蜂笂浼?.zip 鎴?.json\");",
+      "rev": "                      throw new Error(\"无效的文件格式，请上�?.zip �?.json\");",
+      "head": "                      throw new Error(\"无效的文件格式，请上传 .zip 或 .json\");"
+    },
+    {
+      "line": 4541,
+      "kind": "hunk-damaged",
+      "f": "                      // 鏍￠獙涓嶈繃鐩存帴鎶涢敊鈥斺€旀鏃?importFullData 杩樻病璋冿紝DB 涓€瀛楁湭鍔ㄣ€?",
+      "rev": "                      // 校验不过直接抛错——此�?importFullData 还没调，DB 一字未动�?",
+      "head": "                      // 校验不过直接抛错——此时 importFullData 还没调，DB 一字未动。"
+    },
+    {
+      "line": 4561,
+      "kind": "hunk-damaged",
+      "f": "                      // v1锛堣€佸浠斤級锛氬崟鏍?data.json锛屽師鏍蜂繚鐣欙紝鑰佸浠芥案杩滄墦寰楀紑銆?",
+      "rev": "                      // v1（老备份）：单�?data.json，原样保留，老备份永远打得开�?",
+      "head": "                      // v1（老备份）：单根 data.json，原样保留，老备份永远打得开。"
+    },
+    {
+      "line": 4571,
+      "kind": "hunk-damaged",
+      "f": "          // 蹇呴』鍙戠敓鍦?restoreAssetsInPlace / DB.importFullData 涔嬪墠锛氫笉鍙楁敮鎸佺殑绗笁鏂?",
+      "rev": "          // 必须发生�?restoreAssetsInPlace / DB.importFullData 之前：不受支持的第三�?",
+      "head": "          // 必须发生在 restoreAssetsInPlace / DB.importFullData 之前：不受支持的第三方"
+    },
+    {
+      "line": 4572,
+      "kind": "hunk-damaged",
+      "f": "          // 澶囦唤涓€鏃﹀懡涓壒寰佸氨鏁村寘鎷掔粷锛屼笉鑳藉嚭鐜扳€滃鍏ヤ簡涓€鍗婃墠鎶ラ敊鈥濈殑鐘舵€併€?",
+      "rev": "          // 备份一旦命中特征就整包拒绝，不能出现“导入了一半才报错”的状态�?",
+      "head": "          // 备份一旦命中特征就整包拒绝，不能出现“导入了一半才报错”的状态。"
+    },
+    {
+      "line": 4666,
+      "kind": "hunk-damaged",
+      "f": "          showImportProgress('database', '姝ｅ湪鍐欏叆鏁版嵁搴?..', 50, { current: '鍑嗗鍐欏叆鏁版嵁搴?, currentFile: '' });",
+      "rev": "          showImportProgress('database', '正在写入数据�?..', 50, { current: '准备写入数据�?, currentFile: '' });",
+      "head": "          showImportProgress('database', '正在写入数据库...', 50, { current: '准备写入数据库', currentFile: '' });"
+    },
+    {
+      "line": 4677,
+      "kind": "hunk-damaged",
+      "f": "                  showImportProgress('database', '姝ｅ湪鍐欏叆鏁版嵁搴?..', dbProgress, {",
+      "rev": "                  showImportProgress('database', '正在写入数据�?..', dbProgress, {",
+      "head": "                  showImportProgress('database', '正在写入数据库...', dbProgress, {"
+    },
+    {
+      "line": 4743,
+      "kind": "hunk-damaged",
+      "f": "          // Restore Memory Palace 姘翠綅绾?",
+      "rev": "          // Restore Memory Palace 水位�?",
+      "head": "          // Restore Memory Palace 水位线"
+    },
+    {
+      "line": 4756,
+      "kind": "hunk-damaged",
+      "f": "                      // 鍙厑璁告仮澶?mp_ 鍓嶇紑鐨勯敭锛岄伩鍏嶅鍏ユ暟鎹薄鏌撳叾瀹?localStorage",
+      "rev": "                      // 只允许恢�?mp_ 前缀的键，避免导入数据污染其�?localStorage",
+      "head": "                      // 只允许恢复 mp_ 前缀的键，避免导入数据污染其它 localStorage"
+    },
+    {
+      "line": 4803,
+      "kind": "hunk-damaged",
+      "f": "                  // 鍙厑璁?sullyos_ 鍓嶇紑锛岄伩鍏嶆薄鏌撳叾瀹冮敭",
+      "rev": "                  // 只允�?sullyos_ 前缀，避免污染其它键",
+      "head": "                  // 只允许 sullyos_ 前缀，避免污染其它键"
+    },
+    {
+      "line": 4811,
+      "kind": "hunk-damaged",
+      "f": "              await restoreAssetsInPlace(data.socialAppData, '鍔ㄦ€佽缃?);",
+      "rev": "              await restoreAssetsInPlace(data.socialAppData, '动态设�?);",
+      "head": "              await restoreAssetsInPlace(data.socialAppData, '动态设置');"
+    },
+    {
+      "line": 4822,
+      "kind": "hunk-damaged",
+      "f": "              await restoreAssetsInPlace(data.roomCustomAssets, '鎴块棿鑷畾涔夌礌鏉?);",
+      "rev": "              await restoreAssetsInPlace(data.roomCustomAssets, '房间自定义素�?);",
+      "head": "              await restoreAssetsInPlace(data.roomCustomAssets, '房间自定义素材');"
+    },
+    {
+      "line": 4862,
+      "kind": "hunk-damaged",
+      "f": "          // 瀵煎叆鍚庣殑瑙掕壊娓呭崟锛堜笅闈富鍔ㄦ秷鎭?2.0 瀵硅处瑕佺敤瑙勮寖鍖栦箣鍚庣殑閭ｄ唤锛?",
+      "rev": "          // 导入后的角色清单（下面主动消�?2.0 对账要用规范化之后的那份�?",
+      "head": "          // 导入后的角色清单（下面主动消息 2.0 对账要用规范化之后的那份）"
+    },
+    {
+      "line": 4894,
+      "kind": "hunk-damaged",
+      "f": "          // 瀵煎叆鎹㈡帀浜嗘暣濂楄鑹诧紝worker 閭ｈ竟鍗磋繕鍋滃湪瀵煎叆鍓嶏細鏃ф。瑙掕壊鐨勮繙绔换鍔″彉鎴愭棤涓讳换鍔?",
+      "rev": "          // 导入换掉了整套角色，worker 那边却还停在导入前：旧档角色的远端任务变成无主任�?",
+      "head": "          // 导入换掉了整套角色，worker 那边却还停在导入前：旧档角色的远端任务变成无主任务"
+    },
+    {
+      "line": 4895,
+      "kind": "hunk-damaged",
+      "f": "          // 鍒扮偣鐓ф牱鎺ㄩ€侊紝鏂版。瑙掕壊鐨?fire_pack 鍜屽伐鍏峰嚟鎹垯鍋滄牸鍦ㄥ鍏ュ墠閭ｄ竴鍒汇€?",
+      "rev": "          // 到点照样推送，新档角色�?fire_pack 和工具凭据则停格在导入前那一刻�?",
+      "head": "          // 到点照样推送，新档角色的 fire_pack 和工具凭据则停格在导入前那一刻。"
+    },
+    {
+      "line": 4896,
+      "kind": "hunk-damaged",
+      "f": "          // 鏁存 best-effort锛氳繖鏄仮澶嶆祦绋嬬殑鏀跺熬锛屼簯绔涓嶇潃涓嶈璁╁凡缁忓啓濂界殑鏈湴鏁版嵁鍥炴粴銆?",
+      "rev": "          // 整段 best-effort：这是恢复流程的收尾，云端够不着不该让已经写好的本地数据回滚�?",
+      "head": "          // 整段 best-effort：这是恢复流程的收尾，云端够不着不该让已经写好的本地数据回滚。"
+    },
+    {
+      "line": 4906,
+      "kind": "hunk-damaged",
+      "f": "                      // 銆屽鍏ュ嵆鏀惧純鏃ф暟鎹€嶏細杩欐潯浠诲姟鐨勪富浜哄湪鏂版。閲屽凡缁忎笉瀛樺湪浜嗭紙杩炰富浜烘槸璋?",
+      "rev": "                      // 「导入即放弃旧数据」：这条任务的主人在新档里已经不存在了（连主人是�?",
+      "head": "                      // 「导入即放弃旧数据」：这条任务的主人在新档里已经不存在了（连主人是谁"
+    },
+    {
+      "line": 4907,
+      "kind": "hunk-damaged",
+      "f": "                      // 閮芥病鎶曞奖鍑烘潵鐨勫悓鐞嗭級锛屽畠姝ｅ睘浜庤涓€璧锋斁寮冪殑閮ㄥ垎锛屽彇娑堝氨鏄鐨勩€?",
+      "rev": "                      // 都没投影出来的同理），它正属于该一起放弃的部分，取消就是对的�?",
+      "head": "                      // 都没投影出来的同理），它正属于该一起放弃的部分，取消就是对的。"
+    },
+    {
+      "line": 4910,
+      "kind": "hunk-damaged",
+      "f": "                  // 鐣欎笅鏉ョ殑瑙掕壊閫愪釜鍒蜂簯绔揩鐓э紝鍚屾椂鎶婂鍏ヨ繘鏉ョ殑瀹炴椂鎰熺煡鍑嵁浼犱笂鍘汇€?",
+      "rev": "                  // 留下来的角色逐个刷云端快照，同时把导入进来的实时感知凭据传上去�?",
+      "head": "                  // 留下来的角色逐个刷云端快照，同时把导入进来的实时感知凭据传上去。"
+    },
+    {
+      "line": 4911,
+      "kind": "hunk-damaged",
+      "f": "                  // 璧板悓涓€涓叆鍙ｏ細浜戠鎻愮ず璇嶆槸鎸夊嚟鎹杩囩殑锛屼袱鑰呭繀椤诲悓杩涘悓閫€銆?",
+      "rev": "                  // 走同一个入口：云端提示词是按凭据裁过的，两者必须同进同退�?",
+      "head": "                  // 走同一个入口：云端提示词是按凭据裁过的，两者必须同进同退。"
+    },
+    {
+      "line": 4912,
+      "kind": "hunk-damaged",
+      "f": "                  // 鏈?AI 浠诲姟鐨勮鑹叉墠浼氱湡鐨勪笂浼狅紙闂ㄥ湪 markAmsgStateDirty 閲岋級銆?",
+      "rev": "                  // �?AI 任务的角色才会真的上传（门在 markAmsgStateDirty 里）�?",
+      "head": "                  // 有 AI 任务的角色才会真的上传（门在 markAmsgStateDirty 里）。"
+    },
+    {
+      "line": 4919,
+      "kind": "hunk-damaged",
+      "f": "              console.warn('[amsg2] 瀵煎叆鍚庝簯绔璐﹀け璐ワ紙鏈湴鏁版嵁宸叉仮澶嶏紝涓嶅彈褰卞搷锛?, e);",
+      "rev": "              console.warn('[amsg2] 导入后云端对账失败（本地数据已恢复，不受影响�?, e);",
+      "head": "              console.warn('[amsg2] 导入后云端对账失败（本地数据已恢复，不受影响）', e);"
+    },
+    {
+      "line": 4925,
+      "kind": "hunk-damaged",
+      "f": "          // 鏁版嵁鏈韩宸插畬鏁磋惤搴擄紝浣嗗紩鐢ㄨ繖浜?assets/* 鐨勫ご鍍?鍥剧墖浼氭樉绀轰负绌虹櫧銆?",
+      "rev": "          // 数据本身已完整落库，但引用这�?assets/* 的头�?图片会显示为空白�?",
+      "head": "          addToast('恢复成功，系统即将重启...', 'success');"
+    },
+    {
+      "line": 4928,
+      "kind": "hunk-damaged",
+      "f": "              const samples = unrecoveredAssets.slice(0, 3).join('銆?);",
+      "rev": "              const samples = unrecoveredAssets.slice(0, 3).join('�?);",
+      "head": "          addToast('恢复成功，系统即将重启...', 'success');"
+    },
+    {
+      "line": 4930,
+      "kind": "hunk-damaged",
+      "f": "                  `閮ㄥ垎绱犳潗鏈兘鎭㈠锛?{unrecoveredAssets.length} 涓枃浠剁己澶辨垨鎹熷潖锛?{samples}${unrecoveredAssets.length > 3 ? ' 绛? : ''}锛夛紝鐩稿叧鍥剧墖鍙兘鏄剧ず涓虹┖鐧絗,",
+      "rev": "                  `部分素材未能恢复�?{unrecoveredAssets.length} 个文件缺失或损坏�?{samples}${unrecoveredAssets.length > 3 ? ' �? : ''}），相关图片可能显示为空白`,",
+      "head": "          addToast('恢复成功，系统即将重启...', 'success');"
+    },
+    {
+      "line": 4934,
+      "kind": "hunk-damaged",
+      "f": "          addToast('鎭㈠鎴愬姛锛岀郴缁熷嵆灏嗛噸鍚?..', 'success');",
+      "rev": "          addToast('恢复成功，系统即将重�?..', 'success');",
+      "head": "          addToast('恢复成功，系统即将重启...', 'success');"
+    },
+    {
+      "line": 4954,
+      "kind": "hunk-damaged",
+      "f": "  const resetSystem = async () => { try { await DB.deleteDB(); localStorage.clear(); window.location.reload(); } catch (e) { console.error(e); addToast('閲嶇疆澶辫触锛岃鎵嬪姩娓呴櫎娴忚鍣ㄦ暟鎹?, 'error'); } };",
+      "rev": "  const resetSystem = async () => { try { await DB.deleteDB(); localStorage.clear(); window.location.reload(); } catch (e) { console.error(e); addToast('重置失败，请手动清除浏览器数�?, 'error'); } };",
+      "head": "  const resetSystem = async () => { try { await DB.deleteDB(); localStorage.clear(); window.location.reload(); } catch (e) { console.error(e); addToast('重置失败，请手动清除浏览器数据', 'error'); } };"
+    }
+  ]
+}

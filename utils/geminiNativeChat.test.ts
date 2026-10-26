@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   GeminiNativeAdapterError,
+  assertLegalGeminiNativeTail,
   buildGeminiNativeEndpoint,
   buildGeminiNativeRequest,
   getGeminiProviderState,
@@ -149,6 +150,114 @@ describe('Gemini Native URL and request conversion', () => {
   });
 });
 
+describe('Gemini Native 末尾回合校验（上游 400 "Requests ending with a model turn" 的本地拦截）', () => {
+  it('普通 user 结尾请求：校验通过、fetch 正常发出且 contents 以 user 回合结尾', async () => {
+    const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>): Promise<Response> => jsonResponse({
+      candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }],
+    }));
+    await requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
+      messages: [
+        { role: 'system', content: '规则' },
+        { role: 'user', content: '你好' },
+        { role: 'assistant', content: '你也好' },
+        { role: 'user', content: '继续聊' },
+        { role: 'system', content: '尾部系统提示不进 contents' },
+      ],
+    }, { fetchImpl: fetchImpl as typeof fetch, source: '聊天回复' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(sent.contents.at(-1)).toEqual({ role: 'user', parts: [{ text: '继续聊' }] });
+    expect(sent.systemInstruction.parts).toHaveLength(2);
+  });
+
+  it('assistant 结尾请求：发送前本地拦截（GeminiNativeAdapterError），不发网络请求', async () => {
+    const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>): Promise<Response> => jsonResponse({}));
+    // 场景：手动 ⚡ 续写——历史最后一条是 assistant，尾部 system 不计入 contents
+    await expect(requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
+      messages: [
+        { role: 'user', content: '在吗' },
+        { role: 'assistant', content: '我在呢' },
+        { role: 'system', content: '易变状态' },
+      ],
+    }, { fetchImpl: fetchImpl as typeof fetch })).rejects.toThrow(GeminiNativeAdapterError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('错误信息指向根因（model turn 结尾），与上游 HTTP 400 可区分', async () => {
+    await expect(requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
+      messages: [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }],
+    }, { fetchImpl: vi.fn() as unknown as typeof fetch })).rejects.toThrow(/model turn/i);
+  });
+
+  it('空 contents（只有 system 消息）：本地拦截，不发网络请求', async () => {
+    const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>): Promise<Response> => jsonResponse({}));
+    await expect(requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
+      messages: [{ role: 'system', content: '只有 system' }],
+    }, { fetchImpl: fetchImpl as typeof fetch })).rejects.toThrow(GeminiNativeAdapterError);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('空 assistant / 无效 parts 被自然剔除后，请求按剩余合法回合发出', async () => {
+    const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>): Promise<Response> => jsonResponse({
+      candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }],
+    }));
+    await requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
+      messages: [
+        { role: 'user', content: '问' },
+        { role: 'assistant', content: '' },   // 空 assistant 不产生 model 回合
+        { role: 'user', content: '' },        // 空 user 同样被剔除
+      ],
+    }, { fetchImpl: fetchImpl as typeof fetch });
+    const sent = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(sent.contents).toEqual([{ role: 'user', parts: [{ text: '问' }] }]);
+  });
+
+  it('合法 functionCall/functionResponse 工具续跑：保留原始签名并通过校验', async () => {
+    // 第一轮：拿到带 functionCall + thoughtSignature 的 provider state
+    const first = await requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
+      messages: [{ role: 'user', content: '查天气' }],
+      tools: [{ type: 'function', function: { name: 'weather', parameters: { type: 'object' } } }],
+    }, {
+      fetchImpl: vi.fn(async () => jsonResponse({
+        candidates: [{ content: { role: 'model', parts: [
+          { functionCall: { id: 'call_1', name: 'weather', args: { city: '上海' } }, thoughtSignature: 'sig-keep' },
+        ] } }],
+      })) as typeof fetch,
+    });
+    const assistant = first.choices[0].message;
+
+    // 第二轮：assistant 回传 + tool 结果（functionResponse，user 回合）
+    const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>): Promise<Response> => jsonResponse({
+      candidates: [{ content: { parts: [{ text: '上海 26 度' }] }, finishReason: 'STOP' }],
+    }));
+    await requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
+      messages: [
+        { role: 'user', content: '查天气' },
+        assistant,
+        { role: 'tool', tool_call_id: 'call_1', content: '{"temp":26}' },
+      ],
+    }, { fetchImpl: fetchImpl as typeof fetch });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(sent.contents).toHaveLength(3);
+    expect(sent.contents[1].role).toBe('model');
+    expect(sent.contents[1].parts[0].thoughtSignature).toBe('sig-keep');
+    expect(sent.contents.at(-1)).toEqual({
+      role: 'user',
+      parts: [{ functionResponse: { id: 'call_1', name: 'weather', response: { temp: 26 } } }],
+    });
+  });
+
+  it('assertLegalGeminiNativeTail 纯函数：user 结尾通过、model 结尾与空 contents 抛错', () => {
+    const { contents } = buildGeminiNativeRequest({ messages: [{ role: 'user', content: 'x' }] });
+    expect(() => assertLegalGeminiNativeTail(contents)).not.toThrow();
+    expect(() => assertLegalGeminiNativeTail([])).toThrow(GeminiNativeAdapterError);
+    expect(() => assertLegalGeminiNativeTail([
+      { role: 'model', parts: [{ text: '尾' }] },
+    ])).toThrow(/model turn/i);
+  });
+});
+
 describe('Gemini Native response normalization', () => {
   it('parses split UTF-8 SSE, all parts, thought filtering, usage and provider state', async () => {
     const payload1 = JSON.stringify({
@@ -243,7 +352,7 @@ describe('Gemini Native response normalization', () => {
   });
 
   it.each([400, 401, 429, 500])('preserves HTTP %s error.message and never retries', async status => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ error: { message: `upstream-${status}` } }, status));
+    const fetchImpl = vi.fn(async (..._args: Parameters<typeof fetch>): Promise<Response> => jsonResponse({ error: { message: `upstream-${status}` } }, status));
     await expect(requestGeminiNativeChat('https://x', 'k', 'gemini-x', {
       messages: [{ role: 'user', content: 'x' }],
     }, { fetchImpl: fetchImpl as typeof fetch })).rejects.toThrow(`upstream-${status}`);

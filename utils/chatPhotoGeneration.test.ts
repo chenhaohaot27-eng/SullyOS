@@ -226,4 +226,67 @@ describe('applyAssistantPostProcessing 集成（普通聊天链路）', () => {
         expect(msgs.filter(m => m.type === 'image')).toHaveLength(0);
         expect(mockedGenerate).not.toHaveBeenCalled();
     });
+
+    it('非法标签（无法安全解析）：标签剥掉、不产生假图片消息、不调生图服务，正文保留', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        try {
+            await applyAssistantPostProcessing(
+                '我发了一张照片给你看\n[[SEND_PHOTO: not json at all]]',
+                makeCtx(),
+            );
+            const msgs = await listMessages();
+            // 不产生任何 image 消息（禁止文字/[图片] 占位伪装生图成功）
+            expect(msgs.filter(m => m.type === 'image')).toHaveLength(0);
+            expect(mockedGenerate).not.toHaveBeenCalled();
+            // 正文照常落库，标签与 JSON 不进气泡
+            const texts = msgs.filter(m => m.type === 'text').map(m => m.content);
+            expect(texts).toContain('我发了一张照片给你看');
+            expect(JSON.stringify(msgs)).not.toContain('SEND_PHOTO');
+            // 可观测性：解析失败有 warn 留痕
+            expect(warnSpy).toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('全角引号标签（中文模型高频格式误差）端到端仍能拍出真实图片消息', async () => {
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        try {
+            mockedGenerate.mockResolvedValue(okResult());
+            await applyAssistantPostProcessing(
+                '拍好了～\n[[SEND_PHOTO: {"prompt":"my desk at night", "caption":"给你",}]]',
+                makeCtx(),
+            );
+            expect(mockedGenerate).toHaveBeenCalledTimes(1);
+            const msgs = await listMessages();
+            const photos = msgs.filter(m => m.type === 'image');
+            expect(photos).toHaveLength(1);
+            expect(isBlobRef(photos[0].content)).toBe(true);
+            expect(photos[0].metadata?.chatPhoto?.status).toBe('ready');
+            // 标签检测日志有留痕（安全脱敏：不含 prompt 原文）
+            const logged = infoSpy.mock.calls.map(c => c.join(' ')).join('\n');
+            expect(logged).toContain('SEND_PHOTO 标签检测');
+            expect(logged).not.toContain('my desk at night');
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('生图成功后重新读取：消息可从 DB 再次载入且 ready 状态保持', async () => {
+        mockedGenerate.mockResolvedValue(okResult());
+        await executeChatPhotoIntent({
+            char: CHAR,
+            intent: INTENT,
+            persistMessage: msg => DB.saveMessage(msg),
+        });
+        // 重新读取（模拟刷新/重开页面后的载入路径）
+        const reread = await DB.getMessagesByCharId(CHAR_ID, true);
+        const photo = reread.find(m => m.type === 'image');
+        expect(photo).toBeDefined();
+        expect(isBlobRef(photo!.content)).toBe(true);
+        expect(photo!.metadata?.chatPhoto?.status).toBe('ready');
+        expect(photo!.metadata?.chatPhoto?.caption).toBe(INTENT.caption);
+    });
 });

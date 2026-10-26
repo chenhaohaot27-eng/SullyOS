@@ -1192,9 +1192,21 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                                   const b = (sendArgs[1] as any)?.body;
                                   if (typeof b === 'string') {
                                       const j = JSON.parse(b);
-                                      const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
-                                      const roles = Array.isArray(j.messages) ? j.messages.map((m: any) => m.role + (m.tool_calls ? '(tool_calls)' : '')).join(',') : '';
-                                      reqSummary = `\n--- Request ---\nmodel: ${j.model}\ntemperature: ${j.temperature} | top_p: ${j.top_p} | reasoning_effort: ${j.reasoning_effort} | thinking: ${j.thinking ? 'on' : 'off'}\ntools(${toolNames.length}): ${toolNames.join(', ')}\nmessages(${(j.messages || []).length}) roles: ${roles}`;
+                                      if (Array.isArray(j.contents)) {
+                                          // Gemini Native 请求体（contents/systemInstruction，没有 model/messages 字段）：
+                                          // 按 OpenAI 形状打印会显示成 "model: undefined / messages(0)"——那是日志形状不兼容，
+                                          // 不是请求坏了。这里按 Gemini 形状重排摘要（模型名从 URL 里取）。
+                                          const modelFromUrl = urlStr.match(/\/models\/([^:/]+):/)?.[1] ?? '(unknown)';
+                                          const fnNames = Array.isArray(j.tools)
+                                              ? j.tools.flatMap((t: any) => Array.isArray(t?.functionDeclarations) ? t.functionDeclarations.map((d: any) => d?.name).filter(Boolean) : [])
+                                              : [];
+                                          const geminiRoles = j.contents.map((c: any) => c?.role).join(',');
+                                          reqSummary = `\n--- Request (Gemini Native) ---\nmodel: ${modelFromUrl}\ngenerationConfig: ${JSON.stringify(j.generationConfig || {})}\ntools(${fnNames.length}): ${fnNames.join(', ')}\ncontents(${j.contents.length}) roles: ${geminiRoles}\nsystemInstruction parts: ${(j.systemInstruction?.parts || []).length}`;
+                                      } else {
+                                          const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
+                                          const roles = Array.isArray(j.messages) ? j.messages.map((m: any) => m.role + (m.tool_calls ? '(tool_calls)' : '')).join(',') : '';
+                                          reqSummary = `\n--- Request ---\nmodel: ${j.model}\ntemperature: ${j.temperature} | top_p: ${j.top_p} | reasoning_effort: ${j.reasoning_effort} | thinking: ${j.thinking ? 'on' : 'off'}\ntools(${toolNames.length}): ${toolNames.join(', ')}\nmessages(${(j.messages || []).length}) roles: ${roles}`;
+                                      }
                                   }
                               } catch { /* 解析不了就算了 */ }
                           }

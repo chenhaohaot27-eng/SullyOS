@@ -1,0 +1,7 @@
+cherry-pick of 47626035 onto origin/main (lemuria-rename 分支修复整合)
+
+- 完整继承 Gemini Native 末尾回合修复(本地拦截 + 手动续写 user continuation)
+  与 SEND_PHOTO 解析容错/可观测性修复,以及配套测试与审计报告。
+- context/OSContext.tsx 仅保留 Gemini Native 请求日志形状修复;
+  原提交中该文件携带的 lemuria 重命名未完成改动不进入 main
+  (重命名工作仍完整保留在 lemuria-rename 工作区,未覆盖未丢失)。
