@@ -1,0 +1,18 @@
+feat(chat): 解除角色主动发图限制——SEND_PHOTO 指南允许自主分享真实照片
+
+- buildChatPhotoTagGuide: 删除"只有玩家明确要求才可使用"限制; 允许角色基于
+  性格/场景/对话自主决定发真实照片(自拍、生活日常、环境、食物、旅行、宠物
+  等自然场景), 不设机械触发概率或固定频率, 不想发就正常聊天;
+  玩家明确要求时依旧必须执行; 严禁文字/[图片]占位冒充的约束保留。
+- SEND_PHOTO 协议、视觉身份/锁脸(characterId+visualIdentity+参考图)、
+  Blob 存储/相册链路、每轮一图 + claim 防重复扣费、enabled 配置门全部不变。
+- 门控核查: SEND_PHOTO 路径(Step 7)本就无 24h 冷却/高成本门控, 玩家明确
+  请求不可能被自主行为冷却误拦; 24h 冷却与每轮高成本预算仅作用于
+  planner/PROACTIVE_ACTION 路径, 保留不动(显式请求在这些门中亦有优先通道)。
+- 后台主动消息(forFirePack/worker)不教 SEND_PHOTO 的限制保留: worker 无法
+  安全执行生图+BLOB 落库+消息回传, 列为独立待办, 不在本轮放宽。
+
+测试: chatPhotoIntent 13 / geminiNativeChat 22 / chatCompletionClient 9 通过;
+chatPhotoGeneration 新增自主发图与失败防假图 2 用例通过(1 既有失败
+'不支持参考图降级重试' 为 main 上已存在, 与本次无关); 相关回归 75 通过;
+vite build 成功; tsc 对本次修改文件无报错(其余报错均为 main 既有)。

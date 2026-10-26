@@ -274,6 +274,39 @@ describe('applyAssistantPostProcessing 集成（普通聊天链路）', () => {
         }
     });
 
+    it('角色自主发图（玩家本轮未要求照片）：SEND_PHOTO 标签同样执行、出真实图片消息', async () => {
+        // contextMsgs 为空 = 本轮没有任何玩家请求；解除提示词限制后，模型自主输出的
+        // SEND_PHOTO 与玩家请求走同一条 Step 7 链路（无 24h 冷却/高成本门控拦截）。
+        mockedGenerate.mockResolvedValue(okResult());
+        await applyAssistantPostProcessing(
+            '刚到家，给你看看我的猫\n[[SEND_PHOTO: {"prompt":"a fluffy cat sleeping on a sofa, warm lamp light","caption":"它今天赖我床上一整天","includeCharacter":false}]]',
+            makeCtx(),
+        );
+        expect(mockedGenerate).toHaveBeenCalledTimes(1);
+        const msgs = await listMessages();
+        const photos = msgs.filter(m => m.type === 'image');
+        expect(photos).toHaveLength(1);
+        expect(isBlobRef(photos[0].content)).toBe(true);
+        expect(photos[0].metadata?.chatPhoto?.status).toBe('ready');
+        expect(photos[0].metadata?.chatPhoto?.caption).toBe('它今天赖我床上一整天');
+    });
+
+    it('生图失败不产生假照片：失败消息 status=failed + 脱敏原因，正文无 [图片] 占位', async () => {
+        mockedGenerate.mockRejectedValue(new Error('boom sk-test-secret-123'));
+        await executeChatPhotoIntent({
+            char: CHAR,
+            intent: INTENT,
+            persistMessage: msg => DB.saveMessage(msg),
+        });
+        const msgs = await listMessages();
+        const photos = msgs.filter(m => m.type === 'image');
+        expect(photos).toHaveLength(1);
+        expect(photos[0].metadata?.chatPhoto?.status).toBe('failed');
+        expect(photos[0].metadata?.chatPhoto?.reason).not.toContain('sk-test-secret');
+        expect(photos[0].content).not.toContain('[图片]');
+        expect(isBlobRef(photos[0].content)).toBe(false); // 失败时不落任何 blobref，content 保持空串
+    });
+
     it('生图成功后重新读取：消息可从 DB 再次载入且 ready 状态保持', async () => {
         mockedGenerate.mockResolvedValue(okResult());
         await executeChatPhotoIntent({

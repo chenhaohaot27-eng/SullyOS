@@ -119,4 +119,21 @@ describe('提示词注入门控', () => {
         expect(guide).toContain('最多一个');
         expect(guide).toContain('严禁');
     });
+
+    it('指南允许角色自主发图（解除"只有明确要求才可"限制），显式请求仍被保留', () => {
+        const guide = buildChatPhotoTagGuide();
+        // 不再限制为只有玩家明确要求才可使用
+        expect(guide).not.toContain('只有当对方');
+        // 自主授权 + 自然场景 + 无机械频率
+        expect(guide).toContain('自主决定');
+        expect(guide).toContain('自拍');
+        expect(guide).toContain('生活日常');
+        expect(guide).toContain('宠物');
+        expect(guide).toContain('不设固定频率');
+        // 玩家明确要求依旧有效
+        expect(guide).toContain('明确要求');
+        // 防伪造与协议约束保留
+        expect(guide).toContain('严禁');
+        expect(guide).not.toContain('假装发了照片——没被要求'); // 旧文案已更新为新语义
+    });
 });
