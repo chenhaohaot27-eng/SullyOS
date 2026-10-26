@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import {
+    buildChatPhotoAutonomyPrompt,
     buildChatPhotoTagGuide,
     claimChatPhotoTurn,
     chatPhotoIntentKey,
@@ -8,6 +9,7 @@ import {
     resetChatPhotoTurnClaimsForTests,
 } from './chatPhotoIntent';
 import { IMAGE_GENERATION_CONFIG_STORAGE_KEY } from './imageGenerationConfig';
+import { ChatPrompts } from './chatPrompts';
 
 const TAG = (payload: string) => `[[SEND_PHOTO: ${payload}]]`;
 
@@ -135,5 +137,56 @@ describe('提示词注入门控', () => {
         // 防伪造与协议约束保留
         expect(guide).toContain('严禁');
         expect(guide).not.toContain('假装发了照片——没被要求'); // 旧文案已更新为新语义
+    });
+
+    it('自主视觉分享判断入口：每轮思考、依据自身情境而非关键词、不必先问、禁止编造', () => {
+        const autonomy = buildChatPhotoAutonomyPrompt();
+        // 决策入口：每轮都要想
+        expect(autonomy).toContain('每次回复前想一想');
+        // 判断材料：自身性格/状态/近期经历 + 场景，不依赖玩家关键词
+        expect(autonomy).toContain('性格');
+        expect(autonomy).toContain('近期经历');
+        expect(autonomy).toContain('不是');
+        expect(autonomy).toContain('照片');   // "不是对方最后一句话有没有提到'照片'"
+        // 自然场景类别
+        for (const scene of ['自拍', '风景', '宠物', '正在吃的东西', '个人物品', '环境']) {
+            expect(autonomy).toContain(scene);
+        }
+        // 直接发、不必先问；不强制、无频率
+        expect(autonomy).toContain('不必先问对方想不想看');
+        expect(autonomy).toContain('不要求每轮都发');
+        expect(autonomy).toContain('没有任何频率指标');
+        // 防编造：必须与世界观/当前状态一致
+        expect(autonomy).toContain('严禁编造');
+        expect(autonomy).toContain('世界观');
+    });
+
+    it('最终组装的 system prompt：启用时决策入口与协议教学同时进入，未启用/打包时不进入', async () => {
+        const char = { id: 'char-auto', name: '阿照' } as any;
+        const userProfile = { name: '小明' } as any;
+        const buildStable = async (promptOptions?: { forFirePack?: boolean }) => {
+            const parts = await ChatPrompts.buildSystemPromptParts(
+                char, userProfile, [], [], [], [],
+                undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+                promptOptions,
+            );
+            return parts.stable;
+        };
+        // 启用：两块都进最终 prompt（玩家只聊日常生活时同样注入——与玩家是否提到照片无关）
+        localStorage.setItem(IMAGE_GENERATION_CONFIG_STORAGE_KEY, JSON.stringify({ enabled: true }));
+        const enabled = await buildStable();
+        expect(enabled).toContain('自主视觉分享');
+        expect(enabled).toContain('每次回复前想一想');
+        expect(enabled).toContain('[[SEND_PHOTO');
+        // 未启用：两块都不进
+        localStorage.removeItem(IMAGE_GENERATION_CONFIG_STORAGE_KEY);
+        const disabled = await buildStable();
+        expect(disabled).not.toContain('自主视觉分享');
+        expect(disabled).not.toContain('[[SEND_PHOTO');
+        // fire_pack（后台主动消息模板）：不进（后台生图能力是独立待办）
+        localStorage.setItem(IMAGE_GENERATION_CONFIG_STORAGE_KEY, JSON.stringify({ enabled: true }));
+        const packed = await buildStable({ forFirePack: true });
+        expect(packed).not.toContain('自主视觉分享');
+        expect(packed).not.toContain('[[SEND_PHOTO');
     });
 });

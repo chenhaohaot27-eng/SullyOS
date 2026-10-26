@@ -75,7 +75,7 @@ export const attachSnapshotToLatestUserMessage = <T extends CameraChatMessage>(
 /** Only retry without the image when the provider explicitly rejects vision input. */
 export const isVisionInputUnsupportedError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error || '');
-  return /image_url|image input|vision|multimodal|multi-modal|unsupported[^\n]*image|does not support[^\n]*image|unknown variant[^\n]*image|content[^\n]*array/i.test(message);
+  return /image_url|image input|vision|multimodal|multi-modal|unsupported[^\n]*image|does not support[^\n]*image|unknown variant[^\n]*image|content[^\n]*array|inline_?data|image[^\n]*(part|parts|format)|generateContent[^\n]*image/i.test(message);
 };
 
 export const USER_CAMERA_SNAPSHOT_SYSTEM_NOTE = `【本轮用户摄像头快照】

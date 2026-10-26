@@ -227,6 +227,23 @@ describe('applyAssistantPostProcessing 集成（普通聊天链路）', () => {
         expect(mockedGenerate).not.toHaveBeenCalled();
     });
 
+    it('模型未选择发图（纯文字轮）：记录阶段日志，与解析失败/生图失败区分', async () => {
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            // 生图配置已启用（beforeEach setConfig）但模型本轮没输出 SEND_PHOTO → 属正常
+            await applyAssistantPostProcessing('今天上班好累，改天聊', makeCtx());
+            const loggedInfo = infoSpy.mock.calls.map(c => c.join(' ')).join('\n');
+            expect(loggedInfo).toContain('模型未选择发图');
+            expect(loggedInfo).not.toContain('标签检测');
+            expect(warnSpy).not.toHaveBeenCalled();
+            expect(mockedGenerate).not.toHaveBeenCalled();
+        } finally {
+            infoSpy.mockRestore();
+            warnSpy.mockRestore();
+        }
+    });
+
     it('非法标签（无法安全解析）：标签剥掉、不产生假图片消息、不调生图服务，正文保留', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Microphone, SpeakerHigh, SpeakerSlash, PhoneDisconnect, Translate, Gear, Clock, CaretLeft, CaretRight, Phone, VideoCamera, VideoCameraSlash, Cube, FolderOpen, FileZip, Moon, Sun, Check } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
-import { extractContent, safeFetchJson } from '../utils/safeApi';
+import { extractContent } from '../utils/safeApi';
+import { completeChat } from '../utils/chatCompletionClient';
 import { minimaxFetch } from '../utils/minimaxEndpoint';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { hashTtsParams, getCachedTts, saveCachedTts } from '../utils/ttsCache';
@@ -21,7 +22,7 @@ import { incrementDigestRound, runCognitiveDigestion } from '../utils/memoryPala
 import { RealtimeContextManager } from '../utils/realtimeContext';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
-import { Message, ChatTheme, AppID, type CharacterProfile } from '../types';
+import { Message, ChatTheme, AppID, type APIConfig, type CharacterProfile } from '../types';
 import { PRESET_THEMES } from '../components/chat/ChatConstants';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import VRMVideoCallStage from '../components/call/VRMVideoCallStage';
@@ -1803,13 +1804,24 @@ const CallApp: React.FC = () => {
         : []
   );
 
-  const resolvePerformanceDirectorApi = (character: CharacterProfile) => {
+  const resolvePerformanceDirectorApi = (character: CharacterProfile): {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    apiFormat?: APIConfig['apiFormat'];
+  } => {
     // 与情绪 Buff 完全复用同一套 API 选择规则：角色单独配了就用副 API，
     // 没有单独配置则回退主 API。
+    // 协议分发（gemini-native vs openai-compatible）统一交给 completeChat：
+    //   - 副 API（emotionConfig.api）只有 baseUrl/apiKey/model，不带 apiFormat → 按
+    //     OpenAI 兼容走（保持既有行为，不默认假设副 API 是 Gemini Native）；
+    //   - 回退主 API 时**必须**带上主 API 的 apiFormat——丢掉它会把 gemini-native
+    //     用户的请求发到 chat/completions，收到中转的 HTML 页面（实测
+    //     "API返回了HTML而非JSON (HTTP 200): RelayRouter"）。
     const configuredEmotionApi = character.emotionConfig?.api;
     return configuredEmotionApi?.baseUrl
-      ? configuredEmotionApi
-      : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model };
+      ? { ...configuredEmotionApi }
+      : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model, apiFormat: apiConfig.apiFormat };
   };
 
   const buildLocalPerformancePersona = (character: CharacterProfile): string => {
@@ -1849,22 +1861,23 @@ const CallApp: React.FC = () => {
           characterName: character.name,
           coreContext,
         });
-        const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${directorApi.apiKey || 'sk-none'}` },
-          body: JSON.stringify({
+        // 协议分发交给 completeChat（副 API 无 apiFormat → OpenAI 兼容；回退主 API 时
+        // 已带 apiFormat，gemini-native 用户不再被发到 /chat/completions）。
+        const data = await completeChat(
+          directorApi,
+          {
             model: directorApi.model,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.25,
             max_tokens: AVATAR_PERFORMANCE_PERSONA_MAX_TOKENS,
             stream: false,
-          }),
-        }, 1, 30_000, {
-          appName: '电话',
-          charId: character.id,
-          charName: character.name,
-          purpose: '生成视频表演人格',
-        });
+          },
+          {
+            maxRetries: 1,
+            timeoutMs: 30_000,
+            meta: { appName: '电话', charId: character.id, charName: character.name, purpose: '生成视频表演人格' },
+          },
+        );
         const persona = parseAvatarPerformancePersona(extractContent(data));
         if (!persona) return null;
         performancePersonaCacheRef.current.set(character.id, persona);
@@ -1928,22 +1941,22 @@ const CallApp: React.FC = () => {
 - at 必须照抄句子表。
 
 ${sentencePlan}`;
-    const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${directorApi.apiKey || 'sk-none'}` },
-      body: JSON.stringify({
+    // 协议分发同上：completeChat（视频动作排练）。
+    const data = await completeChat(
+      directorApi,
+      {
         model: directorApi.model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.45,
         max_tokens: AVATAR_PERFORMANCE_REHEARSAL_MAX_TOKENS,
         stream: false,
-      }),
-    }, 1, 30_000, {
-      appName: '电话',
-      charId: selectedChar.id,
-      charName: selectedChar.name,
-      purpose: '视频动作排练',
-    });
+      },
+      {
+        maxRetries: 1,
+        timeoutMs: 30_000,
+        meta: { appName: '电话', charId: selectedChar.id, charName: selectedChar.name, purpose: '视频动作排练' },
+      },
+    );
     const cues = parseAvatarPerformanceRehearsal(
       extractContent(data),
       allowedModelActions.map(action => action.id),
@@ -2026,15 +2039,23 @@ ${sentencePlan}`;
     const requestMessages = userCameraSnapshot
       ? attachSnapshotToLatestUserMessage(messages, userCameraSnapshot)
       : messages;
+    // 统一走 completeChat 按 apiFormat 分发：gemini-native → :streamGenerateContent
+    // （原生 contents/systemInstruction，含角色校验与 data-URL 图片转换），OpenAI 兼容
+    // → chat/completions。此前直接把请求手拼到中转的 OpenAI 端点上，gemini-native
+    // 用户会收到 HTML 页面（"API返回了HTML而非JSON"）。
     const sendChatRequest = (
       nextMessages: any[],
       nextSystemPrompt: string,
       maxRetries: number,
       purpose: string,
-    ) => safeFetchJson(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiConfig.apiKey || 'sk-none'}` },
-      body: JSON.stringify({
+    ) => completeChat(
+      {
+        baseUrl: apiConfig.baseUrl,
+        apiKey: apiConfig.apiKey,
+        model: apiConfig.model,
+        apiFormat: apiConfig.apiFormat,
+      },
+      {
         model: apiConfig.model,
         messages: [{ role: 'system', content: nextSystemPrompt }, ...nextMessages],
         temperature: 0.85,
@@ -2042,8 +2063,9 @@ ${sentencePlan}`;
         // 上游打回，包成 502 / bad_response_status_code。与私聊 (useChatAI.ts) 对齐。
         max_tokens: 8000,
         stream: false,
-      }),
-    }, maxRetries, 0, { appName: '电话', charId: selectedChar?.id, charName: selectedChar?.name, purpose });
+      },
+      { maxRetries, meta: { appName: '电话', charId: selectedChar?.id, charName: selectedChar?.name, purpose } },
+    );
     let chatData: any;
     try {
       // Do not repeat a rejected base64 frame three times. Text-only calls keep

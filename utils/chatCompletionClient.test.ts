@@ -134,6 +134,16 @@ describe('completeChat', () => {
 });
 
 describe('ensureGeminiNativeTailUserTurn（手动 ⚡ 续写的调用方级 user continuation）', () => {
+  it('⚡ 续写语义是"新的自主表达回合"：可转话题/分享生活/自主发图，不强制、不复述', () => {
+    // 语义契约（内容断言）：⚡ 不再是机械"接着上一条复述"
+    expect(GEMINI_NATIVE_CONTINUE_USER_MESSAGE).toContain('自主表达回合');
+    expect(GEMINI_NATIVE_CONTINUE_USER_MESSAGE).toContain('转换话题');
+    expect(GEMINI_NATIVE_CONTINUE_USER_MESSAGE).toContain('刚刚经历或正在经历的事');
+    expect(GEMINI_NATIVE_CONTINUE_USER_MESSAGE).toContain('真实照片');
+    expect(GEMINI_NATIVE_CONTINUE_USER_MESSAGE).toContain('不强制');
+    expect(GEMINI_NATIVE_CONTINUE_USER_MESSAGE).not.toContain('请接着上一条继续回复');
+  });
+
   it('gemini-native + assistant 结尾（尾部有 system）→ 追加合法 user continuation，不再以 model 回合结尾', () => {
     // 复刻主聊天手动 ⚡ 续写场景：[system, 历史(最后是 assistant), 易变 system 尾段]
     const fullMessages = [

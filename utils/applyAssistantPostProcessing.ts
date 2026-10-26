@@ -55,7 +55,7 @@ import { resolveEmojiByModelReference } from './emojiResolver';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
 import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceHistory';
-import { extractChatPhotoIntent } from './chatPhotoIntent';
+import { extractChatPhotoIntent, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
 import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
@@ -608,6 +608,10 @@ export async function applyAssistantPostProcessing(
             parsed: !!chatPhotoExtraction.intent,
             promptChars: chatPhotoExtraction.intent?.prompt.length ?? 0,
         });
+    } else if (isChatPhotoTagEnabled()) {
+        // 可观测性：机会已注入（见 chatRequestPayload）但模型本轮未选择发图——
+        // 属正常结果（不强制发图），与"解析失败/生图失败"区分开。只记 charId，不记原文。
+        console.info('[ChatPhoto] 模型未选择发图（本轮纯文字，属正常）', { charId: char.id });
     }
     if (chatPhotoExtraction.invalidTagFound) {
         console.warn('[ChatPhoto] SEND_PHOTO 标签解析失败，已剥掉不执行（本轮退化为纯文字，正是“角色只说发了一张照片”的形态）', {

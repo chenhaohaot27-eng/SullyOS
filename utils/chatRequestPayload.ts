@@ -32,6 +32,7 @@ import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldboo
 import { getEffectiveMountedWorldbooks } from './groupWorldbooks';
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
+import { isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { materializeVisionDescriptions } from './visionApi';
 import { formatContinuityContext, type ContinuitySnapshot } from './continuityContext';
 import { evaluateAutonomousOpportunity, markTurnOpportunity } from './autonomousActions';
@@ -521,6 +522,14 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     if (isSystemMessageMergeEnabled()) {
         finalMessages = mergeSystemMessages(fullMessages);
         console.warn(`[DevDebug] Merge system messages: ${fullMessages.length} → ${finalMessages.length} messages (system ${fullMessages.length - finalMessages.length + 1} → 1).`);
+    }
+
+    // 可观测性（安全脱敏：只有 charId 与开关结论，不含聊天原文）：前台本地聊天且生图
+    // 配置启用时，system prompt 里已注入「自主视觉分享机会判断」（决策入口 + SEND_PHOTO
+    // 协议教学）。与 applyAssistantPostProcessing 侧的「模型未选择发图」日志配套，区分
+    // 机会已注入 / 模型未选择 / 标签解析失败 / 生图失败四个阶段。
+    if (!input.timelyByWorker && isChatPhotoTagEnabled()) {
+        console.info('[ChatPhoto] 自主发图机会已注入（本轮回复将考虑视觉分享）', { charId: char.id });
     }
 
     return {

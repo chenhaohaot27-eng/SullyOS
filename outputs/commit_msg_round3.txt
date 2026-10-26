@@ -1,0 +1,25 @@
+feat(chat)+fix(call): 自主发图意图决策入口 + ⚡ 自主回合续写；电话 App 统一协议分发修复
+
+自主发图（不再是"允许性提示"，而是每轮的行为选择步骤）：
+- chatPhotoIntent.buildChatPhotoAutonomyPrompt：每轮回复前判断"生活中是否有
+  值得拍下分享的东西"，依据角色性格/状态/近期经历+prompt 已注入情境，
+  不依赖玩家关键词；两道门(真实存在且符合世界观/照片增进表达)成立即直接
+  发,不必先问;无合适对象纯文字;不强制无频率,严禁编造。
+- chatPrompts: 判断入口随 chatPhotoTagEnabled 门进入最终 system prompt
+  (单次模型调用内完成判断,零新增 API 费用;未接入 8%/12% 随机门控)。
+- chatRequestPayload/applyAssistantPostProcessing: 四阶段脱敏日志
+  (机会已注入/模型未选择/标签解析失败/生图失败)。
+- ⚡ 续写 GEMINI_NATIVE_CONTINUE_USER_MESSAGE 升级为"新的自主表达回合"
+  (可转话题/分享近况/自主发图,不强制不复述);仍为合法 user 回合,
+  Gemini 400 修复不回退,OpenAI 兼容路径不变。
+
+电话 App 修复(根因: 三处请求硬拼 chat/completions 绕开协议分发,
+gemini-native 用户收到中转 HTML "API返回了HTML而非JSON: RelayRouter"):
+- 主通话回复/视频表演人格/视频动作排练全部改走 completeChat(apiFormat 分发)。
+- resolvePerformanceDirectorApi 回退主 API 保留 apiFormat;副 API 保持
+  OpenAI 兼容假设。isVisionInputUnsupportedError 识别 Gemini 形态报错,
+  快照降级保留。
+
+测试: 新增 callChatProtocol/callAppProtocol.wiring + 自主发图 prompt 组装/
+⚡ 语义/日志用例; 定向 98/99 通过(1 失败为 main 既有,与本轮无关);
+vite build 成功; tsc 修改文件零报错。报告: outputs/autophoto_callfix_report.md
