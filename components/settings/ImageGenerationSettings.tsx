@@ -1,11 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { ImageGenerationAspectRatio, ImageGenerationConfig, ImageGenerationProvider, ImageGenerationResolution } from '../../types';
+import type { ImageGenerationAspectRatio, ImageGenerationAuthMode, ImageGenerationConfig, ImageGenerationPresetStore, ImageGenerationProvider, ImageGenerationResolution } from '../../types';
 import {
     clearImageGenerationConfig,
     loadImageGenerationConfig,
     normalizeImageGenerationConfig,
     saveImageGenerationConfig,
 } from '../../utils/imageGenerationConfig';
+import {
+    activateImageGenerationPreset,
+    clearImageGenerationPresetStore,
+    createImageGenerationPreset,
+    deleteImageGenerationPreset,
+    isPrivateNetworkBaseUrl,
+    loadImageGenerationPresetStore,
+    updateImageGenerationPreset,
+} from '../../utils/imageGenerationPresets';
 import {
     generatedImageToBlob,
     filterAvailableImageModels,
@@ -40,6 +49,13 @@ const fieldClass = 'w-full rounded-xl border border-slate-200/70 bg-white/70 px-
 const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
     const [savedConfig, setSavedConfig] = useState<ImageGenerationConfig>(() => loadImageGenerationConfig());
     const [draft, setDraft] = useState<ImageGenerationConfig>(() => loadImageGenerationConfig());
+    // ─── 接口预设：独立版本化存储，首次访问自动把旧单配置无损迁移为「默认配置」预设 ───
+    const [presetStore, setPresetStore] = useState<ImageGenerationPresetStore>(() => loadImageGenerationPresetStore());
+    // 预设切换守卫：当前有未保存修改时，先弹内联确认条（保存/放弃/取消），禁止静默丢失
+    const [pendingPresetId, setPendingPresetId] = useState<string | null>(null);
+    const [presetNameInput, setPresetNameInput] = useState('');
+    const [showNewPresetInput, setShowNewPresetInput] = useState(false);
+    const [renaming, setRenaming] = useState(false);
     const [showKey, setShowKey] = useState(false);
     const [testing, setTesting] = useState(false);
     const [modelsLoading, setModelsLoading] = useState(false);
@@ -68,9 +84,104 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
         setStatus('');
     };
 
+    const isDraftDirty = () => JSON.stringify(normalizeImageGenerationConfig(draft)) !== JSON.stringify(savedConfig);
+
+    // ─── 接口预设操作 ───────────────────────────────────────────────────────────
+    const activePreset = presetStore.presets.find(preset => preset.id === presetStore.activeId) ?? null;
+
+    const applyActivatedPreset = (presetId: string) => {
+        const target = activateImageGenerationPreset(presetId);
+        if (!target) {
+            addToast('预设不存在或已被删除', 'error');
+            setPresetStore(loadImageGenerationPresetStore());
+            return;
+        }
+        setPresetStore(loadImageGenerationPresetStore());
+        setSavedConfig(target.config);
+        setDraft(target.config);
+        setAvailableModels([]);
+        setModelSearch('');
+        setLastRefreshedAt({});
+        setShowNewPresetInput(false);
+        setRenaming(false);
+        setPendingPresetId(null);
+        setStatus(`已切换到预设「${target.name}」，配置已完整恢复`);
+        replacePreviewUrl(null);
+    };
+
+    const selectPreset = (presetId: string) => {
+        if (presetId === presetStore.activeId) return;
+        // 未保存修改时不允许静默切换：先弹内联确认条（保存并切换 / 放弃修改并切换 / 取消）
+        if (isDraftDirty()) {
+            setPendingPresetId(presetId);
+            setStatus('当前配置有未保存的修改，请选择保存或放弃后再切换');
+            return;
+        }
+        applyActivatedPreset(presetId);
+    };
+
+    const confirmPendingSwitch = (mode: 'save' | 'discard') => {
+        const targetId = pendingPresetId;
+        if (!targetId) return;
+        if (mode === 'save') {
+            const normalized = normalizeImageGenerationConfig(draft);
+            if (!validate(normalized)) return;
+            if (activePreset) updateImageGenerationPreset(activePreset.id, { config: normalized });
+            saveImageGenerationConfig(normalized);
+            setSavedConfig(normalized);
+        }
+        applyActivatedPreset(targetId);
+    };
+
+    const createPresetFromDraft = () => {
+        const name = presetNameInput.trim();
+        if (!name) {
+            addToast('请先填写预设名称', 'error');
+            return;
+        }
+        const preset = createImageGenerationPreset(name, draft);
+        setPresetStore(loadImageGenerationPresetStore());
+        setPresetNameInput('');
+        setShowNewPresetInput(false);
+        setStatus(`已新建预设「${preset.name}」；点「保存配置」并切换后生效`);
+        addToast(`预设「${preset.name}」已创建`, 'success');
+    };
+
+    const renameActivePreset = () => {
+        if (!activePreset) return;
+        const name = presetNameInput.trim();
+        if (!name) {
+            addToast('请先填写新的预设名称', 'error');
+            return;
+        }
+        updateImageGenerationPreset(activePreset.id, { name });
+        setPresetStore(loadImageGenerationPresetStore());
+        setRenaming(false);
+        setPresetNameInput('');
+        addToast('预设已重命名', 'success');
+    };
+
+    const deleteActivePreset = () => {
+        if (!activePreset) return;
+        // 删除前二次确认；删除当前启用预设后由存储层安全切换到剩余预设或恢复关闭状态
+        if (!window.confirm(`确定删除预设「${activePreset.name}」吗？该操作不可撤销。`)) return;
+        deleteImageGenerationPreset(activePreset.id);
+        const nextStore = loadImageGenerationPresetStore();
+        setPresetStore(nextStore);
+        const nextActive = loadImageGenerationConfig();
+        setSavedConfig(nextActive);
+        setDraft(nextActive);
+        setAvailableModels([]);
+        setLastRefreshedAt({});
+        replacePreviewUrl(null);
+        setStatus(nextStore.activeId ? '预设已删除，已切换到剩余预设' : '预设已删除，生图 API 已恢复为关闭状态');
+        addToast('预设已删除', 'info');
+    };
+
     /**
-     * 切换接口模式：仅当 Base URL 指向 RelayRouter（api.relayrouter.ai）时，
+     * 切换接口模式：仅当 Base URL 指向 RelayRouter（api.relayrouter.ai / .app）时，
      * 自动把尾部 /v1 ↔ /v1beta 改写成目标协议的版本路径；其他地址原样保留。
+     * 注意：预设之间切换不走这里——切换预设恢复各自保存的原始 URL，不做任何改写。
      * API Key 与其余字段不动；不同 provider 的模型列表继续互相隔离。
      */
     const switchProvider = (provider: ImageGenerationProvider) => {
@@ -86,8 +197,15 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
 
     const validate = (config: ImageGenerationConfig, requireModel = true): boolean => {
         if (!config.enabled) return true;
-        if (!config.baseUrl.trim() || !config.apiKey.trim() || (requireModel && !config.model.trim())) {
-            addToast(requireModel ? '启用生图 API 前，请填写 Base URL、API Key 和模型' : '刷新模型前，请填写 Base URL 和 API Key', 'error');
+        const noAuth = config.authMode === 'none';
+        // 无鉴权模式（用户显式选择）允许空 Key；普通云端接口仍要求完整填写
+        const missingKey = !noAuth && !config.apiKey.trim();
+        const missingBase = !config.baseUrl.trim();
+        const missingModel = requireModel && !config.model.trim();
+        if (missingBase || missingKey || missingModel) {
+            addToast(noAuth
+                ? '启用生图 API 前，请填写 Base URL 和模型'
+                : '启用生图 API 前，请填写 Base URL、API Key 和模型', 'error');
             return false;
         }
         try {
@@ -97,6 +215,10 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
             addToast('生图 Base URL 必须是有效的 HTTP(S) 地址', 'error');
             return false;
         }
+        if (noAuth && !isPrivateNetworkBaseUrl(config.baseUrl)) {
+            // 公网/非私有地址开启无鉴权：明确安全警告（不阻断，交由用户确认）
+            addToast('安全提示：该地址不是本地/私有网络，无鉴权模式下请求将以明文方式发往公网接口，请确认目标服务确实无需鉴权', 'info');
+        }
         return true;
     };
 
@@ -105,6 +227,9 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
         if (!validate(normalized)) return;
         try {
             const saved = saveImageGenerationConfig(normalized);
+            // 同步更新当前启用预设（有预设时），保持预设集合与生效配置一致
+            if (activePreset) updateImageGenerationPreset(activePreset.id, { config: saved });
+            setPresetStore(loadImageGenerationPresetStore());
             setSavedConfig(saved);
             setDraft(saved);
             setStatus(saved.enabled ? '生图 API 配置已保存' : '配置已保存，生图 API 当前关闭');
@@ -115,15 +240,22 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
     };
 
     const clear = () => {
+        if (!window.confirm('确定清空全部生图接口预设和当前配置吗？该操作不可撤销，建议先导出备份。')) return;
         try {
-            const cleared = clearImageGenerationConfig();
+            clearImageGenerationPresetStore();
+            clearImageGenerationConfig();
+            const cleared = loadImageGenerationConfig();
             setSavedConfig(cleared);
             setDraft(cleared);
+            setPresetStore(loadImageGenerationPresetStore());
             setShowKey(false);
             setAvailableModels([]);
             setModelSearch('');
             setLastRefreshedAt({});
-            setStatus('生图 API 配置已清除');
+            setPendingPresetId(null);
+            setShowNewPresetInput(false);
+            setRenaming(false);
+            setStatus('生图 API 配置与全部预设已清除');
             replacePreviewUrl(null);
             addToast('生图 API 配置已清除', 'info');
         } catch {
@@ -241,6 +373,71 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                     </button>
                 </div>
 
+                {/* ─── 接口预设：多套配置一键切换（原生 select，兼容 iPhone Safari / 安卓浏览器） ─── */}
+                <div className="rounded-2xl border border-slate-100 bg-white/60 p-3.5">
+                    <div className="mb-1.5 flex items-center justify-between gap-2 pl-1">
+                        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400">接口预设</label>
+                        <span className="max-w-[55%] truncate text-[10px] text-slate-400">
+                            {activePreset ? `当前使用：${activePreset.name}` : '暂无预设'}
+                        </span>
+                    </div>
+                    <select
+                        className={fieldClass}
+                        value={presetStore.activeId ?? ''}
+                        onChange={event => selectPreset(event.target.value)}
+                        aria-label="选择生图接口预设"
+                    >
+                        {!presetStore.presets.length && <option value="">尚未创建预设</option>}
+                        {presetStore.presets.map(preset => (
+                            <option key={preset.id} value={preset.id}>{preset.name}</option>
+                        ))}
+                    </select>
+                    <div className="mt-2 grid grid-cols-3 gap-2">
+                        <button type="button" onClick={() => { setShowNewPresetInput(value => !value); setRenaming(false); setPresetNameInput(''); }} className="rounded-xl border border-slate-200 bg-white/70 py-2 text-[11px] font-bold text-slate-600 transition active:scale-95">
+                            ＋ 新建预设
+                        </button>
+                        <button type="button" disabled={!activePreset} onClick={() => { setRenaming(value => !value); setShowNewPresetInput(false); setPresetNameInput(activePreset?.name ?? ''); }} className="rounded-xl border border-slate-200 bg-white/70 py-2 text-[11px] font-bold text-slate-600 transition active:scale-95 disabled:opacity-40">
+                            ✏️ 重命名
+                        </button>
+                        <button type="button" disabled={!activePreset} onClick={deleteActivePreset} className="rounded-xl border border-rose-100 bg-rose-50/70 py-2 text-[11px] font-bold text-rose-500 transition active:scale-95 disabled:opacity-40">
+                            🗑️ 删除
+                        </button>
+                    </div>
+                    {(showNewPresetInput || renaming) && (
+                        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                            <input
+                                className={fieldClass}
+                                value={presetNameInput}
+                                maxLength={40}
+                                onChange={event => setPresetNameInput(event.target.value)}
+                                placeholder={renaming ? '输入新的预设名称' : '预设名称，如：RelayRouter 云端 / 朋友的 ComfyUI'}
+                            />
+                            <div className="flex gap-2">
+                                <button type="button" onClick={renaming ? renameActivePreset : createPresetFromDraft} className="shrink-0 rounded-xl bg-fuchsia-500 px-4 py-2 text-[11px] font-bold text-white transition active:scale-95">
+                                    {renaming ? '确认重命名' : '创建'}
+                                </button>
+                                <button type="button" onClick={() => { setShowNewPresetInput(false); setRenaming(false); setPresetNameInput(''); }} className="shrink-0 rounded-xl border border-slate-200 bg-white/70 px-4 py-2 text-[11px] font-bold text-slate-500 transition active:scale-95">
+                                    取消
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    <p className="mt-2 px-1 text-[9px] leading-relaxed text-slate-300">切换预设会完整恢复该预设保存的 URL、Key、模型与参数；未保存的修改会先询问保存或放弃。</p>
+                </div>
+
+                {/* 未保存修改时的切换守卫：禁止静默丢失 */}
+                {pendingPresetId && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-3.5">
+                        <div className="text-xs font-bold text-amber-700">当前配置有未保存的修改</div>
+                        <p className="mt-1 text-[10px] leading-relaxed text-amber-600">切换预设前请选择保存或放弃当前修改。</p>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                            <button type="button" onClick={() => confirmPendingSwitch('save')} className="rounded-xl bg-amber-500 py-2 text-[11px] font-bold text-white transition active:scale-95">保存并切换</button>
+                            <button type="button" onClick={() => confirmPendingSwitch('discard')} className="rounded-xl border border-amber-300 bg-white/70 py-2 text-[11px] font-bold text-amber-600 transition active:scale-95">放弃修改并切换</button>
+                            <button type="button" onClick={() => { setPendingPresetId(null); setStatus(''); }} className="rounded-xl border border-slate-200 bg-white/70 py-2 text-[11px] font-bold text-slate-500 transition active:scale-95">取消</button>
+                        </div>
+                    </div>
+                )}
+
                 <div>
                     <label className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">接口模式</label>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -271,6 +468,26 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                         </button>
                     </div>
                     <input className={`${fieldClass} font-mono`} type={showKey ? 'text' : 'password'} autoComplete="off" value={draft.apiKey} onChange={event => patchDraft('apiKey', event.target.value)} placeholder="仅保存在本机" />
+                </div>
+
+                <div>
+                    <label className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">鉴权模式</label>
+                    <select
+                        className={fieldClass}
+                        value={draft.authMode ?? 'api-key'}
+                        onChange={event => patchDraft('authMode', event.target.value as ImageGenerationAuthMode)}
+                        aria-label="生图接口鉴权模式"
+                    >
+                        <option value="api-key">API Key 鉴权（默认，云端接口）</option>
+                        <option value="none">无鉴权（本地/私有接口，允许空 Key）</option>
+                    </select>
+                    {draft.authMode === 'none' && (
+                        isPrivateNetworkBaseUrl(draft.baseUrl) ? (
+                            <p className="mt-1.5 px-1 text-[9px] leading-relaxed text-emerald-500">已识别为本地/私有网络地址（含 Tailscale 等内网 HTTPS）；空 Key 时不会发送任何 Authorization 头。</p>
+                        ) : (
+                            <p className="mt-1.5 px-1 text-[9px] leading-relaxed text-amber-500">⚠️ 该地址不是本地/私有网络：无鉴权模式下请求将发往公网接口且不带任何鉴权头，可能被第三方滥用或调用失败，请确认目标服务确实无需鉴权。</p>
+                        )
+                    )}
                 </div>
 
                 <div>

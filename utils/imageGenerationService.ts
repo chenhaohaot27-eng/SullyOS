@@ -301,6 +301,35 @@ function composePrompt(prompt: string, style?: string): string {
     return cleanStyle ? `${cleanPrompt}\n\nStyle: ${cleanStyle}` : cleanPrompt;
 }
 
+/** 无鉴权模式（authMode === 'none'）下完全不携带鉴权头，避免 `Bearer undefined` 等伪造值。 */
+function bearerAuthHeaders(config: Pick<ImageGenerationConfig, 'apiKey' | 'authMode'>): Record<string, string> {
+    if (config.authMode === 'none') return {};
+    const key = config.apiKey.trim();
+    return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
+function geminiAuthHeaders(config: Pick<ImageGenerationConfig, 'apiKey' | 'authMode'>): Record<string, string> {
+    if (config.authMode === 'none') return {};
+    const key = config.apiKey.trim();
+    return key ? { 'x-goog-api-key': key } : {};
+}
+
+/**
+ * HTTPS 页面访问 HTTP 接口会被浏览器混合内容策略拦截；本地 HTTP 生图接口失败时
+ * 明确提示检查连接安全/HTTPS 代理/CORS，而不是误报成密钥错误。
+ */
+function networkFailureHint(baseUrl: string): string {
+    let hint = '';
+    try {
+        const insecureHttp = new URL(baseUrl).protocol === 'http:';
+        const securePage = typeof window !== 'undefined' && window.location?.protocol === 'https:';
+        if (insecureHttp && securePage) {
+            hint = '；当前页面为 HTTPS，浏览器会拦截 HTTP 接口（混合内容限制），请检查连接安全、HTTPS 代理或 CORS 配置，或改用 HTTPS 地址';
+        }
+    } catch { /* 保持无提示 */ }
+    return hint;
+}
+
 function responseRequestId(response: Response, payload: unknown): string | undefined {
     const root = payload && typeof payload === 'object' ? payload as Record<string, any> : {};
     const value = response.headers.get('x-request-id')
@@ -380,7 +409,7 @@ export const geminiNativeAdapter: ImageGenerationProviderAdapter = {
         }
         const response = await fetchImpl(geminiEndpoint(config), withImageGenerationLogMeta({
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
+            headers: { 'Content-Type': 'application/json', ...geminiAuthHeaders(config) },
             body: JSON.stringify({
                 contents: [{ role: 'user', parts }],
                 generationConfig: {
@@ -403,7 +432,7 @@ export const geminiNativeAdapter: ImageGenerationProviderAdapter = {
     async listAvailableModels({ config, signal, fetchImpl }) {
         const response = await fetchImpl(buildImageGenerationModelsEndpoint(config), withImageGenerationLogMeta({
             method: 'GET',
-            headers: { 'x-goog-api-key': config.apiKey },
+            headers: geminiAuthHeaders(config),
             signal,
         }, { operation: 'list-models', provider: config.provider }));
         const payload = await parseProviderResponse(response, config.apiKey, 'list-models');
@@ -430,7 +459,7 @@ export const openAiImagesAdapter: ImageGenerationProviderAdapter = {
     async generate({ config, options, signal, fetchImpl }) {
         const response = await fetchImpl(openAiEndpoint(config.baseUrl), withImageGenerationLogMeta({
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+            headers: { 'Content-Type': 'application/json', ...bearerAuthHeaders(config) },
             body: JSON.stringify({
                 model: config.model,
                 prompt: composePrompt(options.prompt, options.style),
@@ -453,7 +482,7 @@ export const openAiImagesAdapter: ImageGenerationProviderAdapter = {
     async listAvailableModels({ config, signal, fetchImpl }) {
         const response = await fetchImpl(buildImageGenerationModelsEndpoint(config), withImageGenerationLogMeta({
             method: 'GET',
-            headers: { Authorization: `Bearer ${config.apiKey}` },
+            headers: bearerAuthHeaders(config),
             signal,
         }, { operation: 'list-models', provider: config.provider }));
         const payload = await parseProviderResponse(response, config.apiKey, 'list-models');
@@ -491,7 +520,7 @@ export const gptImagesAdapter: ImageGenerationProviderAdapter = {
 
             const response = await fetchImpl(editsEndpoint, withImageGenerationLogMeta({
                 method: 'POST',
-                headers: { Authorization: `Bearer ${config.apiKey}` },
+                headers: bearerAuthHeaders(config),
                 body: formData,
                 signal,
             }, {
@@ -510,7 +539,7 @@ export const gptImagesAdapter: ImageGenerationProviderAdapter = {
         const endpoint = openAiEndpoint(config.baseUrl);
         const response = await fetchImpl(endpoint, withImageGenerationLogMeta({
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+            headers: { 'Content-Type': 'application/json', ...bearerAuthHeaders(config) },
             body: JSON.stringify({
                 model: config.model,
                 prompt: composePrompt(options.prompt, options.style),
@@ -533,7 +562,7 @@ export const gptImagesAdapter: ImageGenerationProviderAdapter = {
     async listAvailableModels({ config, signal, fetchImpl }) {
         const response = await fetchImpl(buildImageGenerationModelsEndpoint(config), withImageGenerationLogMeta({
             method: 'GET',
-            headers: { Authorization: `Bearer ${config.apiKey}` },
+            headers: bearerAuthHeaders(config),
             signal,
         }, { operation: 'list-models', provider: config.provider }));
         const payload = await parseProviderResponse(response, config.apiKey, 'list-models');
@@ -563,8 +592,9 @@ export class ImageGenerationService {
 
     async listAvailableModels(configOverride: ImageGenerationConfig): Promise<AvailableImageModel[]> {
         const config = normalizeImageGenerationConfig(configOverride);
-        if (!config.baseUrl || !config.apiKey) {
-            throw new ImageGenerationError('INVALID_CONFIG', '刷新模型前，请填写 Base URL 和 API Key');
+        // 无鉴权模式（用户在预设中显式选择）允许空 Key；普通云端接口仍要求完整填写
+        if (!config.baseUrl || (config.authMode !== 'none' && !config.apiKey)) {
+            throw new ImageGenerationError('INVALID_CONFIG', '刷新模型前，请填写 Base URL 和 API Key（无鉴权本地接口需在预设中选择「无鉴权」）');
         }
 
         const controller = new AbortController();
@@ -579,7 +609,7 @@ export class ImageGenerationService {
         } catch (error) {
             if (error instanceof ImageGenerationError) throw error;
             if (timedOut) throw new ImageGenerationError('TIMEOUT', `模型列表请求超过 ${Math.round(config.timeoutMs / 1000)} 秒`);
-            throw new ImageGenerationError('NETWORK', `模型列表请求失败：${sanitizeErrorText(error, config.apiKey)}`);
+            throw new ImageGenerationError('NETWORK', `模型列表请求失败：${sanitizeErrorText(error, config.apiKey)}${networkFailureHint(config.baseUrl)}`);
         } finally {
             clearTimeout(timeoutId);
         }
@@ -589,8 +619,12 @@ export class ImageGenerationService {
         const config = normalizeImageGenerationConfig(configOverride || this.loadConfig());
         const prompt = options.prompt?.trim();
         if (!config.enabled) throw new ImageGenerationError('DISABLED', '生图 API 尚未启用');
-        if (!config.baseUrl || !config.apiKey || !config.model || !prompt) {
-            throw new ImageGenerationError('INVALID_CONFIG', '请填写完整的生图 URL、API Key、模型和提示词');
+        // 无鉴权模式（用户在预设中显式选择）允许空 Key；普通云端接口空 Key 一律拒绝
+        const noAuth = config.authMode === 'none';
+        if (!config.baseUrl || (!noAuth && !config.apiKey) || !config.model || !prompt) {
+            throw new ImageGenerationError('INVALID_CONFIG', noAuth
+                ? '请填写完整的生图 URL、模型和提示词'
+                : '请填写完整的生图 URL、API Key、模型和提示词');
         }
 
         // ─── 解析角色视觉身份（若提供 characterId） ─────────────────────────────────
@@ -706,7 +740,7 @@ export class ImageGenerationService {
             if (error instanceof ImageGenerationError) throw error;
             if (options.signal?.aborted) throw new ImageGenerationError('CANCELLED', '生图请求已取消');
             if (timedOut) throw new ImageGenerationError('TIMEOUT', `生图请求超过 ${Math.round(config.timeoutMs / 1000)} 秒`);
-            throw new ImageGenerationError('NETWORK', `生图请求失败：${sanitizeErrorText(error, config.apiKey)}`);
+            throw new ImageGenerationError('NETWORK', `生图请求失败：${sanitizeErrorText(error, config.apiKey)}${networkFailureHint(config.baseUrl)}`);
         } finally {
             clearTimeout(timeoutId);
             options.signal?.removeEventListener('abort', onAbort);

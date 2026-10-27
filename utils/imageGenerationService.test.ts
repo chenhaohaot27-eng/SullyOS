@@ -337,3 +337,94 @@ describe('image generation failure handling', () => {
         expect(error).not.toHaveBeenCalled();
     });
 });
+
+describe('imageGenerationService — 无鉴权本地接口（authMode: none）', () => {
+    it('普通云端接口空 Key 仍然拒绝生成与刷新模型', async () => {
+        const fetchMock = vi.fn();
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch, loadConfig: () => ({ ...baseConfig, apiKey: '' }) });
+        await expect(service.generateImage({ prompt: 'x' })).rejects.toMatchObject({ code: 'INVALID_CONFIG' });
+        await expect(service.listAvailableModels({ ...baseConfig, apiKey: '' })).rejects.toMatchObject({ code: 'INVALID_CONFIG' });
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('明确无鉴权的 openai-images 预设允许空 Key，且不发送任何 Authorization 头', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(response({ data: [{ b64_json: tinyBase64 }] }));
+        const config = {
+            ...baseConfig,
+            provider: 'openai-images' as const,
+            baseUrl: 'https://100.101.102.103/v1',
+            apiKey: '',
+            authMode: 'none' as const,
+            model: 'flux-dev',
+        };
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch, loadConfig: () => config });
+
+        await service.generateImage({ prompt: 'local render' });
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe('https://100.101.102.103/v1/images/generations');
+        const headers = new Headers(init.headers);
+        expect(headers.get('authorization')).toBeNull(); // 不发送 Bearer undefined / Bearer 空
+        expect(headers.get('content-type')).toBe('application/json');
+    });
+
+    it('无鉴权预设的模型列表刷新同样不携带 Authorization', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(response({ data: [{ id: 'flux-dev' }] }));
+        const config = {
+            ...baseConfig,
+            provider: 'openai-images' as const,
+            baseUrl: 'https://100.101.102.103/v1',
+            apiKey: '',
+            authMode: 'none' as const,
+        };
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch });
+
+        const models = await service.listAvailableModels(config);
+        expect(models.map(model => model.id)).toEqual(['flux-dev']);
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe('https://100.101.102.103/v1/models');
+        expect(new Headers(init.headers).get('authorization')).toBeNull();
+    });
+
+    it('无鉴权 gemini-native 请求不携带 x-goog-api-key', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(response({
+            candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: tinyBase64 } }] } }],
+        }));
+        const config = { ...baseConfig, apiKey: '', authMode: 'none' as const, baseUrl: 'http://192.168.1.20:8188' };
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch, loadConfig: () => config });
+
+        await service.generateImage({ prompt: 'local' });
+        const headers = new Headers((fetchMock.mock.calls[0] as [string, RequestInit])[1].headers);
+        expect(headers.get('x-goog-api-key')).toBeNull();
+        expect(headers.get('authorization')).toBeNull();
+    });
+
+    it('HTTPS 页面访问 HTTP 本地接口失败时提示混合内容/CORS，而不是密钥错误', async () => {
+        // node 测试环境无 window：临时模拟 HTTPS 页面
+        const previousWindow = (globalThis as { window?: unknown }).window;
+        const windowStub = new EventTarget() as unknown as EventTarget & { location: { protocol: string } };
+        windowStub.location = { protocol: 'https:' };
+        (globalThis as { window?: unknown }).window = windowStub;
+        const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+        const config = {
+            ...baseConfig,
+            provider: 'openai-images' as const,
+            baseUrl: 'http://192.168.1.20:8188/v1',
+            apiKey: '',
+            authMode: 'none' as const,
+            model: 'flux-dev',
+        };
+        const service = new ImageGenerationService({ fetchImpl: fetchMock as typeof fetch, loadConfig: () => config });
+
+        try {
+            let thrown: unknown;
+            try { await service.generateImage({ prompt: 'x' }); } catch (caught) { thrown = caught; }
+            expect(thrown).toBeInstanceOf(ImageGenerationError);
+            const code = (thrown as ImageGenerationError).code;
+            const message = String((thrown as Error).message);
+            expect(code).not.toBe('AUTH'); // 网络失败不能误报成密钥错误
+            expect(message).toContain('混合内容');
+        } finally {
+            (globalThis as { window?: unknown }).window = previousWindow;
+        }
+    });
+});

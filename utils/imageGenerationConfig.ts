@@ -1,5 +1,6 @@
 import type {
     ImageGenerationAspectRatio,
+    ImageGenerationAuthMode,
     ImageGenerationConfig,
     ImageGenerationProvider,
     ImageGenerationResolution,
@@ -19,6 +20,7 @@ export const DEFAULT_IMAGE_GENERATION_CONFIG: Readonly<ImageGenerationConfig> = 
     defaultAspectRatio: '1:1',
     allowReferenceImages: true,
     timeoutMs: 90_000,
+    authMode: 'api-key',
 });
 
 const PROVIDERS = new Set<ImageGenerationProvider>(['gemini-native', 'openai-images', 'gpt-images']);
@@ -52,6 +54,9 @@ export function normalizeImageGenerationConfig(value: unknown): ImageGenerationC
             : DEFAULT_IMAGE_GENERATION_CONFIG.defaultAspectRatio,
         allowReferenceImages: source.allowReferenceImages !== false,
         timeoutMs: Math.min(300_000, Math.max(5_000, timeout)),
+        // 'none' 只在用户显式选择时生效；任何其他值（包括旧数据缺省）一律回落到 'api-key'，
+        // 绝不因为 API Key 为空而自动把云端接口降级为无鉴权。
+        authMode: source.authMode === 'none' ? 'none' : 'api-key',
     };
 }
 

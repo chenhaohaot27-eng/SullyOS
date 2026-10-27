@@ -83,6 +83,7 @@ import { exportMcpLocal } from '../utils/mcpClient';
 import { exportDesktopSkinLocal } from '../utils/desktopSkinBackup';
 import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
 import { exportImageGenerationConfig, importImageGenerationConfig } from '../utils/imageGenerationConfig';
+import { exportImageGenerationPresets, importImageGenerationPresets } from '../utils/imageGenerationPresets';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
 import { resolveCharacterChatApiConfig } from '../utils/formalNpcRegistry';
@@ -3855,6 +3856,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               version: 3,
               apiConfig: (mode === 'text_only' || mode === 'full') ? apiConfig : undefined,
               imageGenerationConfig: (mode === 'text_only' || mode === 'full') ? exportImageGenerationConfig() : undefined,
+              imageGenerationPresets: (mode === 'text_only' || mode === 'full') ? exportImageGenerationPresets() : undefined,
               apiPresets: (mode === 'text_only' || mode === 'full') ? apiPresets : undefined,
               availableModels: (mode === 'text_only' || mode === 'full') ? availableModels : undefined,
               realtimeConfig: (mode === 'text_only' || mode === 'full') ? realtimeConfig : undefined,
@@ -4696,6 +4698,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
           if (data.apiConfig) updateApiConfig(data.apiConfig);
           if (data.imageGenerationConfig !== undefined) importImageGenerationConfig(data.imageGenerationConfig);
+          // 新版备份附带预设集合；旧版备份缺此字段时保持上方单配置恢复结果，不做任何清空
+          if (data.imageGenerationPresets !== undefined) importImageGenerationPresets(data.imageGenerationPresets);
           if (data.availableModels) saveModels(data.availableModels);
           if (data.apiPresets) savePresets(data.apiPresets);
           if (data.realtimeConfig) updateRealtimeConfig(data.realtimeConfig); // 恢复实时感知配置

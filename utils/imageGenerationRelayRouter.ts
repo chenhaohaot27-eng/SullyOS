@@ -1,7 +1,11 @@
 import type { ImageGenerationProvider } from '../types';
 
-/** RelayRouter 中转服务的固定 host（仅该 host 触发 /v1 ↔ /v1beta 自动改写）。 */
+/**
+ * RelayRouter 中转服务的固定 host（仅这些 host 触发 /v1 ↔ /v1beta 自动改写）。
+ * 旧域名 api.relayrouter.ai 与新域名 api.relayrouter.app 同时识别，大小写不敏感。
+ */
 export const RELAY_ROUTER_HOST = 'api.relayrouter.ai';
+export const RELAY_ROUTER_HOSTS: ReadonlySet<string> = new Set(['api.relayrouter.ai', 'api.relayrouter.app']);
 
 function hostOf(baseUrl: string): string {
     try {
@@ -11,13 +15,13 @@ function hostOf(baseUrl: string): string {
     }
 }
 
-/** Base URL 是否指向 RelayRouter（host 精确匹配，忽略大小写与末尾斜杠）。 */
+/** Base URL 是否指向 RelayRouter（host 精确匹配，忽略大小写与末尾斜杠；同时支持 .ai 与 .app）。 */
 export function isRelayRouterUrl(baseUrl: string): boolean {
-    return hostOf(baseUrl) === RELAY_ROUTER_HOST;
+    return RELAY_ROUTER_HOSTS.has(hostOf(baseUrl));
 }
 
 /**
- * 切换接口模式时，仅对 RelayRouter 地址自动改写版本路径：
+ * 切换接口模式时，仅对 RelayRouter 地址（api.relayrouter.ai / api.relayrouter.app）自动改写版本路径：
  * - 切到 gemini-native：尾部 /v1 → /v1beta
  * - 切到 openai-images 或 gpt-images：尾部 /v1beta → /v1
  * 其他 host（如官方 Google / OpenAI 端点）原样返回，绝不自动改写。

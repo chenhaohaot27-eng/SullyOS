@@ -260,6 +260,9 @@ export type ImageGenerationResolution = '1K' | '2K' | '4K';
 
 export type ImageGenerationAspectRatio = '1:1' | '3:2' | '2:3' | '4:3' | '3:4' | '16:9' | '9:16';
 
+/** 生图鉴权模式：api-key（默认，必须填写 Key）| none（明确选择的无鉴权本地/私有接口，允许空 Key）。 */
+export type ImageGenerationAuthMode = 'api-key' | 'none';
+
 /** 仅保存在当前设备；文本/完整备份会按项目现有凭据策略原样包含此配置。 */
 export interface ImageGenerationConfig {
   version: 1;
@@ -272,6 +275,22 @@ export interface ImageGenerationConfig {
   defaultAspectRatio: ImageGenerationAspectRatio;
   allowReferenceImages: boolean;
   timeoutMs: number;
+  /** 缺省按 'api-key' 处理；'none' 只允许用户在预设中显式选择，绝不会因 Key 为空自动降级。 */
+  authMode?: ImageGenerationAuthMode;
+}
+
+/** 一套独立的生图接口预设：稳定唯一 ID + 用户自定义名称 + 完整配置快照。 */
+export interface ImageGenerationPreset {
+  id: string;
+  name: string;
+  config: ImageGenerationConfig;
+}
+
+/** 版本化的预设集合存储结构；activeId 永远指向存在的预设或为 null。 */
+export interface ImageGenerationPresetStore {
+  version: 1;
+  presets: ImageGenerationPreset[];
+  activeId: string | null;
 }
 
 /** 主聊天请求协议。缺失或非法值必须按 OpenAI-compatible 处理。 */
@@ -4037,6 +4056,8 @@ export interface FullBackupData {
     theme?: OSTheme;
     apiConfig?: APIConfig;
     imageGenerationConfig?: ImageGenerationConfig;
+    /** 生图接口预设集合（多套配置 + 当前选中）。旧版备份缺此字段时按无预设处理，不影响单配置恢复。 */
+    imageGenerationPresets?: ImageGenerationPresetStore;
     instantPushConfig?: InstantPushConfig;
     pushVapid?: { vapidPublicKey: string; vapidPrivateKey: string; vapidEmail?: string; updatedAt?: number; };
     /**
