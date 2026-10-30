@@ -119,6 +119,26 @@ describe('cleanVoiceMarkupForDisplay', () => {
 });
 
 describe('insertSpeechBreaks', () => {
+  it.each([
+    ['你是不是故意的，嗯？', '你是不是故意的，嗯？<#0.26#>'],
+    ['你是不是故意的,嗯?', '你是不是故意的,嗯?<#0.26#>'],
+    ['你是不是故意的， 嗯？', '你是不是故意的， 嗯？<#0.26#>'],
+    ['你是不是故意的,\t嗯?  ', '你是不是故意的,\t嗯?<#0.26#>'],
+    ['你是不是故意的，嗯。', '你是不是故意的，<#0.10#>嗯。<#0.22#>'],
+    ['你是不是故意的，嗯！', '你是不是故意的，<#0.10#>嗯！<#0.26#>'],
+    ['你是不是故意的，嗯？接着说', '你是不是故意的，<#0.10#>嗯？<#0.26#>接着说'],
+    ['你是不是故意的，<#0.5#>嗯？', '你是不是故意的，<#0.50#>嗯？<#0.26#>'],
+    ['你是不是故意的，嗯？<#0.5#>', '你是不是故意的，嗯？<#0.50#>'],
+    ['先说，你是不是故意的，嗯？', '先说，<#0.10#>你是不是故意的，嗯？<#0.26#>'],
+    ['你好吗？', '你好吗？<#0.26#>'],
+  ])('preserves expected pauses for %s', (input, expected) => {
+    expect(insertSpeechBreaks(input)).toBe(expected);
+  });
+
+  it('keeps the rhetorical question unchanged for display', () => {
+    expect(parseVoiceOutput('你是不是故意的，嗯？').display).toBe('你是不是故意的，嗯？');
+  });
+
   it('caps pause length at 0.6s and inserts pause markers', () => {
     const out = insertSpeechBreaks('真的吗……好吧。');
     expect(out).toMatch(/<#0\.\d+#>/);
