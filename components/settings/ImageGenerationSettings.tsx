@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ImageGenerationAspectRatio, ImageGenerationAuthMode, ImageGenerationConfig, ImageGenerationPresetStore, ImageGenerationProvider, ImageGenerationResolution } from '../../types';
 import {
     clearImageGenerationConfig,
+    DEFAULT_IMAGE_GENERATION_CONFIG,
     loadImageGenerationConfig,
     normalizeImageGenerationConfig,
     saveImageGenerationConfig,
@@ -17,10 +18,12 @@ import {
 } from '../../utils/imageGenerationPresets';
 import {
     generatedImageToBlob,
+    DEFAULT_GPT_IMAGES_MODEL,
     filterAvailableImageModels,
     imageGenerationService,
     ImageGenerationError,
     listAvailableModels,
+    OFFICIAL_GPT_IMAGES_BASE_URL,
     resolveImageModelSelection,
     type AvailableImageModel,
 } from '../../utils/imageGenerationService';
@@ -37,9 +40,15 @@ interface Props {
 
 const PROVIDER_OPTIONS: Array<{ value: ImageGenerationProvider; label: string; note: string }> = [
     { value: 'gemini-native', label: 'Gemini Native', note: 'Gemini 原生生图 · 支持多张参考图' },
-    { value: 'gpt-images', label: 'GPT Images', note: 'DALL-E 3 · 支持参考图 + 创意合照' },
+    { value: 'gpt-images', label: 'GPT Images', note: 'OpenAI 官方 GPT Images · gpt-image-2.5 · 支持多张参考图' },
     { value: 'openai-images', label: 'OpenAI-compatible Images', note: '兼容接口 · POST /images/generations' },
 ];
+
+const MODEL_PLACEHOLDERS: Record<ImageGenerationProvider, string> = {
+    'gemini-native': 'gemini-3-pro-image',
+    'gpt-images': 'gpt-image-2.5-flare（可手动输入 gpt-image-2.5-sunburst）',
+    'openai-images': 'gpt-image-1 / flux-dev 等兼容模型',
+};
 
 const RESOLUTIONS: ImageGenerationResolution[] = ['1K', '2K', '4K'];
 const ASPECT_RATIOS: ImageGenerationAspectRatio[] = ['1:1', '3:2', '2:3', '4:3', '3:4', '16:9', '9:16'];
@@ -187,11 +196,17 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
     const switchProvider = (provider: ImageGenerationProvider) => {
         if (provider === draft.provider) return;
         const nextBaseUrl = applyRelayRouterProviderSwitch(draft.baseUrl, provider);
-        setDraft(current => ({
-            ...current,
-            provider,
-            baseUrl: nextBaseUrl === current.baseUrl ? current.baseUrl : nextBaseUrl,
-        }));
+        setDraft(current => {
+            let baseUrl = nextBaseUrl === current.baseUrl ? current.baseUrl : nextBaseUrl;
+            let model = current.model;
+            // 切到 GPT Images 时：仅当仍挂着 Gemini 默认值时才推荐 OpenAI 官方地址与默认模型；
+            // 用户自定义 URL / 模型一律原样保留，允许手动输入 gpt-image-2.5-sunburst 等。
+            if (provider === 'gpt-images') {
+                if (baseUrl === DEFAULT_IMAGE_GENERATION_CONFIG.baseUrl) baseUrl = OFFICIAL_GPT_IMAGES_BASE_URL;
+                if (model === DEFAULT_IMAGE_GENERATION_CONFIG.model) model = DEFAULT_GPT_IMAGES_MODEL;
+            }
+            return { ...current, provider, baseUrl, model };
+        });
         setStatus('');
     };
 
@@ -502,7 +517,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                             {modelsLoading ? '刷新中…' : '刷新模型'}
                         </button>
                     </div>
-                    <input className={`${fieldClass} font-mono`} value={draft.model} onChange={event => patchDraft('model', event.target.value)} placeholder="gemini-3-pro-image" />
+                    <input className={`${fieldClass} font-mono`} value={draft.model} onChange={event => patchDraft('model', event.target.value)} placeholder={MODEL_PLACEHOLDERS[draft.provider]} />
                     <div className="mt-2 space-y-2 rounded-xl border border-slate-100 bg-white/55 p-2.5">
                         <input
                             className={`${fieldClass} py-2`}
@@ -561,7 +576,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white/60 px-3.5 py-3">
                     <div>
                         <div className="text-xs font-semibold text-slate-600">允许参考图</div>
-                        <p className="mt-0.5 text-[9px] text-slate-400">Gemini Native 最多 5 张；GPT Images 支持参考图；Images 模式会明确报不支持。</p>
+                        <p className="mt-0.5 text-[9px] text-slate-400">Gemini Native 最多 5 张；GPT Images（gpt-image 官方模型）支持多张参考图编辑；Images 模式会明确报不支持。</p>
                     </div>
                     <input type="checkbox" checked={draft.allowReferenceImages} onChange={event => patchDraft('allowReferenceImages', event.target.checked)} className="h-4 w-4 accent-fuchsia-500" />
                 </div>
@@ -569,6 +584,9 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                 <div>
                     <label className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">请求超时（秒）</label>
                     <input className={fieldClass} type="number" min={5} max={300} step={5} value={Math.round(draft.timeoutMs / 1000)} onChange={event => patchDraft('timeoutMs', Number(event.target.value) * 1000)} />
+                    {draft.provider === 'gpt-images' && (
+                        <p className="mt-1.5 px-1 text-[9px] leading-relaxed text-slate-400">GPT Images 生成较慢，官方模型建议设置 ≥180 秒（上限 300 秒）；已保存的自定义超时值不会被覆盖。</p>
+                    )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">

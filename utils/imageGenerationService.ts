@@ -364,10 +364,14 @@ async function parseProviderResponse(
     const detail = sanitizeErrorText(rawDetail, apiKey);
     const requestId = responseRequestId(response, payload);
     if (response.status === 401 || response.status === 403) {
-        throw new ImageGenerationError('AUTH', withRequestId('生图 API 鉴权失败，请检查 API Key', requestId), response.status, requestId);
+        // 保留供应商原始错误（Key 无效 / 模型未授权 / Organization Verification / 权限不足），便于区分具体原因
+        const authHint = detail ? `（${detail}）` : '';
+        throw new ImageGenerationError('AUTH', withRequestId(`生图 API 鉴权失败，请检查 API Key${authHint}`, requestId), response.status, requestId);
     }
     if (response.status === 429 || /(负载已饱和|稍后再试|rate[\s_-]*limit|too many requests|quota exceeded)/i.test(detail)) {
-        const message = '当前模型线路繁忙。你可以稍后重试，或刷新模型列表后切换其他生图模型。';
+        const message = /quota|billing|insufficient|额度/i.test(detail)
+            ? '生图 API 额度不足或已触发限流，请检查账户额度与限流策略，或稍后重试 / 切换其他生图模型。'
+            : '当前模型线路繁忙。你可以稍后重试，或刷新模型列表后切换其他生图模型。';
         throw new ImageGenerationError('RATE_LIMIT', withRequestId(message, requestId), response.status, requestId);
     }
     if (operation === 'list-models' && (response.status === 404 || response.status === 405 || response.status === 501)) {
@@ -453,6 +457,96 @@ function openAiSize(resolution: ImageGenerationResolution, aspectRatio: ImageGen
     return widthRatio > heightRatio ? `${long}x${base}` : `${base}x${long}`;
 }
 
+// ─── OpenAI 官方 GPT Image 模型（gpt-image-*）独立适配参数 ─────────────────────
+// gpt-image-2.5-flare / gpt-image-2.5-sunburst / gpt-image-1 等官方模型走新版
+// Images API 参数：不发送 response_format，改用 output_format，尺寸按官方约束映射。
+
+/** OpenAI 官方 Base URL（设置页与文档共用）。 */
+export const OFFICIAL_GPT_IMAGES_BASE_URL = 'https://api.openai.com/v1';
+/** 新建 GPT Images 预设的推荐默认模型。 */
+export const DEFAULT_GPT_IMAGES_MODEL = 'gpt-image-2.5-flare';
+
+/** 官方 gpt-image-* 模型 ID（gpt-image-1、gpt-image-2.5-flare、gpt-image-2.5-sunburst 等）。 */
+export const OFFICIAL_GPT_IMAGE_MODEL_RE = /^gpt-image-[a-z0-9][a-z0-9.-]*$/i;
+
+export function isOfficialGptImageModel(model: string): boolean {
+    return OFFICIAL_GPT_IMAGE_MODEL_RE.test(model.trim());
+}
+
+/** 官方支持的宽高比范围：2:3 ~ 3:2。 */
+export const GPT_IMAGE_MIN_ASPECT_RATIO = 2 / 3;
+export const GPT_IMAGE_MAX_ASPECT_RATIO = 3 / 2;
+/** 单边长度上限。 */
+export const GPT_IMAGE_MAX_SIDE = 3840;
+/** 总像素上限（与 3840×2160 一致）。 */
+export const GPT_IMAGE_MAX_PIXELS = 8_294_400;
+/** 官方推荐尺寸（优先命中）。 */
+export const GPT_IMAGE_RECOMMENDED_SIZES: readonly string[] = ['1024x1024', '1536x1024', '1024x1536'];
+
+export interface GptImageSize {
+    width: number;
+    height: number;
+    /** 宽高比超出官方 2:3~3:2 范围（如 16:9），已收敛到最近可用比例。 */
+    aspectRatioClamped: boolean;
+    /** 超过 2560×1440 的尺寸属于官方实验性范围。 */
+    experimental: boolean;
+}
+
+const floorToMultipleOf16 = (value: number): number => Math.max(16, Math.floor(value / 16) * 16);
+
+/**
+ * GPT Image 2.5 尺寸映射（独立于旧版 DALL-E 4096 算法）：
+ * - 1K/2K/4K 以长边 1024/2048/3840 为目标，宽高均为 16 的倍数；
+ * - 1K 的 1:1、3:2、2:3 会自然命中官方推荐尺寸 1024x1024 / 1536x1024 / 1024x1536；
+ * - 宽高比收敛到官方 2:3~3:2；单边 ≤ 3840；总像素 ≤ 8,294,400（4K 方图会缩到 2880×2880）。
+ */
+export function resolveGptImageSize(
+    resolution: ImageGenerationResolution,
+    aspectRatio: ImageGenerationAspectRatio,
+): GptImageSize {
+    const [ratioWidth, ratioHeight] = aspectRatio.split(':').map(Number);
+    const rawRatio = ratioWidth / ratioHeight;
+    const ratio = Math.min(GPT_IMAGE_MAX_ASPECT_RATIO, Math.max(GPT_IMAGE_MIN_ASPECT_RATIO, rawRatio));
+    // 官方 1K/2K/4K 家族以短边 1024/2048/3840 为基准（如 1536x1024、3072x2048、3840x2560）
+    const shortEdge = resolution === '4K' ? 3840 : resolution === '2K' ? 2048 : 1024;
+    let width = ratio >= 1 ? shortEdge * ratio : shortEdge;
+    let height = ratio >= 1 ? shortEdge : shortEdge / ratio;
+    // 总像素超限时先按比例整体缩放，再向下取 16 的倍数，保证不突破像素上限
+    const scale = Math.sqrt(Math.min(1, GPT_IMAGE_MAX_PIXELS / (width * height)));
+    width = floorToMultipleOf16(Math.min(GPT_IMAGE_MAX_SIDE, width * scale));
+    height = floorToMultipleOf16(Math.min(GPT_IMAGE_MAX_SIDE, height * scale));
+    // 取整后比例越界：优先轻微放大短边（不超边长/像素上限），否则收窄长边
+    let guard = 8;
+    while (width / height > GPT_IMAGE_MAX_ASPECT_RATIO && guard-- > 0) {
+        if (height + 16 <= GPT_IMAGE_MAX_SIDE && width * (height + 16) <= GPT_IMAGE_MAX_PIXELS) height += 16;
+        else width -= 16;
+    }
+    guard = 8;
+    while (width / height < GPT_IMAGE_MIN_ASPECT_RATIO && guard-- > 0) {
+        if (width + 16 <= GPT_IMAGE_MAX_SIDE && (width + 16) * height <= GPT_IMAGE_MAX_PIXELS) width += 16;
+        else height -= 16;
+    }
+    return {
+        width,
+        height,
+        aspectRatioClamped: rawRatio > GPT_IMAGE_MAX_ASPECT_RATIO || rawRatio < GPT_IMAGE_MIN_ASPECT_RATIO,
+        experimental: width > 2560 || height > 1440,
+    };
+}
+
+/** 参考图上传文件名保留原始 MIME 对应扩展名（默认 png）。 */
+const MIME_TYPE_FILE_EXTENSIONS: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+};
+
+function imageFileExtension(mimeType: string): string {
+    return MIME_TYPE_FILE_EXTENSIONS[mimeType.split(';')[0].trim().toLowerCase()] || 'png';
+}
+
 export const openAiImagesAdapter: ImageGenerationProviderAdapter = {
     provider: 'openai-images',
     supportsReferenceImages: false,
@@ -495,6 +589,14 @@ export const gptImagesAdapter: ImageGenerationProviderAdapter = {
     supportsReferenceImages: true,
     async generate({ config, options, references, signal, fetchImpl }) {
         const hasReferences = references.length > 0;
+        // OpenAI 官方 gpt-image-* 模型走新版 Images API 参数：
+        // 不发送 response_format，改用 output_format（默认 png），尺寸按 GPT Image 2.5 官方约束映射。
+        // 非 gpt-image-* 旧模型（dall-e-3 等）保持原有字段，不破坏第三方兼容路径。
+        const official = isOfficialGptImageModel(config.model);
+        const officialSize = official ? resolveGptImageSize(options.resolution, options.aspectRatio) : null;
+        const sizeValue = officialSize
+            ? `${officialSize.width}x${officialSize.height}`
+            : openAiSize(options.resolution, options.aspectRatio);
 
         // GPT with reference images: use /images/edits with multipart/form-data
         if (hasReferences) {
@@ -505,18 +607,21 @@ export const gptImagesAdapter: ImageGenerationProviderAdapter = {
             formData.append('model', config.model);
             formData.append('prompt', composePrompt(options.prompt, options.style));
             formData.append('n', '1');
-            formData.append('size', openAiSize(options.resolution, options.aspectRatio));
-            formData.append('response_format', 'b64_json');
+            formData.append('size', sizeValue);
+            if (official) formData.append('output_format', 'png');
+            else formData.append('response_format', 'b64_json');
 
-            // Add reference images as image[] files
-            for (let i = 0; i < references.length; i++) {
-                const reference = references[i];
+            // Add reference images as image files.
+            // 官方 gpt-image 模型按官方文档：单图用 image 字段，多图用 image[] 字段；
+            // 文件名保留原始 MIME 对应扩展名；multipart Content-Type 由运行时自动生成 boundary。
+            references.forEach((reference, index) => {
                 const blob = new Blob(
                     [Uint8Array.from(atob(reference.base64), c => c.charCodeAt(0))],
-                    { type: reference.mimeType }
+                    { type: reference.mimeType },
                 );
-                formData.append('image', blob, `reference_${i}.png`);
-            }
+                const field = official && references.length > 1 ? 'image[]' : 'image';
+                formData.append(field, blob, `reference_${index}.${imageFileExtension(reference.mimeType)}`);
+            });
 
             const response = await fetchImpl(editsEndpoint, withImageGenerationLogMeta({
                 method: 'POST',
@@ -540,11 +645,17 @@ export const gptImagesAdapter: ImageGenerationProviderAdapter = {
         const response = await fetchImpl(endpoint, withImageGenerationLogMeta({
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...bearerAuthHeaders(config) },
-            body: JSON.stringify({
+            body: JSON.stringify(official ? {
                 model: config.model,
                 prompt: composePrompt(options.prompt, options.style),
                 n: 1,
-                size: openAiSize(options.resolution, options.aspectRatio),
+                size: sizeValue,
+                output_format: 'png',
+            } : {
+                model: config.model,
+                prompt: composePrompt(options.prompt, options.style),
+                n: 1,
+                size: sizeValue,
                 response_format: 'b64_json',
             }),
             signal,
