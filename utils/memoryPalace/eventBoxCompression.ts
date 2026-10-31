@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * Memory Palace — EventBox 压缩
  *
@@ -350,6 +351,9 @@ async function compressEventBox(
         summaryNode = createSummaryNode(box, result, now);
         box.summaryNodeId = summaryNode.id;
     }
+    summaryNode.sourceMemoryIds = [...new Set([...box.archivedMemoryIds, ...box.liveMemoryIds])];
+    const summarySources = await Promise.all(summaryNode.sourceMemoryIds.map(id => MemoryNodeDB.getById(id)));
+    summaryNode.sourceMessageIds = [...new Set(summarySources.flatMap(n => n?.sourceMessageIds || []))];
     await MemoryNodeDB.save(summaryNode);
 
     // 5. 向量化 summary（跳过去重，因为内容必然和 live 节点重叠）
@@ -439,7 +443,7 @@ function createSummaryNode(box: EventBox, result: CompressionLLMResult, now: num
  * 检查一组 box 是否达到压缩阈值，达到的逐个压缩。
  * 调用方：pipeline 处理新消息后 / migration 跑完后。
  */
-export async function maybeCompressEventBoxes(
+async function maybeCompressEventBoxesImpl(
     boxIds: Iterable<string>,
     llmConfig: LightLLMConfig,
     embeddingConfig: EmbeddingConfig,
@@ -486,3 +490,5 @@ export async function compressAllEligibleBoxes(
     const eligible = allBoxes.filter(b => b.liveMemoryIds.length >= EVENT_BOX_COMPRESSION_THRESHOLD);
     return maybeCompressEventBoxes(eligible.map(b => b.id), llmConfig, embeddingConfig, charName, userName);
 }
+
+export const maybeCompressEventBoxes = (...args: Parameters<typeof maybeCompressEventBoxesImpl>): ReturnType<typeof maybeCompressEventBoxesImpl> => withMemoryMutation(() => maybeCompressEventBoxesImpl(...args));

@@ -56,6 +56,10 @@ export function getRoomLabel(room: MemoryRoom, userName?: string): string {
 // ─── 记忆节点 ─────────────────────────────────────────
 
 export interface MemoryNode {
+    sourceMessageIds?: number[];
+    sourceScope?: 'message' | 'batch';
+    sourceMemoryIds?: string[];
+    deletionRevision?: number;
     id: string;
     charId: string;
     content: string;            // 记忆内容（提取记忆为第三人称叙事，消化衍生记忆为第一人称内心独白）
@@ -122,6 +126,7 @@ export interface MemoryNode {
 // ─── 向量存储 ─────────────────────────────────────────
 
 export interface MemoryVector {
+    deletionRevision?: number;
     memoryId: string;           // 关联 MemoryNode.id
     charId: string;             // 冗余角色 ID，用于 IndexedDB 索引直查，避免全表扫描
     // 1024 维向量。三种形态：

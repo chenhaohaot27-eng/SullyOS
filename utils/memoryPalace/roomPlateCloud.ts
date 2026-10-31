@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * 门牌整理走云端那条路（提交 → 等结果 → 合并落库）
  *
@@ -403,7 +404,7 @@ export const clearPlateJobDone = (charId: string): void => {
  * @returns 这条结果能不能销账。落库出错时抛出去，由分发口记成「账没销」——整理跑一次
  *   要一两分钟还烧一次 API，不能因为一次 IDB 抖动就丢掉。
  */
-export const applyPlateConsolidateResult = async (
+const applyPlateConsolidateResultImpl = async (
   payload: unknown,
   context?: AmsgResultContext,
 ): Promise<boolean> => {
@@ -495,6 +496,13 @@ export const applyPlateConsolidateResult = async (
   // 以本地为准。编号对不上、或者记号早被 TTL 收走时问不到，传 0 让合并那侧按
   // 「谁都可能被改过」保守处理（见 mergeCloudPlateEntries）。
   const snapshotAt = isCurrentJob ? (inFlight?.snapshotAt ?? 0) : 0;
+  const { readDeletionLedger } = await import('../dateHistoryDeletion');
+  const deletion = await readDeletionLedger(charId);
+  if (deletion && snapshotAt <= deletion.revision) {
+    console.warn(`${HEADER} 见面删除后的旧认知快照已拒绝，请重新整理门牌。`);
+    settle(false); releaseGate(); markJobDone(charId, result.jobId);
+    return true;
+  }
 
   // 逐块串行：并发跑会同时开好几个 IDB 事务，正是 instant push 那次超时的连接风暴成因。
   // 走 mutatePlate 而不是自己「读一份 → 改 → 存回去」：同一块门牌上还有别的路在写
@@ -545,3 +553,5 @@ export const applyPlateConsolidateResult = async (
   }
   return true;
 };
+
+export const applyPlateConsolidateResult = (...args: Parameters<typeof applyPlateConsolidateResultImpl>) => withMemoryMutation(() => applyPlateConsolidateResultImpl(...args));

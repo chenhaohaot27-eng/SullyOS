@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * Memory Palace — 集成管线 (Pipeline)
  *
@@ -188,12 +189,14 @@ export function buildAutoArchiveFragments(
         byDate.set(date, arr);
     }
 
-    const fragments: { id: string; date: string; summary: string; mood: string }[] = [];
+    const fragments: (import('../../types').MemoryFragment & { mood: string })[] = [];
     for (const [date, bullets] of byDate) {
         fragments.push({
             id: `mp_auto_${date}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             date,
             summary: bullets.join('\n'),
+            sourceMemoryIds: sortedMems.filter(m => fmtDate(m.createdAt) === date).map(m => m.id),
+            sourceEntries: sortedMems.filter(m => fmtDate(m.createdAt) === date).map(m => ({ memoryId: m.id, text: m.content })),
             mood: 'palace',
         });
     }
@@ -215,7 +218,7 @@ export function buildAutoArchiveFragments(
  */
 export function mergePalaceFragmentsIntoMemories(
     existing: import('../../types').MemoryFragment[],
-    incoming: { id: string; date: string; summary: string; mood: string }[],
+    incoming: (import('../../types').MemoryFragment & { mood: string })[],
 ): import('../../types').MemoryFragment[] {
     if (incoming.length === 0) return existing;
 
@@ -240,6 +243,9 @@ export function mergePalaceFragmentsIntoMemories(
             result[existingIdx] = {
                 ...old,
                 summary: [...existingBullets, ...newBullets].join('\n'),
+                sourceMemoryIds: [...(old.sourceMemoryIds || []), ...(frag.sourceMemoryIds || [])],
+                sourceEntries: [...(old.sourceEntries || []), ...(frag.sourceEntries || [])],
+                legacySummary: old.legacySummary || (!old.sourceEntries ? old.summary : undefined),
             };
         } else {
             result.push(frag);
@@ -1033,7 +1039,7 @@ export type DiaryIngestResult =
         nodes: { content: string; room: import('./types').MemoryRoom; importance: number; mood: string; tags: string[] }[];
     };
 
-export async function ingestDiaryToPalace(
+async function ingestDiaryToPalaceImpl(
     char: { id: string; name: string; memoryPalaceEnabled?: boolean; embeddingConfig?: any; systemPrompt?: string; worldview?: string },
     dateStr: string,
     userDiaryText: string,
@@ -1234,7 +1240,7 @@ export interface PipelineResult {
      */
     autoArchive?: {
         /** 按日期切好的新 MemoryFragment 列表，id 已生成，mood='palace' */
-        fragments: { id: string; date: string; summary: string; mood: string }[];
+        fragments: (import('../../types').MemoryFragment & { mood: string })[];
         /** 这一批 buffer 处理完后的水位线（= 最后一条被处理 Message.id），应设到 char.hideBeforeMessageId */
         hideBeforeMessageId: number;
     } | null;
@@ -1596,7 +1602,7 @@ export interface ProcessNewMessagesOptions {
     waterline?: MemoryPalaceWaterlineConfig;
 }
 
-export async function processNewMessages(
+async function processNewMessagesImpl(
     _allRecentMessages: Message[], // 保留参数兼容，但内部直接从 DB 加载
     charId: string,
     charName: string,
@@ -1827,7 +1833,7 @@ export interface ExternalMemoryImportResult {
  * 外部文本 → 保真清洗/整理时间 → 分配房间 → embedding 入库 → 宫殿内部建链/巩固
  *          → 同源 MemoryFragment 回写神经链接角色档案（不推进聊天水位线）。
  */
-export async function importExternalMemoryText(
+async function importExternalMemoryTextImpl(
     rawText: string,
     charId: string,
     charName: string,
@@ -1958,7 +1964,7 @@ export async function importExternalMemoryText(
  * 与 processNewMessages 共用 extractAndStoreMemories + applyMemorySideEffects，
  * 提取质量、建链、EventBox、巩固逻辑完全一致。
  */
-export async function processMessageRange(
+async function processMessageRangeImpl(
     charId: string,
     charName: string,
     embeddingConfig: EmbeddingConfig,
@@ -2026,3 +2032,11 @@ export async function processMessageRange(
         processingLocks.delete(charId);
     }
 }
+
+export const processNewMessages = (...args: Parameters<typeof processNewMessagesImpl>): ReturnType<typeof processNewMessagesImpl> => withMemoryMutation(() => processNewMessagesImpl(...args));
+
+export const processMessageRange = (...args: Parameters<typeof processMessageRangeImpl>): ReturnType<typeof processMessageRangeImpl> => withMemoryMutation(() => processMessageRangeImpl(...args));
+
+export const importExternalMemoryText = (...args: Parameters<typeof importExternalMemoryTextImpl>): ReturnType<typeof importExternalMemoryTextImpl> => withMemoryMutation(() => importExternalMemoryTextImpl(...args));
+
+export const ingestDiaryToPalace = (...args: Parameters<typeof ingestDiaryToPalaceImpl>): ReturnType<typeof ingestDiaryToPalaceImpl> => withMemoryMutation(() => ingestDiaryToPalaceImpl(...args));

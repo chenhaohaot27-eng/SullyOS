@@ -620,7 +620,8 @@ const DateSession: React.FC<DateSessionProps> = ({
     const dialogueSyncMountRef = useRef(false);
     useEffect(() => {
         if (!dialogueSyncMountRef.current) { dialogueSyncMountRef.current = true; return; }
-        if (isTyping || !lastAssistantContent) return;
+        if (isTyping) return;
+        if (!lastAssistantContent) { setDialogueQueue([]); setDialogueBatch([]); setCurrentText(''); setDisplayedText(''); return; }
         const { rest } = extractObservation(lastAssistantContent, { lenient: observeEnabled, custom: char.dateObserve?.custom });
         const items = parseDialogue(rest, 'normal');
         if (items.length === 0) return;
@@ -718,6 +719,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     };
 
     const buildCurrentState = (): DateState => ({
+        sourceMessageId: [...messages].reverse().find(m => m.role === 'assistant')?.id,
         dialogueQueue,
         dialogueBatch,
         currentText,

@@ -1,3 +1,6 @@
+import { readDeletionLedger } from '../dateHistoryDeletion';
+import { sanitizeDeletedRow } from '../dateDeletionLedger';
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * Memory Palace — Supabase pgvector 远程向量存储
  *
@@ -204,7 +207,7 @@ function vectorToWireArray(vec: number[] | Float32Array | Uint8Array): number[] 
     return vec;
 }
 
-export async function upsertVector(
+async function upsertVectorImpl(
     config: RemoteVectorConfig,
     memoryId: string,
     charId: string,
@@ -213,6 +216,8 @@ export async function upsertVector(
     dimensions: number,
     model?: string,
 ): Promise<boolean> {
+    const ledger = await readDeletionLedger(charId);
+    if (ledger && JSON.stringify(sanitizeDeletedRow('memory_nodes', node, [ledger])) !== JSON.stringify(node)) return false;
     try {
         const vecArray = vectorToWireArray(vector);
         const body = {
@@ -257,7 +262,7 @@ export async function upsertVector(
 /**
  * 批量插入向量
  */
-export async function upsertVectorBatch(
+async function upsertVectorBatchImpl(
     config: RemoteVectorConfig,
     items: {
         memoryId: string;
@@ -268,6 +273,12 @@ export async function upsertVectorBatch(
         model?: string;
     }[],
 ): Promise<boolean> {
+    const safeItems = [];
+    for (const item of items) {
+        const ledger = await readDeletionLedger(item.charId);
+        if (!ledger || JSON.stringify(sanitizeDeletedRow('memory_nodes', item.node, [ledger])) === JSON.stringify(item.node)) safeItems.push(item);
+    }
+    items = safeItems;
     if (items.length === 0) return true;
     try {
         const body = items.map(item => {
@@ -364,7 +375,8 @@ export async function searchVectors(
     }
 
     const data = await res.json();
-    return (data || []).map((row: any) => ({
+    const deletion = await readDeletionLedger(charId);
+    return (data || []).filter((row: any) => !deletion?.nodeIds.includes(row.memory_id) && (!deletion?.replacements.memory_nodes?.[row.memory_id] || row.content === deletion.replacements.memory_nodes[row.memory_id].content)).map((row: any) => ({
         memoryId: row.memory_id,
         content: row.content,
         similarity: row.similarity,
@@ -413,7 +425,8 @@ export async function fetchRemoteByRoom(
         });
         if (!res.ok) return [];
         const rows = await res.json();
-        return (rows || []).map((row: any): MemoryNode => ({
+        const deletion = await readDeletionLedger(charId);
+        return (rows || []).filter((row: any) => !deletion?.nodeIds.includes(row.memory_id) && (!deletion?.replacements.memory_nodes?.[row.memory_id] || row.content === deletion.replacements.memory_nodes[row.memory_id].content)).map((row: any): MemoryNode => ({
             id: row.memory_id,
             charId: row.char_id,
             content: row.content || '',
@@ -499,9 +512,9 @@ export async function bulkSetRoom(
 /**
  * 删除向量
  */
-export async function deleteVector(config: RemoteVectorConfig, memoryId: string): Promise<boolean> {
+export async function deleteVector(config: RemoteVectorConfig, memoryId: string, charId?: string): Promise<boolean> {
     try {
-        const res = await fetch(restUrl(config, `/memory_vectors?memory_id=eq.${encodeURIComponent(memoryId)}`), {
+        const res = await fetch(restUrl(config, `/memory_vectors?memory_id=eq.${encodeURIComponent(memoryId)}${charId ? `&char_id=eq.${encodeURIComponent(charId)}` : ''}`), {
             method: 'DELETE',
             headers: headers(config),
         });
@@ -562,3 +575,7 @@ export async function syncLocalToRemote(
 
     return { synced, failed };
 }
+
+export const upsertVector = (...args: Parameters<typeof upsertVectorImpl>): ReturnType<typeof upsertVectorImpl> => withMemoryMutation(() => upsertVectorImpl(...args));
+
+export const upsertVectorBatch = (...args: Parameters<typeof upsertVectorBatchImpl>): ReturnType<typeof upsertVectorBatchImpl> => withMemoryMutation(() => upsertVectorBatchImpl(...args));

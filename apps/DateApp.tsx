@@ -1,7 +1,10 @@
+import { withMemoryMutation } from '../utils/memoryMutationGate';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
+import { ActiveMsgClient } from '../utils/activeMsgClient';
+import { previewDateDeletion, deleteDateHistory, finishDateDeletionSync, readDeletionLedger, type DateDeleteSelection } from '../utils/dateHistoryDeletion';
 import { CharacterProfile, Message, DateState, AppID } from '../types';
 import { DatePrompts, ApiMessage } from '../utils/datePrompts';
 import { processNewMessagesWithAutoArchive } from '../utils/memoryPalace/autoArchive';
@@ -119,6 +122,10 @@ const DateApp: React.FC = () => {
     const [peekStatus, setPeekStatus] = useState<string>('');
     const [peekLoading, setPeekLoading] = useState(false);
     
+    const [historyManaging, setHistoryManaging] = useState(false);
+    const [selectedHistoryGroups, setSelectedHistoryGroups] = useState<Set<string>>(new Set());
+    const deletionInFlight = useRef(false);
+    const [deleteReport, setDeleteReport] = useState('');
     // History State
     const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
     // 目录式历史：默认全部折叠，点击组头部展开（按需渲染消息内容）
@@ -506,7 +513,7 @@ const DateApp: React.FC = () => {
     }, [memoryPalaceConfig, apiConfig, userProfile?.name, updateCharacter, addToast]);
 
     // --- Session API Logic ---
-    const handleSendMessage = async (text: string): Promise<string> => {
+    const handleSendMessage = async (text: string): Promise<string> => withMemoryMutation(async () => {
         if (!char) throw new Error("No char");
 
         // 重发场景：如果 DB 里最后一条已经是这条 user 消息（上一轮发送后 API 失败 / 网络抖动等），
@@ -559,9 +566,9 @@ const DateApp: React.FC = () => {
         runMemoryPalacePostHook(char);
 
         return content;
-    };
+   });
 
-    const handleReroll = async (): Promise<string> => {
+    const handleReroll = async (): Promise<string> => withMemoryMutation(async () => {
         if (!char || dateMessages.length === 0) throw new Error("No context");
 
         const lastMsg = dateMessages[dateMessages.length - 1];
@@ -633,25 +640,67 @@ const DateApp: React.FC = () => {
         runMemoryPalacePostHook(char);
 
         return content;
-    };
+   });
 
     // --- Editing & Deletion ---
     // 删改同样要打脏（对齐 Chat.tsx 的同款处理器）：云端快照里带着最近对话原文，
     // 不刷的话角色到点还会提起这条已经被删掉 / 已经改过的消息。
-    const handleDeleteMessage = async (msg: Message) => {
-        await DB.deleteMessage(msg.id);
-        setDateMessages(prev => prev.filter(m => m.id !== msg.id));
-        markDateTurnDirty();
-        trackEvent('删除一条见面消息');
+    const retryDeletionSync = async (targetId = char?.id): Promise<string[]> => {
+        if (!targetId) return [];
+        return finishDateDeletionSync(targetId, async () => {
+            const fresh = await DB.getCharacter(targetId);
+            if (!fresh) throw new Error('角色已不存在');
+            if (fresh.activeMsg2Config) {
+                await ActiveMsgClient.syncCharFirePacks([{
+                    char: fresh, config: fresh.activeMsg2Config, userProfile, groups, realtimeConfig,
+                }], true);
+            }
+        });
     };
-
-    const handleDeleteMessages = async (ids: number[]) => {
-        if (ids.length === 0) return;
-        await Promise.all(ids.map(id => DB.deleteMessage(id)));
-        setDateMessages(prev => prev.filter(m => !ids.includes(m.id)));
-        markDateTurnDirty();
-        addToast(`已删除 ${ids.length} 条记录`, 'success');
-        trackEvent('批量删除见面消息');
+    const deleteSelectedHistory = async (selection: DateDeleteSelection) => {
+        if (!char || deletionInFlight.current) return;
+        const targetId = char.id;
+        deletionInFlight.current = true;
+        setHistoryBusy(true);
+        let committed = false;
+        try {
+            const plan = await previewDateDeletion(targetId, selection);
+            if (!plan.messageIds.length) { addToast('没有可删除的见面消息', 'info'); return; }
+            const rebuilt = plan.updates.memory_nodes?.length || 0;
+            if (!window.confirm(`删除 ${plan.messageIds.length} 条见面消息？\n关联记忆：删除 ${plan.removedNodes.length} 条、重建 ${rebuilt} 条。\n将清理本地向量、BM25、关联事件盒和可溯源归档，并尝试同步远程向量与云端快照。\n${plan.warnings.join('\n')}\n收藏快照保留。操作不可撤销。`)) return;
+            const result = await deleteDateHistory(plan, selection);
+            committed = true;
+            setHistoryMessages(prev => prev.filter(m => !result.messageIds.includes(m.id)));
+            setDateMessages(prev => prev.filter(m => !result.messageIds.includes(m.id)));
+            setSelectedHistoryGroups(new Set());
+            setHistoryMenuMsg(null);
+            const fresh = await DB.getCharacter(targetId);
+            if (fresh) updateCharacter(targetId, { memories: fresh.memories, savedDateState: fresh.savedDateState });
+            const all = await DB.getRecentMessagesByCharIdAndSource(targetId, 'date', Number.MAX_SAFE_INTEGER);
+            setHistoryMessages(all);
+            setHistoryReachedEnd(true);
+            const syncErrors = await retryDeletionSync(targetId);
+            const report = [`本地已删除 ${result.messageIds.length} 条消息；清理 ${result.removedNodes.length} 条记忆。`, ...result.warnings, ...syncErrors];
+            setDeleteReport(report.join('\n'));
+            window.alert(report.join('\n'));
+            addToast(syncErrors.length || result.warnings.length ? '本地删除完成，请查看保留项与同步结果' : '删除及同步完成', 'info');
+        } catch (e) {
+            const text = `${committed ? '本地已删除，后续处理未完成：' : '删除未执行：'}${e instanceof Error ? e.message : String(e)}`;
+            setDeleteReport(text); window.alert(text);
+        } finally { deletionInFlight.current = false; setHistoryBusy(false); }
+    };
+    const handleDeleteMessage = (msg: Message) => deleteSelectedHistory({ messageIds: [msg.id] });
+    const handleDeleteMessages = (ids: number[]) => deleteSelectedHistory({ messageIds: ids });
+    const beginHistoryManagement = async () => {
+        if (!char || historyBusy) return;
+        if (historyManaging) { setHistoryManaging(false); setSelectedHistoryGroups(new Set()); return; }
+        setHistoryBusy(true);
+        try {
+            // Full index scan before selecting groups: a paginated tail is not a whole encounter.
+            const all = await DB.getRecentMessagesByCharIdAndSource(char.id, 'date', Number.MAX_SAFE_INTEGER);
+            setHistoryMessages(all); setHistoryReachedEnd(true); setHistoryManaging(true);
+        } catch (e) { addToast('完整记录读取失败，请重试', 'error'); }
+        finally { setHistoryBusy(false); }
     };
 
     const confirmEditMessage = async () => {
@@ -741,14 +790,7 @@ const DateApp: React.FC = () => {
     // （历史长按定时器已拆除：iOS 原生文字选区优先，消息管理改走每条消息的「···」按钮；
     //   桌面保留右键菜单作为第二入口。）
 
-    const handleHistoryDelete = async (msg: Message) => {
-        await DB.deleteMessage(msg.id);
-        setHistoryMessages(prev => prev.filter(m => m.id !== msg.id));
-        markDateTurnDirty();
-        setHistoryMenuMsg(null);
-        addToast('已删除', 'success');
-        trackEvent('删除见面记录里的一条消息');
-    };
+    const handleHistoryDelete = (msg: Message) => deleteSelectedHistory({ messageIds: [msg.id] });
 
     const handleHistoryEditOpen = (msg: Message) => {
         setHistoryEditMsg(msg);
@@ -795,10 +837,13 @@ const DateApp: React.FC = () => {
         // 见面历史按 source=date 独立读取，不受聊天侧记忆宫殿高水位影响。
         const msgs = await DB.getRecentMessagesByCharIdAndSource(c.id, 'date', DATE_HISTORY_MESSAGE_LIMIT);
         setHistoryMessages(msgs);
+        setHistoryManaging(false); setSelectedHistoryGroups(new Set()); setDeleteReport('');
         setHistoryView('encounter');
         setHistorySortOrder('newest');
         setHistoryLoadLimit(DATE_HISTORY_MESSAGE_LIMIT);
         setHistoryReachedEnd(msgs.length < DATE_HISTORY_MESSAGE_LIMIT);
+        const ledger = await readDeletionLedger(c.id);
+        if (ledger) setDeleteReport([...(ledger.warnings || []), ...(ledger.syncErrors || []), ...(ledger.cloudPending ? ['云端快照尚未确认清理，请重试删除同步。'] : []), ...(ledger.remotePending.length ? [`远程向量待清理 ${ledger.remotePending.length} 条。`] : [])].join('\n'));
         setMode('history');
         trackEvent('打开见面记录');
     };
@@ -1088,11 +1133,11 @@ const DateApp: React.FC = () => {
                     <div className="px-4 pb-3 flex items-center gap-2">
                         <div className="flex-1 p-1 rounded-xl bg-slate-100 flex">
                             <button
-                                onClick={() => setHistoryView('encounter')}
+                                onClick={() => { setHistoryView('encounter'); setSelectedHistoryGroups(new Set()); }}
                                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${historyView === 'encounter' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}
                             >按次</button>
                             <button
-                                onClick={() => setHistoryView('date')}
+                                onClick={() => { setHistoryView('date'); setSelectedHistoryGroups(new Set()); }}
                                 className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${historyView === 'date' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400'}`}
                             >按日期</button>
                         </div>
@@ -1105,6 +1150,21 @@ const DateApp: React.FC = () => {
                         </button>
                     </div>
                 </div>
+                <div className="px-4 py-2 flex flex-wrap items-center gap-3 text-xs">
+                    <button disabled={historyBusy} onClick={beginHistoryManagement} className="px-3 py-2 rounded-lg bg-white border">{historyManaging ? '退出管理' : '多选管理'}</button>
+                    {historyManaging && <>
+                        <button disabled={historyBusy} onClick={() => setSelectedHistoryGroups(new Set(historyGroups.map(g => g.id)))}>全选</button>
+                        <button disabled={historyBusy} onClick={() => setSelectedHistoryGroups(new Set())}>清空选择</button>
+                        <button className="text-red-600" disabled={historyBusy || !selectedHistoryGroups.size} onClick={() => void deleteSelectedHistory({ view: historyView, anchorIds: historyGroups.filter(g => selectedHistoryGroups.has(g.id)).map(g => g.messages[0].id) })}>删除选中 {selectedHistoryGroups.size} 组</button>
+                    </>}
+                    <button disabled={historyBusy} onClick={async () => {
+                        setHistoryBusy(true);
+                        try { const errors = await retryDeletionSync(); setDeleteReport(errors.length ? errors.join('\n') : '待处理同步已完成。旧版来源不明的记忆仍需人工核查。'); }
+                        catch (e) { setDeleteReport(`同步失败：${String(e)}`); }
+                        finally { setHistoryBusy(false); }
+                    }}>重试删除同步</button>
+                </div>
+                {deleteReport && <div role="status" className="mx-4 p-3 rounded-lg bg-amber-50 text-amber-900 text-xs whitespace-pre-wrap max-h-40 overflow-auto">{deleteReport}</div>}
                 <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-20">
                     {historyGroups.length === 0 ? <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-2"><BookOpen size={48} className="opacity-50" /><span className="text-xs">暂无见面记录</span></div> : historyGroups.map((group) => {
                         const expanded = expandedGroupIds.has(group.id);
@@ -1117,6 +1177,7 @@ const DateApp: React.FC = () => {
                                 className={`bg-slate-50 px-4 py-3 flex gap-3 justify-between items-center cursor-pointer select-none active:bg-slate-100 ${expanded ? 'border-b border-slate-100' : ''}`}
                                 onClick={() => toggleHistoryGroup(group.id)}
                             >
+                                {historyManaging && <input type="checkbox" aria-label={`选择${groupTitle}`} checked={selectedHistoryGroups.has(group.id)} onClick={e => e.stopPropagation()} onChange={() => setSelectedHistoryGroups(prev => { const next = new Set(prev); if (next.has(group.id)) next.delete(group.id); else next.add(group.id); return next; })} />}
                                 <div className="min-w-0 flex-1">
                                     <div className="text-xs font-bold text-slate-600 tracking-wide truncate flex items-center gap-1.5">
                                         {groupTitle && historyView === 'encounter' && group.title && <span title="自定义标题">✎</span>}
@@ -1131,6 +1192,7 @@ const DateApp: React.FC = () => {
                                     </div>
                                 </div>
                                 <div className="shrink-0 flex items-center gap-2">
+                                    <button disabled={historyBusy} className="text-[11px] text-red-500" onClick={event => { event.stopPropagation(); void deleteSelectedHistory({ view: historyView, anchorIds: [group.messages[0].id] }); }}>删除</button>
                                     {historyView === 'encounter' && group.hasOpeningAnchor && (
                                         <button
                                             onClick={(event) => { event.stopPropagation(); handleRenameGroupOpen(group); }}

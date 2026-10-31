@@ -34,6 +34,7 @@ export const DEFAULT_SHARD_LIMITS: ShardLimits = {
 
 /** 向量 bin 的索引项：每条向量在 memory_vectors.bin 里的位置 + 重建所需元数据 */
 export interface VectorIndexEntry {
+    deletionRevision?: number;
     memoryId: string;
     charId: string;
     dimensions: number;
@@ -375,7 +376,7 @@ export async function assembleV2Backup(
             if (vector.byteLength !== e.byteLength) {
                 throw new Error(`损坏的备份包：向量 ${e.memoryId} 切片长度异常，已中止导入（数据未改动）。`);
             }
-            return { memoryId: e.memoryId, charId: e.charId, dimensions: e.dimensions, model: e.model, vector };
+            return { memoryId: e.memoryId, charId: e.charId, dimensions: e.dimensions, model: e.model, deletionRevision: e.deletionRevision, vector };
         });
         data.memoryVectors = vectors;
         options.onShardProgress?.('memoryVectors', fields.length, fields.length + 1);

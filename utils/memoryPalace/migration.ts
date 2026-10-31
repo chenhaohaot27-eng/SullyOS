@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * Memory Palace — 旧记忆迁移工具 (Migration)
  *
@@ -318,7 +319,7 @@ export function getAvailableChunks(memories: MemoryFragment[]): { key: string; c
     return chunks;
 }
 
-export async function migrateOldMemories(
+async function migrateOldMemoriesImpl(
     charId: string,
     charName: string,
     memories: MemoryFragment[],
@@ -623,3 +624,5 @@ function buildLogSnippets(sortedLogs: MemoryFragment[]): string[] {
     }
     return snippets;
 }
+
+export const migrateOldMemories = (...args: Parameters<typeof migrateOldMemoriesImpl>): ReturnType<typeof migrateOldMemoriesImpl> => withMemoryMutation(() => migrateOldMemoriesImpl(...args));

@@ -1,3 +1,5 @@
+import { withMemoryMutation } from './memoryMutationGate';
+import { DATE_DELETION_STORE, guardedPut, sanitizeDeletedRow } from './dateDeletionLedger';
 
 
 
@@ -63,7 +65,7 @@ const DB_NAME = 'AetherOS_Data';
 // v79：留音海螺片段收藏——sourceMessageId 唯一索引降级为非唯一（同一条 Message 可存多条片段收藏：
 //      旧整条 mfav-<msgId> + 新片段 mfav-<msgId>-ft/fv-<hash>）；幂等职责完全移交 id。旧数据零迁移。
 // v78：「和 ta 一起听」正式会话 music_listen_sessions store（charId 非唯一索引；id 由 listenSession.ts 生成）。
-const DB_VERSION = 79;
+const DB_VERSION = 80;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -254,6 +256,7 @@ export const openDB = (): Promise<IDBDatabase> => {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(DATE_DELETION_STORE)) db.createObjectStore(DATE_DELETION_STORE, { keyPath: 'charId' });
 
       const createStore = (name: string, options?: IDBObjectStoreParameters) => {
           if (!db.objectStoreNames.contains(name)) {
@@ -700,8 +703,8 @@ export const DB = {
     const db = await openDB();
     // 等事务真正提交再 resolve —— 否则调用方 await 后立刻重读 DB 会拿到旧值 (情绪 buff 落库竞态根因).
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_CHARACTERS, 'readwrite');
-      transaction.objectStore(STORE_CHARACTERS).put(character);
+      const transaction = db.transaction([STORE_CHARACTERS, DATE_DELETION_STORE], 'readwrite');
+      guardedPut(transaction, STORE_CHARACTERS, character);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('saveCharacter aborted'));
@@ -710,7 +713,7 @@ export const DB = {
 
   deleteCharacter: async (id: string): Promise<void> => {
     const db = await openDB();
-    const transaction = db.transaction(STORE_CHARACTERS, 'readwrite');
+    const transaction = db.transaction([STORE_CHARACTERS, DATE_DELETION_STORE], 'readwrite');
     transaction.objectStore(STORE_CHARACTERS).delete(id);
   },
 
@@ -719,7 +722,7 @@ export const DB = {
     if (ids.length === 0) return;
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_CHARACTERS, 'readwrite');
+      const transaction = db.transaction([STORE_CHARACTERS, DATE_DELETION_STORE], 'readwrite');
       const store = transaction.objectStore(STORE_CHARACTERS);
       for (const id of ids) store.delete(id);
       transaction.oncomplete = () => resolve();
@@ -3326,6 +3329,7 @@ export const DB = {
       const foodBackup = await prepareFoodBackupForExport(foodCatalogRecords, foodOrderRecords);
 
       return {
+          dateDeletionLedger: await getAllFromStore(DATE_DELETION_STORE),
           characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, messageFavorites, musicListenSessions, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
@@ -3387,9 +3391,51 @@ export const DB = {
               itemTotal?: number;
           }) => void;
       } = {}
-  ): Promise<void> => {
+  ): Promise<void> => withMemoryMutation(async () => {
       const db = await openDB();
       
+      const deletionLedgers: any[] = await new Promise((resolve, reject) => {
+          const req = db.transaction(DATE_DELETION_STORE).objectStore(DATE_DELETION_STORE).getAll();
+          req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+      });
+      for (const incoming of data.dateDeletionLedger || []) {
+          const old = deletionLedgers.find(l => l.charId === incoming.charId);
+          if (old) {
+              old.cloudPending = old.cloudPending || incoming.cloudPending;
+              old.revision = Math.max(old.revision, incoming.revision);
+              old.invalidDateStateBefore = Math.max(old.invalidDateStateBefore || 0, incoming.invalidDateStateBefore || 0);
+              old.unresolvedNodeIds = [...new Set([...(old.unresolvedNodeIds || []), ...(incoming.unresolvedNodeIds || [])])];
+              old.messageIds = [...new Set([...old.messageIds, ...incoming.messageIds])];
+              old.nodeIds = [...new Set([...old.nodeIds, ...incoming.nodeIds])];
+              old.remotePending = [...new Set([...old.remotePending, ...incoming.remotePending])];
+              for (const [store, values] of Object.entries(incoming.replacements)) {
+                  const entries = old.replacements[store] ||= {};
+                  for (const [id, value] of Object.entries(values)) {
+                      if (value === null || !(id in entries) || (value?.deletionRevision || 0) > (entries[id]?.deletionRevision || 0)) entries[id] = value;
+                  }
+              }
+          } else deletionLedgers.push(incoming);
+      }
+      const restoreFields: Record<string, string> = {
+          characters: 'characters', messages: 'messages', memoryNodes: 'memory_nodes',
+          memoryVectors: 'memory_vectors', memoryLinks: 'memory_links', eventBoxes: 'event_boxes',
+          roomPlates: 'room_plates', digestReports: 'digest_reports',
+      };
+      for (const [field, store] of Object.entries(restoreFields)) {
+          const items = (data as any)[field];
+          if (!Array.isArray(items)) continue;
+          for (const item of items) {
+              const safe = sanitizeDeletedRow(store, item, deletionLedgers);
+              if (JSON.stringify(safe) !== JSON.stringify(item)) {
+                  throw new Error('此备份含已删除的见面内容或旧总结，本次恢复已在写入前停止。请使用删除后创建的备份。');
+              }
+          }
+      }
+      if (data.dateDeletionLedger?.length) await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction(DATE_DELETION_STORE, 'readwrite');
+          deletionLedgers.forEach(l => tx.objectStore(DATE_DELETION_STORE).put(l));
+          tx.oncomplete = () => resolve(); tx.onerror = tx.onabort = () => reject(tx.error);
+      });
       const availableStores = [
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
           STORE_ASSETS, STORE_GALLERY, STORE_MESSAGE_FAVORITES, STORE_MUSIC_LISTEN_SESSIONS, STORE_USER, STORE_DIARIES,
@@ -4076,5 +4122,5 @@ export const DB = {
           data.bankState = undefined as any;
           data.bankDollhouse = undefined as any;
       }, (data.bankState ? 1 : 0) + (data.bankDollhouse ? 1 : 0));
-  }
+  }, true)
 };
