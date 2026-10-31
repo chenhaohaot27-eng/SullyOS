@@ -133,9 +133,25 @@ async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunA
             referenceImages: legacyReferenceImages,
         });
     } catch (e) {
-        // openai-images 等不支持参考图的接口：服务层已处理跳过逻辑，
-        // 这里仅需捕获其他错误
-        return fail(errMessage(e), 'generate');
+        // 不支持参考图的接口（openai-images 等）：去掉参考图与角色身份后重试一次，
+        // 保证仍然只成功出一张图（既有测试锁定：拒绝一次 → 无参考图重试成功一次）。
+        // 其他错误：服务层已处理跳过逻辑，这里直接落失败原因。
+        const referenceBlocked = e instanceof ImageGenerationError && e.code === 'REFERENCE_NOT_SUPPORTED';
+        const usedReferences = !!characterId || legacyReferenceImages.length > 0;
+        if (referenceBlocked && usedReferences) {
+            stageLog('接口不支持参考图，去掉参考图重试');
+            try {
+                result = await generateImage({
+                    prompt: intent.prompt,
+                    style: intent.style || undefined,
+                    referenceImages: [],
+                });
+            } catch (e2) {
+                return fail(errMessage(e2), 'generate');
+            }
+        } else {
+            return fail(errMessage(e), 'generate');
+        }
     }
 
     try {

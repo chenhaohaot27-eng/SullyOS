@@ -55,7 +55,7 @@ import { resolveEmojiByModelReference } from './emojiResolver';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
 import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceHistory';
-import { extractChatPhotoIntent, isChatPhotoTagEnabled } from './chatPhotoIntent';
+import { extractChatPhotoIntent, extractVerbalPhotoCommitment, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
 import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
@@ -807,7 +807,7 @@ export async function applyAssistantPostProcessing(
                 // 混进 <原文>/<译文> 里的表情标签剥出来，紧跟这条双语气泡之后发
                 const inlineEmojis: string[] = [];
                 const stripInlineEmoji = (s: string): string =>
-                    s.replace(/\[\[SEND_EMOJI:\s*(.*?)\]\]/g, (_m, n) => { inlineEmojis.push(String(n).trim()); return ''; });
+                    s.replace(/\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g, (_m, n) => { inlineEmojis.push(String(n).trim()); return ''; });
                 const originalText = ChatParser.sanitize(stripInlineEmoji(tagMatch[1]).trim());
                 const translatedText = ChatParser.sanitize(stripInlineEmoji(tagMatch[2]).trim());
                 if (originalText || translatedText) {
@@ -2204,6 +2204,30 @@ export async function applyAssistantPostProcessing(
             onToast: addToast,
             inheritMeta: mcdInheritMeta,
         });
+    } else if (isChatPhotoTagEnabled() && chatPhotoExtraction.tagCount === 0) {
+        // 模型本轮完全没用 SEND_PHOTO 协议、但正文里出现明确的口头视觉分享承诺
+        // （「我拍给你看」「拍了张照片给你」「给你看看这个」…）：尽量落实成真实照片，
+        // 而不是停留在口头描述。保守门（与提示词侧"承诺必须落实"互补）：
+        //   - 模型已尝试输出 SEND_PHOTO 但解析失败的回合不走兜底（标签降级语义保持不变，
+        //     猜错画面的代价高于不发）；
+        //   - 远期/条件/疑问语义不触发（extractVerbalPhotoCommitment 内部排除）；
+        //   - 最近上下文里角色刚发过图就不再自动补拍（避免连续/重复发图）；
+        //   - 一轮一次 + 同意图 90s 去重由 executeChatPhotoIntent 的 claim 保证。
+        const verbalIntent = extractVerbalPhotoCommitment(aiContent);
+        const recentAssistantPhoto = [...contextMsgs]
+            .slice(-12)
+            .some((m: Message) => m.role === 'assistant' && m.type === 'image');
+        if (verbalIntent && !recentAssistantPhoto) {
+            console.info('[ChatPhoto] 检测到口头视觉分享承诺，落实为真实照片', { charId: char.id });
+            await executeChatPhotoIntent({
+                char,
+                intent: verbalIntent,
+                persistMessage,
+                refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
+                onToast: addToast,
+                inheritMeta: mcdInheritMeta,
+            });
+        }
     }
 
     // ─── Step 7.5: 礼物回应 GIFT_REACT（Phase 3） ───

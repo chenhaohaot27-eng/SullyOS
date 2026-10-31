@@ -541,7 +541,10 @@ export const ChatParser = {
 
     // Split text into bubbles (text and emojis)
     splitResponse: (content: string): { type: 'text' | 'emoji', content: string }[] => {
-        const emojiPattern = /\[\[SEND_EMOJI:\s*(.*?)\]\]/g;
+        // 容全角冒号：中文模型常输出 [[SEND_EMOJI：表情名]]（与 utils/sanitize.ts 的
+        // replaceSendEmoji / SEND_PHOTO 标签同一高频变体）。此前只认半角冒号会让整个
+        // 标签漏进气泡变成文字，表情包图片根本不发送——这是「角色发表情包只有文字」的直接根因。
+        const emojiPattern = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;
         const parts: {type: 'text' | 'emoji', content: string}[] = [];
         let lastIndex = 0;
         let emojiMatch;

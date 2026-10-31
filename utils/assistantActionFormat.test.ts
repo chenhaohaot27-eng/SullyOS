@@ -40,4 +40,28 @@ describe('normalizeAssistantActionFormatting', () => {
         expect(normalize('她发了一个开心表情')).toBe('她发了一个开心表情');
         expect(normalize('我看了[那本书]')).toBe('我看了[那本书]');
     });
+
+    it('独立成行的自然语言表情指令转成 canonical 标签（修复只发文字不发图）', () => {
+        // ① 带冒号
+        expect(normalize('发个表情包：委屈')).toBe('[[SEND_EMOJI: 委屈]]');
+        expect(normalize('来个表情：猫猫')).toBe('[[SEND_EMOJI: 猫猫]]');
+        expect(normalize('（发个表情包：委屈）')).toBe('[[SEND_EMOJI: 委屈]]');
+        // ② 名字在前
+        expect(normalize('给你丢个猫猫表情')).toBe('[[SEND_EMOJI: 猫猫]]');
+        expect(normalize('发个猫猫表情包')).toBe('[[SEND_EMOJI: 猫猫]]');
+        expect(normalize('甩张委屈表情')).toBe('[[SEND_EMOJI: 委屈]]');
+        // ③ 用某表情
+        expect(normalize('用那个委屈的表情')).toBe('[[SEND_EMOJI: 委屈]]');
+        expect(normalize('（用这个狗狗的表情）')).toBe('[[SEND_EMOJI: 狗狗]]');
+        // 前后正文行不受影响，只转命中的那一行
+        expect(normalize('哼，不理你了\n发个表情包：委屈\n睡觉去了'))
+            .toBe('哼，不理你了\n[[SEND_EMOJI: 委屈]]\n睡觉去了');
+    });
+
+    it('行内叙述与含"表情"字样的普通文本不误判（宁可不发也不误发）', () => {
+        expect(normalize('这个表情包太好笑了')).toBe('这个表情包太好笑了');
+        expect(normalize('我给你发个表情包')).toBe('我给你发个表情包'); // 无可提取名字，保持文本
+        expect(normalize('我觉得你刚才那个表情很可爱')).toBe('我觉得你刚才那个表情很可爱');
+        expect(normalize('我今天买了个新表情包周边')).toBe('我今天买了个新表情包周边');
+    });
 });
