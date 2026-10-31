@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * Memory Palace — 认知消化 (Cognitive Digestion)
  *
@@ -651,6 +652,7 @@ async function executeActions(
                             lastAccessedAt: Date.now(),
                             accessCount: 0,
                             sourceId: node.id,
+                            sourceMessageIds: node.sourceMessageIds,
                             origin: 'digestion',
                         };
                         await MemoryNodeDB.save(confuseMemory);
@@ -684,6 +686,7 @@ async function executeActions(
                             lastAccessedAt: Date.now(),
                             accessCount: 0,
                             sourceId: episode.id,
+                            sourceMessageIds: episode.sourceMessageIds,
                             origin: 'digestion',
                         };
                         await MemoryNodeDB.save(worryMemory);
@@ -839,7 +842,7 @@ async function saveDigestReport(
     }
 }
 
-export async function runCognitiveDigestion(
+async function runCognitiveDigestionImpl(
     charId: string,
     charName: string,
     charPersona: string,
@@ -979,7 +982,7 @@ const VALID_STYLES: PersonalityStyle[] = ['emotional', 'narrative', 'imagery', '
  *
  * @returns 推断出的 PersonalityStyle，失败时返回 'emotional' 作为默认值
  */
-export async function detectPersonalityStyle(
+async function detectPersonalityStyleImpl(
     charId: string,
     charName: string,
     charPersona: string,
@@ -1148,3 +1151,7 @@ ${memoryContext}
     console.warn(`🎭 [PersonalityDetect] ${charName} LLM 未返回有效 JSON（回复中找不到 {...} 片段）`);
     throw new Error('性格检测: LLM 未返回有效 JSON');
 }
+
+export const runCognitiveDigestion = (...args: Parameters<typeof runCognitiveDigestionImpl>): ReturnType<typeof runCognitiveDigestionImpl> => withMemoryMutation(() => runCognitiveDigestionImpl(...args));
+
+export const detectPersonalityStyle = (...args: Parameters<typeof detectPersonalityStyleImpl>): ReturnType<typeof detectPersonalityStyleImpl> => withMemoryMutation(() => detectPersonalityStyleImpl(...args));

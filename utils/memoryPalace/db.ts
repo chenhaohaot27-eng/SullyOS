@@ -5,6 +5,7 @@
  */
 
 import { openDB } from '../db';
+import { DATE_DELETION_STORE, guardedPut } from '../dateDeletionLedger';
 import type {
     MemoryNode, MemoryVector, MemoryLink, MemoryBatch,
     TopicBox, Anticipation, MemoryRoom, BoxStatus, AnticipationStatus,
@@ -47,8 +48,8 @@ async function getAllByIndex<T>(
 async function put<T>(storeName: string, data: T): Promise<void> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-        const tx = db.transaction(storeName, 'readwrite');
-        tx.objectStore(storeName).put(data);
+        const tx = db.transaction([storeName, DATE_DELETION_STORE], 'readwrite');
+        guardedPut(tx, storeName, data);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
     });
@@ -69,7 +70,7 @@ async function getByKey<T>(storeName: string, key: IDBValidKey): Promise<T | und
 async function deleteByKey(storeName: string, key: IDBValidKey): Promise<void> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-        const tx = db.transaction(storeName, 'readwrite');
+        const tx = db.transaction([storeName, DATE_DELETION_STORE], 'readwrite');
         tx.objectStore(storeName).delete(key);
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
@@ -128,8 +129,8 @@ export const MemoryNodeDB = {
         }
         // BM25 倒排索引：内部按 contentSig 判断是否需要重新 tokenize，
         // touchAccess 之类只改 metadata 的写入会被自动跳过。
-        bm25Index.onNodeSaved(node);
-        syncNodeMetadataToRemote(node);
+        bm25Index.onNodeSaved(verify);
+        syncNodeMetadataToRemote(verify);
     },
 
     getById: (id: string) => getByKey<MemoryNode>(STORE_MEMORY_NODES, id),
@@ -162,15 +163,15 @@ export const MemoryNodeDB = {
     saveMany: async (nodes: MemoryNode[]): Promise<void> => {
         const db = await openDB();
         await new Promise<void>((resolve, reject) => {
-            const tx = db.transaction(STORE_MEMORY_NODES, 'readwrite');
+            const tx = db.transaction([STORE_MEMORY_NODES, DATE_DELETION_STORE], 'readwrite');
             const store = tx.objectStore(STORE_MEMORY_NODES);
             for (const node of nodes) {
-                store.put(node);
+                guardedPut(tx, STORE_MEMORY_NODES, node);
             }
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
         });
-        bm25Index.onNodesSaved(nodes);
+        bm25Index.dropAll();
     },
 
     /** 更新访问记录（检索后调用） */
@@ -215,7 +216,7 @@ export function ensureFloat32(vec: number[] | Float32Array | Uint8Array): Float3
  * dimensions 用实际 f32 长度，钉死 byteLength === dimensions*4 不变量（导入端据此校验）。
  */
 export function encodeVectorsForBackup(
-    rawVectors: Array<{ memoryId?: string; charId?: string; dimensions?: number; model?: string; vector?: unknown }>,
+    rawVectors: Array<{ deletionRevision?: number; memoryId?: string; charId?: string; dimensions?: number; model?: string; vector?: unknown }>,
 ): { bin: Uint8Array; index: VectorBackupIndexEntry[] } {
     const index: VectorBackupIndexEntry[] = [];
     const parts: Uint8Array[] = [];
@@ -226,6 +227,7 @@ export function encodeVectorsForBackup(
         const bytes = new Uint8Array(f32.buffer, f32.byteOffset, f32.byteLength);
         parts.push(bytes);
         index.push({
+            deletionRevision: v.deletionRevision,
             memoryId: v.memoryId,
             charId: (v.charId ?? '') as string,
             dimensions: f32.length,
@@ -242,6 +244,7 @@ export function encodeVectorsForBackup(
 }
 
 type RawBackupVector = {
+    deletionRevision?: number;
     memoryId?: string;
     charId?: string;
     dimensions?: number;
@@ -285,6 +288,7 @@ export async function encodeVectorsForBackupChunked(
                 || expected.memoryId !== entry.memoryId
                 || expected.charId !== entry.charId
                 || expected.dimensions !== entry.dimensions
+                || expected.deletionRevision !== entry.deletionRevision
                 || expected.model !== entry.model
                 || expected.byteOffset !== byteCursor + entry.byteOffset
                 || expected.byteLength !== entry.byteLength) {
@@ -354,7 +358,7 @@ export const MemoryVectorDB = {
             (async () => {
                 try {
                     const db = await openDB();
-                    const tx = db.transaction(STORE_MEMORY_VECTORS, 'readwrite');
+                    const tx = db.transaction([STORE_MEMORY_VECTORS, DATE_DELETION_STORE], 'readwrite');
                     const store = tx.objectStore(STORE_MEMORY_VECTORS);
                     const idx = store.index('charId');
                     const req = idx.openCursor(IDBKeyRange.only(charId));
@@ -402,7 +406,7 @@ export const MemoryVectorDB = {
             (async () => {
                 try {
                     const db = await openDB();
-                    const tx = db.transaction(STORE_MEMORY_VECTORS, 'readwrite');
+                    const tx = db.transaction([STORE_MEMORY_VECTORS, DATE_DELETION_STORE], 'readwrite');
                     const store = tx.objectStore(STORE_MEMORY_VECTORS);
                     for (const m of matched) {
                         const req = store.openCursor(IDBKeyRange.only(m.memoryId));
@@ -434,10 +438,10 @@ export const MemoryVectorDB = {
     saveMany: async (vectors: MemoryVector[]): Promise<void> => {
         const db = await openDB();
         return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_MEMORY_VECTORS, 'readwrite');
+            const tx = db.transaction([STORE_MEMORY_VECTORS, DATE_DELETION_STORE], 'readwrite');
             const store = tx.objectStore(STORE_MEMORY_VECTORS);
             for (const vec of vectors) {
-                store.put({ ...vec, vector: vecForStorage(vec.vector) });
+                guardedPut(tx, STORE_MEMORY_VECTORS, { ...vec, vector: vecForStorage(vec.vector) });
             }
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
@@ -473,7 +477,7 @@ export const MemoryVectorDB = {
             }>(async (resolve, reject) => {
                 try {
                     const db = await openDB();
-                    const tx = db.transaction(STORE_MEMORY_VECTORS, 'readwrite');
+                    const tx = db.transaction([STORE_MEMORY_VECTORS, DATE_DELETION_STORE], 'readwrite');
                     const store = tx.objectStore(STORE_MEMORY_VECTORS);
                     const range = lastKey !== null
                         ? IDBKeyRange.lowerBound(lastKey, true)  // exclusive 跳过已扫的
@@ -553,10 +557,10 @@ export const MemoryLinkDB = {
     saveMany: async (links: MemoryLink[]): Promise<void> => {
         const db = await openDB();
         return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_MEMORY_LINKS, 'readwrite');
+            const tx = db.transaction([STORE_MEMORY_LINKS, DATE_DELETION_STORE], 'readwrite');
             const store = tx.objectStore(STORE_MEMORY_LINKS);
             for (const link of links) {
-                store.put(link);
+                guardedPut(tx, STORE_MEMORY_LINKS, link);
             }
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
@@ -612,9 +616,9 @@ export const EventBoxDB = {
         if (boxes.length === 0) return;
         const db = await openDB();
         return new Promise((resolve, reject) => {
-            const tx = db.transaction(STORE_EVENT_BOXES, 'readwrite');
+            const tx = db.transaction([STORE_EVENT_BOXES, DATE_DELETION_STORE], 'readwrite');
             const store = tx.objectStore(STORE_EVENT_BOXES);
-            for (const box of boxes) store.put(box);
+            for (const box of boxes) guardedPut(tx, STORE_EVENT_BOXES, box);
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
         });

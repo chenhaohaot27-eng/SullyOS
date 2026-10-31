@@ -78,7 +78,7 @@ function buildConversationText(messages: Message[], charName: string, userLabel:
             if (!ts || ts <= 0) return body;
             const d = new Date(ts);
             const stamp = `[${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}]`;
-            return `${stamp} ${body}`;
+            return `[消息ID:${m.id}] ${stamp} ${body}`;
         })
         .join('\n');
 }
@@ -89,7 +89,7 @@ const VALID_ROOMS: MemoryRoom[] = [
 ];
 
 /** 从消息缓冲区直接解析记忆节点（不依赖 TopicBox） */
-function parseMemoryNodesFromBuffer(
+export function parseMemoryNodesFromBuffer(
     parsed: any[], charId: string, messages: Message[], _batchLabel: string,
 ): MemoryNode[] {
     if (parsed.length === 0) return [];
@@ -153,6 +153,12 @@ function parseMemoryNodesFromBuffer(
                 pinnedUntil,
                 eventBoxId: null,  // 由 pipeline 在 binding 阶段设置
                 origin: 'extraction',
+                sourceMessageIds: Array.isArray(item.sourceMessageIds)
+                    && item.sourceMessageIds.length > 0
+                    && item.sourceMessageIds.every((id: unknown) => typeof id === 'number' && messages.some(m => m.id === id && m.charId === charId))
+                    ? [...new Set<number>(item.sourceMessageIds)] : messages.filter(m => m.charId === charId).map(m => m.id),
+                sourceScope: Array.isArray(item.sourceMessageIds) && item.sourceMessageIds.length > 0
+                    && item.sourceMessageIds.every((id: unknown) => typeof id === 'number' && messages.some(m => m.id === id && m.charId === charId)) ? 'message' : 'batch',
             };
         });
 }
@@ -396,6 +402,7 @@ ${buildRulesBlock(charName, userLabel)}${relatedToRule}${unpinRule}
 [
   {
     "content": "我视角的记忆...",
+    "sourceMessageIds": [],
     "room": "living_room",
     "importance": 5,
     "mood": "neutral",
@@ -407,6 +414,7 @@ ${buildRulesBlock(charName, userLabel)}${relatedToRule}${unpinRule}
   }
 ]
 
+sourceMessageIds 必填，只列实际支撑该条记忆的消息ID（行首提供），禁止编造或复制整批ID。每条记忆只表达一个事实。
 date 必填，按该记忆实际发生当天填（参考消息行首的时间戳）。
 pinDays 仅在需要置顶时才写，大多数记忆不需要。
 如果对话过于琐碎无值得记忆的内容，返回空数组 []。`;

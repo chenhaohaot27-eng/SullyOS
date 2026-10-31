@@ -637,6 +637,8 @@ export const buildFirePack = async (
     templateStub?: boolean;
   },
 ): Promise<AmsgFirePack> => {
+  const freshForDeletion = await DB.getCharacter(char.id);
+  if (freshForDeletion) char = { ...char, memories: freshForDeletion.memories };
   const templateStub = opts?.templateStub === true;
   const [{ recentMessages, lastUserMessageAt }, library, schedule] = await Promise.all([
     buildTimeGapHint(char.id),
@@ -2723,7 +2725,7 @@ export const ActiveMsgClient = {
     userProfile: UserProfile;
     groups: GroupProfile[];
     realtimeConfig?: RealtimeConfig;
-  }>): Promise<void> {
+  }>, strictDeletionSync = false): Promise<void> {
     if (!items.length) return;
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
@@ -2749,6 +2751,7 @@ export const ActiveMsgClient = {
     // 被拒的条目点名 warn 出来（该角色沿用上一份 fire_pack，其余角色不受影响）。
     const rejected = (response as { data?: { rejected?: Array<{ namespace: string; key: string; message?: string }> } })
       .data?.rejected;
+    if (strictDeletionSync && rejected?.length) throw new Error('云端拒绝部分更新，旧快照可能仍存在。');
     if (rejected && rejected.length > 0) {
       console.warn(
         `${ACTIVE_MSG_RUNTIME_HEADER} 云端状态部分条目被拒（对应角色沿用上一份 fire_pack）`,
@@ -2760,6 +2763,7 @@ export const ActiveMsgClient = {
     // log 一句留个排障线索就好。
     const skipped = (response as { data?: { skippedEntries?: Array<{ namespace: string; key: string }> } })
       .data?.skippedEntries;
+    if (strictDeletionSync && skipped?.length) throw new Error('云端存在更新的快照，未确认删除已同步，请重试。');
     if (skipped && skipped.length > 0) {
       console.log(
         `${ACTIVE_MSG_RUNTIME_HEADER} 云端已有更新的一份，这批旧条目被拦下（条件写保护）`,

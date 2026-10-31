@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * Memory Palace — 向量化 + 存储 + 去重
  *
@@ -26,7 +27,7 @@ const DEDUP_THRESHOLD = 0.9;
  * 迁移路径**不要**传 skipDedup —— 语义去重能挡掉 sub-batch 之间对同一件事的
  * 重复提取（比如"7-12 号某天回忆起 3 号那件事"）。
  */
-export async function vectorizeAndStore(
+async function vectorizeAndStoreImpl(
     nodes: MemoryNode[],
     embeddingConfig: EmbeddingConfig,
     remoteVectorConfig?: RemoteVectorConfig,
@@ -67,6 +68,7 @@ export async function vectorizeAndStore(
         await MemoryNodeDB.save(node);
 
         const memoryVector: MemoryVector = {
+            deletionRevision: node.deletionRevision,
             memoryId: node.id,
             charId: node.charId,
             vector,
@@ -102,7 +104,7 @@ export interface UpdateStoredMemoryNodeResult {
  * - 正文未变化：只保存 room/tags/importance/mood 等 metadata，不调用 Embedding API。
  * - 正文发生变化：沿用原 memoryId 重新生成并覆盖向量，避免“新文字 + 旧向量”。
  */
-export async function updateStoredMemoryNode(
+async function updateStoredMemoryNodeImpl(
     nodeId: string,
     updates: Partial<MemoryNode>,
     embeddingConfig?: EmbeddingConfig,
@@ -215,3 +217,7 @@ export async function rebuildAllVectors(
     console.log(`✅ [VectorStore] 重建完成：${embeddedNodes.length} 条向量已更新为 ${embeddingConfig.model}`);
     return { rebuilt: embeddedNodes.length };
 }
+
+export const vectorizeAndStore = (...args: Parameters<typeof vectorizeAndStoreImpl>): ReturnType<typeof vectorizeAndStoreImpl> => withMemoryMutation(() => vectorizeAndStoreImpl(...args));
+
+export const updateStoredMemoryNode = (...args: Parameters<typeof updateStoredMemoryNodeImpl>): ReturnType<typeof updateStoredMemoryNodeImpl> => withMemoryMutation(() => updateStoredMemoryNodeImpl(...args));

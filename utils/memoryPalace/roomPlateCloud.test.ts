@@ -17,6 +17,7 @@ const { scheduleBackgroundJob, probeBackgroundJobSupportDetailed, plateStore, ch
   charStore: { chars: [{ id: 'c1', name: '小满' }] as Array<{ id: string; name: string }> },
 }));
 /** 「这条任务可能已经在远端建起来了」的标记，跟真身同款（见 activeMsgClient）。 */
+vi.mock('../dateHistoryDeletion', () => ({ readDeletionLedger: vi.fn(async () => undefined) }));
 const MAYBE_CREATED = '__amsgBackgroundJobMaybeCreated';
 vi.mock('../activeMsgClient', () => ({
   ActiveMsgClient: { scheduleBackgroundJob, probeBackgroundJobSupportDetailed },

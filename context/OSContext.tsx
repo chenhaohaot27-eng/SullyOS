@@ -1062,6 +1062,26 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       })();
   }, [isDataLoaded, realtimeConfig, cloudBackupConfig, memoryPalaceConfig, remoteVectorConfig, apiConfig, apiPresets, characters]);
 
+  useEffect(() => {
+      const refreshDeletedMemory = async (charId: string) => {
+          const fresh = await DB.getCharacter(charId);
+          if (!fresh) return;
+          setCharacters(prev => prev.map(c => c.id === charId ? { ...c, memories: fresh.memories, savedDateState: fresh.savedDateState } : c));
+          const { bm25Index } = await import('../utils/memoryPalace/bm25Index');
+          bm25Index.dropAll();
+          const { clearReceipts } = await import('../utils/memoryPalace/recallReceipts');
+          clearReceipts(charId);
+      };
+      const local = (event: Event) => { void refreshDeletedMemory((event as CustomEvent).detail.charId).catch(console.error); };
+      const remote = (event: StorageEvent) => {
+          if (event.key !== 'os_date_deletion_revision' || !event.newValue) return;
+          try { void refreshDeletedMemory(JSON.parse(event.newValue).charId).catch(console.error); } catch { /* invalid notification */ }
+      };
+      window.addEventListener('date-history-deleted', local);
+      window.addEventListener('storage', remote);
+      return () => { window.removeEventListener('date-history-deleted', local); window.removeEventListener('storage', remote); };
+  }, []);
+
   // --- Global Error Interception ---
   useEffect(() => {
       if (interceptorsInitialized.current) return;
@@ -3807,7 +3827,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'xhs_activities', 'xhs_stock',
               'quizzes', 'guidebook', 'scheduled_messages', 'life_sim',
               'handbook', 'trackers', 'tracker_entries', 'hotnews_snapshots',
-              'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
+              'date_deletion_ledger', 'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
               'room_plates', 'digest_reports',
               'daily_schedule', 'memory_batches',
               'pixel_home_assets', 'pixel_home_layouts',
@@ -4079,7 +4099,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           // Stores that never contain base64 image data — skip recursive traversal
           const noImageStores = new Set([
-              'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
+              'date_deletion_ledger', 'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
               'room_plates', 'digest_reports',
               'bank_transactions', 'scheduled_messages', 'memory_batches', 'hotnews_snapshots',
               'character_groups',
@@ -4138,6 +4158,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               trackers: 'trackers',
               tracker_entries: 'trackerEntries',
               hotnews_snapshots: 'hotNewsSnapshots',
+              date_deletion_ledger: 'dateDeletionLedger',
               memory_nodes: 'memoryNodes',
               memory_links: 'memoryLinks',
               topic_boxes: 'topicBoxes',
@@ -4366,6 +4387,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'med_plans': backupData.medPlans = processedData; break;
                   case 'life_record_settings': backupData.lifeRecordSettings = processedData; break;
                   case 'hotnews_snapshots': backupData.hotNewsSnapshots = processedData; break;
+                  case 'date_deletion_ledger': backupData.dateDeletionLedger = processedData; break;
                   case 'memory_nodes': backupData.memoryNodes = processedData; break;
                   // memory_vectors 走二进制旁路（上面已 continue），不在此 switch 落 backupData
                   case 'memory_links': backupData.memoryLinks = processedData; break;

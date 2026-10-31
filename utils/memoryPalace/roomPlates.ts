@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 /**
  * Memory Palace — 房间门牌（Room Plates）
  *
@@ -332,7 +333,7 @@ async function tryCloudConsolidation(args: {
  * 盒子压缩完成后，把这次整合的结论合并进该房间的门牌。
  * 由 eventBoxCompression 调用；失败只 warn，不影响压缩结果。
  */
-export async function updatePlateFromBoxSummary(
+async function updatePlateFromBoxSummaryImpl(
     charId: string,
     room: string,
     summaryContent: string,
@@ -391,7 +392,7 @@ export function pickMaterialLines(nodes: MemoryNode[], room: PlateRoom, sinceTs:
  * @param sinceTs 上次消化时间戳：节点原料以该时间之后的新增优先，
  *   老节点只留少量高分锚点（避免每轮重复喂同一批高分老货）。
  */
-export async function consolidateAllPlates(
+async function consolidateAllPlatesImpl(
     charId: string,
     charName: string,
     userName: string | undefined,
@@ -466,7 +467,7 @@ export function collectBootstrapLines(
  *
  * 幂等性：合并语义天然幂等——重复回填同样的历史，条目被去重/合并而非翻倍。
  */
-export async function bootstrapPlatesFromHistory(
+async function bootstrapPlatesFromHistoryImpl(
     charId: string,
     charName: string,
     userName: string | undefined,
@@ -617,3 +618,9 @@ export async function buildRoomPlatesInjection(charId: string, userName?: string
         return '';
     }
 }
+
+export const updatePlateFromBoxSummary = (...args: Parameters<typeof updatePlateFromBoxSummaryImpl>): ReturnType<typeof updatePlateFromBoxSummaryImpl> => withMemoryMutation(() => updatePlateFromBoxSummaryImpl(...args));
+
+export const consolidateAllPlates = (...args: Parameters<typeof consolidateAllPlatesImpl>): ReturnType<typeof consolidateAllPlatesImpl> => withMemoryMutation(() => consolidateAllPlatesImpl(...args));
+
+export const bootstrapPlatesFromHistory = (...args: Parameters<typeof bootstrapPlatesFromHistoryImpl>): ReturnType<typeof bootstrapPlatesFromHistoryImpl> => withMemoryMutation(() => bootstrapPlatesFromHistoryImpl(...args));

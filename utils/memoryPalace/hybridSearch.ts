@@ -122,7 +122,7 @@ export async function hybridSearch(
 
     // 3. BM25 搜索（排除 archived 节点 —— 它们已被压入 EventBox summary）
     const allNodes = prefetch?.allNodes ?? await MemoryNodeDB.getByCharId(charId);
-    const searchableNodes = allNodes.filter(n => n.embedded && !n.archived);
+    const searchableNodes = allNodes.filter(n => (n.embedded || n.deletionRevision) && !n.archived);
 
     // 倒排索引按"全量节点"构建（含 archived / 未 embedded），unarchive 后立即可搜，
     // 实际过滤交给 bm25SearchIndexed 用 searchableNodes 的 id 集做白名单。

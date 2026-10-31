@@ -668,6 +668,10 @@ export interface MemoryPalaceBackupConfig {
 }
 
 export interface MemoryFragment {
+  sourceMemoryIds?: string[];
+  sourceEntries?: { memoryId: string; text: string }[];
+  legacySummary?: string;
+  deletionRevision?: number;
   id: string;
   date: string;
   summary: string;
@@ -2132,6 +2136,7 @@ export interface DateObserveConfig {
 }
 
 export interface DateState {
+    sourceMessageId?: number;
     dialogueQueue: DialogueItem[];
     dialogueBatch: DialogueItem[];
     currentText: string;
@@ -4051,6 +4056,7 @@ export interface Emoji {
 }
 
 export interface FullBackupData {
+  dateDeletionLedger?: import('./utils/dateDeletionLedger').DeletionLedger[];
     timestamp: number;
     version: number;
     theme?: OSTheme;

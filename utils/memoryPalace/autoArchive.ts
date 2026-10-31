@@ -1,3 +1,4 @@
+import { withMemoryMutation } from '../memoryMutationGate';
 import type { MemoryFragment } from '../../types';
 import { DB } from '../db';
 import { MemoryNodeDB } from './db';
@@ -58,7 +59,7 @@ function sameMemories(a: MemoryFragment[] | undefined, b: MemoryFragment[]): boo
  * 过去这一步散落在 React 调用方：Push、彼方、家园等入口只接了宫殿写入，忘了接返回值，
  * 于是出现“宫殿有总结、神经链接没副本”。现在所有自动入口统一走本函数。
  */
-export function persistAutoArchiveResult(
+function persistAutoArchiveResultImpl(
     charId: string,
     result: PipelineResult | null,
 ): Promise<{ fragments: number; changed: boolean }> {
@@ -105,7 +106,7 @@ export function persistAutoArchiveResult(
 }
 
 /** 自动总结的唯一常规入口：宫殿写入成功后，紧接着完成神经链接双写。 */
-export async function processNewMessagesWithAutoArchive(
+async function processNewMessagesWithAutoArchiveImpl(
     ...args: Parameters<typeof processNewMessages>
 ): Promise<PipelineResult | null> {
     const result = await processNewMessages(...args);
@@ -148,7 +149,7 @@ export function buildConservativeRepairFragments(
 }
 
 /** 启动时跑一次的旧缺口修复；不调 LLM、不重做向量、不改宫殿水位线。 */
-export function repairMissingAutoArchiveMemories(
+function repairMissingAutoArchiveMemoriesImpl(
     charId: string,
 ): Promise<{ fragments: number; changed: boolean }> {
     return enqueuePersist(charId, async () => {
@@ -171,3 +172,9 @@ export function repairMissingAutoArchiveMemories(
         return { fragments: fragments.length, changed: true };
     });
 }
+
+export const processNewMessagesWithAutoArchive = (...args: Parameters<typeof processNewMessagesWithAutoArchiveImpl>): ReturnType<typeof processNewMessagesWithAutoArchiveImpl> => withMemoryMutation(() => processNewMessagesWithAutoArchiveImpl(...args));
+
+export const persistAutoArchiveResult = (...args: Parameters<typeof persistAutoArchiveResultImpl>): ReturnType<typeof persistAutoArchiveResultImpl> => withMemoryMutation(() => persistAutoArchiveResultImpl(...args));
+
+export const repairMissingAutoArchiveMemories = (...args: Parameters<typeof repairMissingAutoArchiveMemoriesImpl>): ReturnType<typeof repairMissingAutoArchiveMemoriesImpl> => withMemoryMutation(() => repairMissingAutoArchiveMemoriesImpl(...args));
