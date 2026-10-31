@@ -28,7 +28,7 @@ export const normalizeAssistantActionFormatting = (raw: string): string => {
     );
     // 人类可读的单括号摘要只有独立成行时才算表情意图，避免误伤自然语言。
     content = content.replace(
-        /^[ \t]*\[\s*(?:表情|表情包)\s*[:：]\s*([^\]\r\n]+?)\s*\][ \t]*$/gm,
+        /^[ \t]*\[\s*(?:发送(?:了)?[ \t]*)?(?:表情包|表情)\s*[:：]\s*([^\]\r\n]+?)\s*\][ \t]*$/gm,
         (_all, name: string) => `[[SEND_EMOJI: ${name.trim()}]]`,
     );
 
