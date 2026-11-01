@@ -35,23 +35,38 @@ export const normalizeAssistantActionFormatting = (raw: string): string => {
     // 自然语言表情包指令（修复「角色发表情包只有文字不发图」的另一半根因）：
     // 模型常不写 [[SEND_EMOJI]]，而是把发送动作写成一句话。只在**独立成行**（可带
     // 括号动作包裹）且能提取出明确表情名时才转成 canonical 标签；名字交给
-    // emojiResolver 做安全匹配（匹配不上会被跳过，不会误发）。三类高频形态：
+    // emojiResolver 做安全匹配（匹配不上会被跳过，不会误发）。高频形态（①冒号 ②名字在前 ③用某表情 ④括号动作 ⑤文件名）：
     //   ① 带冒号：发个表情包：委屈 / 来个表情：猫猫
     //   ② 名字在前：给你丢个猫猫表情 / 发个猫猫表情包 / 甩张委屈表情
     //   ③ 用某表情：用那个委屈的表情
     // 行内叙述（如「这个表情包太好笑了」「我给你发个表情包」——后者没有可提取的名字）
     // 一律不动：宁可不发，也不把普通聊天误判成贴图。
+    // 行首允许 [happy]/[开心] 等短情绪标签前缀——模型常在情绪标签之后才写发送动作。
+    const emotionTagPrefix = '(?:\\[[^\\]\\r\\n]{1,24}\\][ \\t]*)?';
     const stickerNameChar = '[^，。！？!?,.;；\\s（）()\\[\\]【】{}"\'“”「」]';
     content = content.replace(
-        new RegExp(`^[ \\t（(]*(?:发送|发个|来个|丢个|甩个|扔个|发张|来张|丢张)[ \\t]?(?:表情包|表情|sticker)[ \\t]*[:：][ \\t]*(${stickerNameChar}{1,20})[）)]?[ \\t。！!]*$`, 'gm'),
+        new RegExp(`^[ \\t]*${emotionTagPrefix}[ \\t（(]*(?:发送|发个|来个|丢个|甩个|扔个|发张|来张|丢张)[ \\t]?(?:表情包|表情|sticker)[ \\t]*[:：][ \\t]*(${stickerNameChar}{1,20})[）)]?[ \\t。！!]*$`, 'gm'),
         (_all, name: string) => `[[SEND_EMOJI: ${name.trim()}]]`,
     );
     content = content.replace(
-        new RegExp(`^[ \\t（(]*(?:给你)?(?:发|丢|甩|扔|来)[ \\t]*一?[个张][ \\t]*(${stickerNameChar}{1,12})[ \\t]*的?[ \\t]*(?:表情包|表情|sticker)[）)]?[ \\t。！!]*$`, 'gm'),
+        new RegExp(`^[ \\t]*${emotionTagPrefix}[ \\t（(]*(?:给你)?(?:发|丢|甩|扔|来)[ \\t]*一?[个张][ \\t]*(${stickerNameChar}{1,12})[ \\t]*的?[ \\t]*(?:表情包|表情|sticker)[）)]?[ \\t。！!]*$`, 'gm'),
         (_all, name: string) => `[[SEND_EMOJI: ${name.trim()}]]`,
     );
     content = content.replace(
-        new RegExp(`^[ \\t（(]*用[ \\t]*(?:那个|这个|那|这)?[ \\t]*[个只张]?[ \\t]*(${stickerNameChar}{1,12})[ \\t]*的[ \\t]*(?:表情包|表情|sticker)[）)]?[ \\t。！!]*$`, 'gm'),
+        new RegExp(`^[ \\t]*${emotionTagPrefix}[ \\t（(]*用[ \\t]*(?:那个|这个|那|这)?[ \\t]*[个只张]?[ \\t]*(${stickerNameChar}{1,12}?)[ \\t]*的?[ \\t]*(?:表情包|表情|sticker)[）)]?[ \\t。！!]*$`, 'gm'),
+        (_all, name: string) => `[[SEND_EMOJI: ${name.trim()}]]`,
+    );
+    // ④ 括号包裹的发送动作（无"表情"字样也认）：括号限定了这就是一个动作；
+    // 不带括号的「给你发个红包」式行文风险高（可能是转账/语音等其他对象），不在此列。
+    content = content.replace(
+        new RegExp(`^[ \\t]*${emotionTagPrefix}[ \\t]*[（(][ \\t]*(?:给你)?[ \\t]*(?:发|丢|甩|扔|来)[ \\t]*一?[个张][ \\t]*(${stickerNameChar}{1,12})[ \\t]*[）)][ \\t。！!]*$`, 'gm'),
+        (_all, name: string) => `[[SEND_EMOJI: ${name.trim()}]]`,
+    );
+    // ⑤ 独立成行的图片文件名（`敲头.jpg`）。名称字符里排除 : / \\ . ——
+    // 否则正文里单独一行的图片 URL 会被误判成表情意图。
+    const emojiFileNameChar = '[^，。！？!?,.;；:/\\\\\\s（）()\\[\\]【】{}"\'“”「」]';
+    content = content.replace(
+        new RegExp(`^[ \\t]*${emotionTagPrefix}[ \\t]*[「【"'“]?(${emojiFileNameChar}{1,24})\\.(?:png|jpe?g|gif|webp|bmp|avif)[」】"'”]?[ \\t。！!]*$`, 'gim'),
         (_all, name: string) => `[[SEND_EMOJI: ${name.trim()}]]`,
     );
 

@@ -71,7 +71,20 @@ const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
 const STORE_MESSAGES = 'messages';
 const STORE_EMOJIS = 'emojis';
-const STORE_EMOJI_CATEGORIES = 'emoji_categories'; 
+const STORE_EMOJI_CATEGORIES = 'emoji_categories';
+
+/**
+ * 表情库写入口统一广播：saveEmoji / renameEmoji / deleteEmoji / 分类增删改后 fire 一次。
+ * Chat.tsx（提示词 buildEmojiContext 与 SEND_EMOJI 反查共用的 aiVisibleEmojis）监听后
+ * 重新加载库存——否则库在 Chat 之外被改（备份导入、别的面板增删改名）后，模型看到的
+ * 库存清单和实际发送时反查用的还是旧快照，出现「模型按旧清单发、客户端反查不到」的
+ * 降级文字气泡。
+ */
+const notifyEmojiLibraryChanged = () => {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+        window.dispatchEvent(new CustomEvent('sully-emoji-library-changed'));
+    }
+};
 const STORE_THEMES = 'themes';
 const STORE_ASSETS = 'assets';
 const STORE_BLOB_ASSETS = 'blob_assets'; // 图片二进制 Blob 存储（key=生成 id，value={id, blob}）；壁纸/小屋等图片改存 Blob 而非 base64，省 ~33% 空间且不占 JS 堆。见 utils/blobRef.ts
@@ -1205,13 +1218,15 @@ export const DB = {
   saveEmoji: async (name: string, url: string, categoryId?: string): Promise<void> => {
     const db = await openDB();
     const transaction = db.transaction(STORE_EMOJIS, 'readwrite');
-    transaction.objectStore(STORE_EMOJIS).put({ name, url, categoryId });
+    const request = transaction.objectStore(STORE_EMOJIS).put({ name, url, categoryId });
+    request.onsuccess = () => notifyEmojiLibraryChanged();
   },
 
   deleteEmoji: async (name: string): Promise<void> => {
     const db = await openDB();
     const transaction = db.transaction(STORE_EMOJIS, 'readwrite');
-    transaction.objectStore(STORE_EMOJIS).delete(name);
+    const request = transaction.objectStore(STORE_EMOJIS).delete(name);
+    request.onsuccess = () => notifyEmojiLibraryChanged();
   },
 
   // 表情包重命名: name 是主键, 改名 = 删旧键 + 写新键 (保留 url / categoryId)。
@@ -1237,7 +1252,7 @@ export const DB = {
         dupReq.onerror = () => reject(dupReq.error);
       };
       getReq.onerror = () => reject(getReq.error);
-      tx.oncomplete = () => resolve();
+      tx.oncomplete = () => { resolve(); notifyEmojiLibraryChanged(); };
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
     });
@@ -1261,7 +1276,8 @@ export const DB = {
   saveEmojiCategory: async (category: EmojiCategory): Promise<void> => {
       const db = await openDB();
       const transaction = db.transaction(STORE_EMOJI_CATEGORIES, 'readwrite');
-      transaction.objectStore(STORE_EMOJI_CATEGORIES).put(category);
+      const request = transaction.objectStore(STORE_EMOJI_CATEGORIES).put(category);
+      request.onsuccess = () => notifyEmojiLibraryChanged();
   },
 
   deleteEmojiCategory: async (id: string): Promise<void> => {
@@ -1279,7 +1295,7 @@ export const DB = {
           });
       };
       return new Promise((resolve, reject) => {
-          tx.oncomplete = () => resolve();
+          tx.oncomplete = () => { resolve(); notifyEmojiLibraryChanged(); };
           tx.onerror = () => reject(tx.error);
       });
   },

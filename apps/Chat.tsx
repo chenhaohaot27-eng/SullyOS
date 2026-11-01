@@ -755,6 +755,15 @@ const Chat: React.FC = () => {
         }
     };
 
+    // 表情库在 Chat 之外被改（备份导入 / 其他面板增删改名）时，DB 会广播
+    // 'sully-emoji-library-changed'——这里重载库存，保证提示词里的清单
+    // （buildEmojiContext）和 [[SEND_EMOJI]] 反查用的 aiVisibleEmojis 始终是同一份最新快照。
+    useEffect(() => {
+        const handler = () => { loadEmojiData(); };
+        window.addEventListener('sully-emoji-library-changed', handler);
+        return () => window.removeEventListener('sully-emoji-library-changed', handler);
+    });
+
     // Hydrate voice data from IndexedDB for currently visible messages.
     // Voice URLs are stored as blob: URLs that become invalid whenever the
     // component unmounts — persisting the raw blob and rebuilding the URL on

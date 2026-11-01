@@ -2442,6 +2442,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               rawName,
                               reason: resolution.emoji ? 'missing-url' : resolution.reason,
                               charId,
+                              // 可诊断性：给出库存规模与候选名样本，方便排查「名称多了修饰词/库存过期」
+                              inventorySize: emojis.length,
+                              inventoryNameSample: emojis.slice(0, 12).map(e => e.name),
                           });
                           return false;
                       }
@@ -2498,7 +2501,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           // 混进 <原文>/<译文> 里的表情标签剥出来，紧跟这条双语气泡之后发
                           const inlineEmojis: string[] = [];
                           const stripInlineEmoji = (s: string): string =>
-                              s.replace(/\[\[SEND_EMOJI:\s*(.*?)\]\]/g, (_m, n) => { inlineEmojis.push(String(n).trim()); return ''; });
+                              s.replace(/\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g, (_m, n) => { inlineEmojis.push(String(n).trim()); return ''; });
                           const originalText = ChatParser.sanitize(stripInlineEmoji(tagMatch[1]).trim());
                           const translatedText = ChatParser.sanitize(stripInlineEmoji(tagMatch[2]).trim());
                           if (originalText || translatedText) {

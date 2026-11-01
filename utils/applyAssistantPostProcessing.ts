@@ -716,6 +716,9 @@ export async function applyAssistantPostProcessing(
                     rawName,
                     reason: resolution.emoji ? 'missing-url' : resolution.reason,
                     charId: char.id,
+                    // 可诊断性：给出库存规模与候选名样本，方便排查「名称多了修饰词/库存过期」
+                    inventorySize: emojis.length,
+                    inventoryNameSample: emojis.slice(0, 12).map(e => e.name),
                 });
                 return;
             }
