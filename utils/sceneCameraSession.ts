@@ -15,11 +15,15 @@ import type {
   CharacterProfile,
   ImageGenerationAspectRatio,
   ImageGenerationConfig,
+  SceneAnalysis,
   SceneCameraMode,
   SceneCameraShotPlan,
+  SceneImageOptions,
 } from '../types';
 import type { DirectorApiConfig } from './sceneCameraPrompt';
 import { generateShotPlanOnly, renderShotPlan } from './sceneCameraService';
+import { DEFAULT_SCENE_IMAGE_OPTIONS } from './imageGenerationOptions';
+import { buildBasicShotPlan } from './buildSceneImagePrompt';
 
 /** 两阶段加载：Director 理解场景 → Renderer 成像。 */
 export type SceneCameraPhase = 'idle' | 'directing' | 'rendering' | 'done' | 'error';
@@ -33,12 +37,18 @@ export interface SceneCameraSessionState {
   mode: SceneCameraMode;
   phase: SceneCameraPhase;
   aspectRatio?: ImageGenerationAspectRatio;
+  /** 画面导演选项（构图方式 / 环境保留 / 人物焦点 / 导演开关） */
+  options: SceneImageOptions;
   /** 当前 ShotPlan（Renderer 失败后仍保留，供「重拍同一镜头 / 重试」） */
   shotPlan?: SceneCameraShotPlan;
   /** 上一次成功方案（重新导演时的差异化来源，仅 metadata，不携带图片） */
   previousShotPlan?: SceneCameraShotPlan;
   imageUrl?: string;
   error?: string;
+  /** 导演链路降级提示（如「导演解析失败，已改为直接根据原文生成」） */
+  directorNotice?: string;
+  /** 阶段一场景解析结果（UI 导演思路预览） */
+  sceneAnalysis?: SceneAnalysis;
   directorMetadata?: SceneCameraMetadata;
   rendererMetadata?: SceneCameraMetadata;
 }
@@ -52,6 +62,7 @@ export const SCENE_CAMERA_ASPECT_RATIOS: readonly ImageGenerationAspectRatio[] =
 export const INITIAL_SCENE_CAMERA_SESSION_STATE: SceneCameraSessionState = {
   mode: 'scene-snapshot',
   phase: 'idle',
+  options: { ...DEFAULT_SCENE_IMAGE_OPTIONS },
 };
 
 export interface SceneCameraSessionDeps {
@@ -62,6 +73,8 @@ export interface SceneCameraSessionDeps {
   getDirectorConfig: () => DirectorApiConfig;
   /** Renderer 每次动作前重新读取现有生图配置（允许用户中途换模型） */
   getRendererConfig: () => ImageGenerationConfig;
+  /** 「选中文本生图」：用户选中的原文（存在时为画面最高依据；可缺省） */
+  getSelectedText?: () => string | undefined;
   /** 注入点（默认接 Phase 3B service，测试可替换） */
   requestShotPlan?: typeof generateShotPlanOnly;
   renderExistingShotPlan?: typeof renderShotPlan;
@@ -99,6 +112,18 @@ export class SceneCameraSession {
   setAspectRatio(aspectRatio: ImageGenerationAspectRatio): void {
     if (this.busy) return;
     this.patch({ aspectRatio });
+  }
+
+  /** 更新画面导演选项（构图方式 / 环境保留 / 人物焦点 / 导演开关）；生成中不可改。 */
+  setOptions(options: SceneImageOptions): void {
+    if (this.busy) return;
+    this.patch({ options });
+  }
+
+  /** 「重拍同一镜头」前手动微调最终 prompt（导演思路预览区可编辑）。 */
+  updateFinalPrompt(prompt: string): void {
+    if (this.busy || !this.state.shotPlan || !prompt.trim()) return;
+    this.patch({ shotPlan: { ...this.state.shotPlan, finalPrompt: prompt } });
   }
 
   /** 完整流程：Director 理解场景 → Renderer 成像。 */
@@ -156,21 +181,48 @@ export class SceneCameraSession {
       let shotPlan = options.existingShotPlan;
 
       if (!options.reuseShotPlan) {
-        this.patch({ phase: 'directing', error: undefined });
+        this.patch({ phase: 'directing', error: undefined, directorNotice: undefined, sceneAnalysis: undefined });
         const directorConfig = this.deps.getDirectorConfig();
         const previousShotPlan = this.state.shotPlan;
-        shotPlan = await (this.deps.requestShotPlan ?? generateShotPlanOnly)({
-          mode: this.state.mode,
-          sceneContext: this.deps.getSceneContext(),
-          character: this.deps.getCharacter(),
-          directorConfig,
-          previousShotPlan,
-        });
-        this.patch({
-          shotPlan,
-          previousShotPlan,
-          directorMetadata: { provider: directorConfig.provider, model: directorConfig.model },
-        });
+        const imageOptions = this.state.options;
+        const selectedText = this.deps.getSelectedText?.() || undefined;
+
+        if (!imageOptions.directorEnabled) {
+          // 导演关闭：直接用「原文 + 基础角色设定 + 选项取向」本地生成，不调导演模型。
+          const sceneContext = this.deps.getSceneContext();
+          shotPlan = buildBasicShotPlan({
+            mode: this.state.mode,
+            narrativeText: selectedText || sceneContext,
+            characterName: this.deps.getCharacter().name,
+            options: imageOptions,
+          });
+          this.patch({
+            shotPlan,
+            previousShotPlan,
+            directorNotice: '已按「关闭导演」直接根据原文生成',
+            sceneAnalysis: undefined,
+          });
+        } else {
+          // 两阶段导演：场景解析 → 视觉导演；导演层失败已在 service 内降级为基础直生成。
+          shotPlan = await (this.deps.requestShotPlan ?? generateShotPlanOnly)({
+            mode: this.state.mode,
+            sceneContext: this.deps.getSceneContext(),
+            character: this.deps.getCharacter(),
+            directorConfig,
+            previousShotPlan,
+            options: imageOptions,
+            ...(selectedText ? { selectedText } : {}),
+            rendererProvider: this.deps.getRendererConfig().provider,
+            signal,
+          });
+          this.patch({
+            shotPlan,
+            previousShotPlan,
+            directorMetadata: { provider: directorConfig.provider, model: directorConfig.model },
+            directorNotice: shotPlan.directorFallbackReason,
+            sceneAnalysis: shotPlan.sceneAnalysis,
+          });
+        }
       }
 
       this.patch({ phase: 'rendering', error: undefined });

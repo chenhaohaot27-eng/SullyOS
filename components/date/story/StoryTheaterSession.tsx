@@ -308,6 +308,23 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     const [showQuickPreset, setShowQuickPreset] = useState(false);
     // Phase 3C：「见面摄影机」共享弹层（剧情模式入口）
     const [showSceneCamera, setShowSceneCamera] = useState(false);
+    // 「选中文本生图」：打开摄影机时锁定的原文快照（原文叙事优先）
+    const [cameraSelectedText, setCameraSelectedText] = useState<string | undefined>(undefined);
+    // selectionchange 快照：点击相机按钮的瞬间系统可能已清空选区，所以选区有效时就记下文本
+    const latestSelectionRef = useRef<string | null>(null);
+    useEffect(() => {
+        const capture = () => {
+            const sel = window.getSelection();
+            const text = (sel?.toString() || '').replace(/\s+/g, ' ').trim();
+            latestSelectionRef.current = text.length >= 6 ? text : null;
+        };
+        document.addEventListener('selectionchange', capture);
+        return () => document.removeEventListener('selectionchange', capture);
+    }, []);
+    const openSceneCamera = () => {
+        setCameraSelectedText(latestSelectionRef.current || undefined);
+        setShowSceneCamera(true);
+    };
     const [rerollingId, setRerollingId] = useState<number | null>(null);
     const [messageMenu, setMessageMenu] = useState<Message | null>(null);
     const [editingMessage, setEditingMessage] = useState<Message | null>(null);
@@ -807,7 +824,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 {onOpenVectorMemory && <button onClick={onOpenVectorMemory} className='w-9 h-9 rounded-full grid place-items-center text-violet-600' title='本剧情向量记忆' aria-label='本剧情向量记忆'><Database size={18} /></button>}
                 <button disabled={exporting || messages.length === 0} onClick={() => void exportStory()} className='w-9 h-9 rounded-full grid place-items-center text-violet-600 disabled:opacity-30' title='导出全部剧情原文' aria-label='导出全部剧情原文'>{exporting ? <SpinnerGap size={18} className='animate-spin' /> : <DownloadSimple size={18} />}</button>
                 {/* Phase 3C：摄影机入口 — 共享 SceneCameraModal，多 NPC 群像第一版不实现（取首位角色） */}
-                <button disabled={actors.length === 0} onClick={() => setShowSceneCamera(true)} className='w-9 h-9 rounded-full grid place-items-center text-violet-600 disabled:opacity-30' title='摄影机' aria-label='摄影机'><Camera size={18} /></button>
+                <button disabled={actors.length === 0} onClick={() => openSceneCamera()} className='w-9 h-9 rounded-full grid place-items-center text-violet-600 disabled:opacity-30' title='摄影机' aria-label='摄影机'><Camera size={18} /></button>
                 <StoryAppearanceButton readingEntry />
                 <button onClick={onEdit} className='w-9 h-9 rounded-full grid place-items-center'><GearSix size={19} /></button>
             </div>
@@ -941,13 +958,14 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 <div className='mt-5 grid grid-cols-2 gap-3'><button disabled={mutatingMessage} onClick={() => setDeletingMessage(null)} className='h-12 rounded-2xl border border-slate-200 bg-white text-xs font-bold text-slate-600 disabled:opacity-30'>取消</button><button disabled={mutatingMessage} onClick={() => void deleteStoryMessage()} className='h-12 rounded-2xl bg-rose-600 text-white text-xs font-bold disabled:opacity-30'>{mutatingMessage ? '正在删除…' : '确认删除'}</button></div>
             </div>
         </div>}
-        {/* Phase 3C：见面摄影机（剧情模式入口，与陪伴模式共享同一 SceneCameraModal / service） */}
+        {/* Phase 3C：见面摄影机（剧情模式入口，与陪伴模式共享同一 SceneCameraModal / service）；选中文字后打开 = 以该原文生图 */}
         {actors.length > 0 && <SceneCameraModal
             open={showSceneCamera}
-            onClose={() => setShowSceneCamera(false)}
+            onClose={() => { setShowSceneCamera(false); setCameraSelectedText(undefined); }}
             contextSource='story'
             character={actors[0]}
             getSceneContext={() => buildStorySceneContext(messages, entry.title, promptIdentityName)}
+            selectedText={cameraSelectedText}
         />}
     </div>;
 };

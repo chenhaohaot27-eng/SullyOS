@@ -15,9 +15,17 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from '@phosphor-icons/react';
+import { X, Copy } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
-import type { CharacterProfile, ImageGenerationAspectRatio, ImageGenerationConfig } from '../../types';
+import type {
+    CharacterProfile,
+    ImageGenerationAspectRatio,
+    ImageGenerationConfig,
+    SceneCompositionMode,
+    SceneEnvironmentDetail,
+    SceneImageOptions,
+    SceneSubjectFocus,
+} from '../../types';
 import { loadImageGenerationConfig, IMAGE_GENERATION_CONFIG_CHANGED_EVENT } from '../../utils/imageGenerationConfig';
 import { deriveDirectorApiConfig, type SceneCameraContextSource } from '../../utils/sceneCameraContext';
 import {
@@ -26,6 +34,8 @@ import {
     INITIAL_SCENE_CAMERA_SESSION_STATE,
     type SceneCameraSessionState,
 } from '../../utils/sceneCameraSession';
+import { loadSceneImageOptions, saveSceneImageOptions } from '../../utils/imageGenerationOptions';
+import { summarizeSceneAnalysis } from '../../utils/buildSceneAnalysisPrompt';
 import ChatPhotoViewer from '../chat/ChatPhotoViewer';
 
 export interface SceneCameraModalProps {
@@ -37,12 +47,64 @@ export interface SceneCameraModalProps {
     character: CharacterProfile;
     /** 最小必要场景上下文（由入口用 sceneCameraContext 的 builder 提供） */
     getSceneContext: () => string;
+    /** 「选中文本生图」：用户在打开摄影机前选中的原文（存在时为画面最高依据） */
+    selectedText?: string;
 }
 
 const MODE_OPTIONS: Array<{ value: 'scene-snapshot' | 'duo-photo'; label: string; hint: string }> = [
     { value: 'scene-snapshot', label: '当前场景快照', hint: '忠实还原此刻的文字场景，不推进剧情，不替你增加关键行为。' },
     { value: 'duo-photo', label: '双人合照', hint: '让导演设计更自然的双人构图；没有你的固定形象时会用侧脸、背影等自然方式，不会把你删掉。' },
 ];
+
+/** 画面导演选项的分组元数据（label/hint 文案与 buildSceneImagePrompt 的语义一一对应）。 */
+const COMPOSITION_MODE_OPTIONS: Array<{ value: SceneCompositionMode; label: string; hint: string }> = [
+    { value: 'character_focus', label: '角色主画面', hint: '优先突出你和角色，适合双人互动图' },
+    { value: 'narrative_balanced', label: '剧情平衡', hint: '兼顾人物、环境与情节' },
+    { value: 'text_faithful', label: '原文还原', hint: '画面以文字内容为准，不强行突出你和角色' },
+];
+
+const ENVIRONMENT_DETAIL_OPTIONS: Array<{ value: SceneEnvironmentDetail; label: string; hint: string }> = [
+    { value: 'minimal', label: '简化环境', hint: '只保留最必要的背景线索' },
+    { value: 'key_elements', label: '保留关键元素', hint: '保留对剧情有意义的空间和道具' },
+    { value: 'full_scene', label: '尽量完整还原', hint: '完整保留场景、层次、物件与氛围' },
+];
+
+const SUBJECT_FOCUS_OPTIONS: Array<{ value: SceneSubjectFocus; label: string; hint: string }> = [
+    { value: 'duo', label: '双人为主', hint: '优先你 + 当前角色' },
+    { value: 'current_character', label: '当前角色为主', hint: '角色优先，你可辅助入镜' },
+    { value: 'auto', label: '自动判断', hint: '根据文本决定画面主体' },
+    { value: 'npc_allowed', label: '允许 NPC 为主', hint: '允许 NPC 或群像成为画面中心' },
+];
+
+/** 分段选择器：一组互斥的小卡片（导演选项用，保持弹层简洁）。 */
+function OptionGroup<T extends string>(props: {
+    title: string;
+    options: Array<{ value: T; label: string; hint: string }>;
+    value: T;
+    disabled?: boolean;
+    onSelect: (value: T) => void;
+}) {
+    const active = props.options.find(o => o.value === props.value);
+    return (
+        <div>
+            <div className="text-[10px] font-bold tracking-[.18em] uppercase text-white/40">{props.title}</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+                {props.options.map(option => (
+                    <button
+                        key={option.value}
+                        type="button"
+                        disabled={props.disabled}
+                        onClick={() => props.onSelect(option.value)}
+                        className={`h-9 rounded-xl border px-3 text-[12px] font-bold transition-all active:scale-95 disabled:opacity-60 ${props.value === option.value ? 'border-white bg-white text-slate-900' : 'border-white/15 bg-white/5 text-white/70'}`}
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
+            {active && <p className="mt-1.5 text-[10px] leading-4 text-white/45">{active.hint}</p>}
+        </div>
+    );
+}
 
 const RENDERER_PROVIDER_LABELS: Record<string, string> = {
     'gemini-native': 'Gemini 原生',
@@ -54,11 +116,16 @@ function rendererReady(config: ImageGenerationConfig | undefined): boolean {
     return !!config && config.enabled && !!config.baseUrl && !!config.apiKey && !!config.model;
 }
 
-const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, contextSource, character, getSceneContext }) => {
+const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, contextSource, character, getSceneContext, selectedText }) => {
     const { apiConfig } = useOS();
     const [state, setState] = useState<SceneCameraSessionState>(INITIAL_SCENE_CAMERA_SESSION_STATE);
     const [rendererConfig, setRendererConfig] = useState<ImageGenerationConfig | undefined>(() => (typeof window === 'undefined' ? undefined : loadImageGenerationConfig()));
     const [showViewer, setShowViewer] = useState(false);
+    // 画面导演选项：打开时读上次选择，改动即持久化（localStorage），下次免重设
+    const [options, setOptions] = useState<SceneImageOptions>(() => (typeof window === 'undefined' ? { ...INITIAL_SCENE_CAMERA_SESSION_STATE.options } : loadSceneImageOptions()));
+    // 导演思路预览：最终 prompt 草稿（可编辑，配合「用此 Prompt 重拍」）
+    const [promptDraft, setPromptDraft] = useState('');
+    const [promptCopied, setPromptCopied] = useState(false);
     const sessionRef = useRef<SceneCameraSession | null>(null);
     const characterRef = useRef(character);
     characterRef.current = character;
@@ -66,6 +133,10 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
     sceneContextRef.current = getSceneContext;
     const apiConfigRef = useRef(apiConfig);
     apiConfigRef.current = apiConfig;
+    const selectedTextRef = useRef(selectedText);
+    selectedTextRef.current = selectedText;
+    const optionsRef = useRef(options);
+    optionsRef.current = options;
 
     const busy = state.phase === 'directing' || state.phase === 'rendering';
     const directorReady = !!apiConfig.baseUrl && !!apiConfig.apiKey && !!apiConfig.model;
@@ -79,6 +150,7 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
             getCharacter: () => characterRef.current,
             getDirectorConfig: () => deriveDirectorApiConfig(apiConfigRef.current),
             getRendererConfig: () => loadImageGenerationConfig(),
+            getSelectedText: () => selectedTextRef.current || undefined,
             debug: import.meta.env.DEV,
         });
         sessionRef.current = session;
@@ -87,14 +159,24 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
         setRendererConfig(config);
         // 宽高比默认读取现有生图配置，不维护第二套全局默认值。
         session.setAspectRatio(config.defaultAspectRatio);
+        // 导演选项接上「上次的选择」（持久化在 localStorage）。
+        session.setOptions(optionsRef.current);
         setState(session.getState());
         return () => {
             unsubscribe();
             session.reset();
             sessionRef.current = null;
             setShowViewer(false);
+            setPromptDraft('');
+            setPromptCopied(false);
         };
     }, [open]);
+
+    // 新 ShotPlan 落地时同步 prompt 草稿（导演思路预览区可编辑的初始值）。
+    useEffect(() => {
+        setPromptDraft(state.shotPlan?.finalPrompt || '');
+        setPromptCopied(false);
+    }, [state.shotPlan?.finalPrompt, state.shotPlan?.createdAt]);
 
     // 用户在「生图 API」设置里换模型后，回到本弹层能立即看到新 Renderer（并支持换模型重拍）。
     useEffect(() => {
@@ -130,6 +212,32 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
         sessionRef.current?.setAspectRatio(ratio);
     }, []);
 
+    /** 导演选项改动：session 立即生效 + localStorage 记住上次选择。 */
+    const updateOptions = useCallback((patch: Partial<SceneImageOptions>) => {
+        setOptions(prev => {
+            const next: SceneImageOptions = { ...prev, ...patch };
+            saveSceneImageOptions(next);
+            sessionRef.current?.setOptions(next);
+            return next;
+        });
+    }, []);
+
+    const handleCopyPrompt = useCallback(async () => {
+        if (!promptDraft) return;
+        try {
+            await navigator.clipboard.writeText(promptDraft);
+            setPromptCopied(true);
+            setTimeout(() => setPromptCopied(false), 2000);
+        } catch { /* 剪贴板不可用时静默；用户仍可手动选择文本复制 */ }
+    }, [promptDraft]);
+
+    /** 用户编辑过最终 prompt 后，用编辑稿「重拍同一镜头」。 */
+    const handleRerenderWithDraftPrompt = useCallback(() => {
+        if (!promptDraft.trim()) return;
+        sessionRef.current?.updateFinalPrompt(promptDraft);
+        void sessionRef.current?.rerenderSameShot();
+    }, [promptDraft]);
+
     if (!open || typeof document === 'undefined') return null;
 
     const subtitle = contextSource === 'companion' ? '把此刻的见面拍成一张照片' : '把这一幕剧情拍成一张照片';
@@ -163,6 +271,14 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
                     </button>
                 </div>
 
+                {/* 「选中文本生图」：原文锁定提示（原文叙事优先） */}
+                {selectedText && selectedText.trim() && (
+                    <div className="mt-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 p-3">
+                        <div className="text-[11px] font-bold text-emerald-200">📄 已锁定选中的原文（{selectedText.trim().length} 字）</div>
+                        <p className="mt-1 text-[10px] leading-4 text-emerald-100/70">画面将以这段文字为最高依据：谁重要画谁，环境与情节按原文保留，不会默认拍成双人图。</p>
+                    </div>
+                )}
+
                 {/* 摄影模式 */}
                 <div className="mt-4 space-y-2">
                     <div className="text-[10px] font-bold tracking-[.18em] uppercase text-white/40">摄影模式</div>
@@ -183,6 +299,49 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
                             <p className="mt-1 pl-6 text-[10px] leading-4 text-white/45">{option.hint}</p>
                         </button>
                     ))}
+                </div>
+
+                {/* 画面导演：AI 导演开关 + 构图方式 / 环境保留 / 人物焦点（记住上次选择） */}
+                <div className="mt-4 space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="text-[12px] font-bold">🎬 AI 导演分析</div>
+                            <p className="mt-0.5 text-[10px] leading-4 text-white/45">开启后先解析原文再导演画面；关闭则直接按原文 + 基础设定生成</p>
+                        </div>
+                        <button
+                            type="button"
+                            disabled={busy}
+                            role="switch"
+                            aria-checked={options.directorEnabled}
+                            aria-label="AI 导演分析开关"
+                            onClick={() => updateOptions({ directorEnabled: !options.directorEnabled })}
+                            className={`h-8 w-14 shrink-0 rounded-full border transition-all active:scale-95 disabled:opacity-60 ${options.directorEnabled ? 'border-white bg-white' : 'border-white/25 bg-white/10'}`}
+                        >
+                            <span className={`block h-6 w-6 rounded-full transition-transform ${options.directorEnabled ? 'translate-x-[26px] bg-slate-900' : 'translate-x-1 bg-white/70'}`} />
+                        </button>
+                    </div>
+
+                    <OptionGroup
+                        title="构图方式"
+                        options={COMPOSITION_MODE_OPTIONS}
+                        value={options.compositionMode}
+                        disabled={busy}
+                        onSelect={(value) => updateOptions({ compositionMode: value })}
+                    />
+                    <OptionGroup
+                        title="环境保留"
+                        options={ENVIRONMENT_DETAIL_OPTIONS}
+                        value={options.environmentDetail}
+                        disabled={busy}
+                        onSelect={(value) => updateOptions({ environmentDetail: value })}
+                    />
+                    <OptionGroup
+                        title="人物焦点"
+                        options={SUBJECT_FOCUS_OPTIONS}
+                        value={options.subjectFocus}
+                        disabled={busy}
+                        onSelect={(value) => updateOptions({ subjectFocus: value })}
+                    />
                 </div>
 
                 {/* Director / Renderer 配置（两个独立概念，只读展示） */}
@@ -270,16 +429,74 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
                     </div>
                 )}
 
-                {/* 主操作 */}
+                {/* 主操作（关闭导演时不依赖聊天 API 配置） */}
                 <button
                     type="button"
-                    disabled={busy || !directorReady || !isRendererReady}
+                    disabled={busy || (options.directorEnabled && !directorReady) || !isRendererReady}
                     onClick={handleGenerate}
                     className="mt-4 h-12 w-full rounded-2xl bg-white text-[14px] font-bold text-slate-900 transition-transform active:scale-95 disabled:opacity-40"
                 >
                     {busy ? (state.phase === 'directing' ? '正在理解这一幕……' : '摄影机正在成像……') : '生成这一幕'}
                 </button>
                 {!isRendererReady && <p className="mt-2 text-center text-[10px] text-white/40">需要先在「设置 → 生图 API」启用生图服务</p>}
+
+                {/* 导演链路降级提示（明确但不烦人） */}
+                {state.directorNotice && !busy && (
+                    <div className="mt-3 rounded-2xl border border-amber-300/25 bg-amber-300/10 px-3 py-2">
+                        <p className="text-[11px] leading-4 text-amber-200/90">{state.directorNotice}</p>
+                    </div>
+                )}
+
+                {/* 高级项（可折叠）：导演思路预览 + 最终 Prompt（可编辑 / 可复制） */}
+                {state.shotPlan && !busy && (
+                    <details className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-3">
+                        <summary className="cursor-pointer text-[10px] font-bold tracking-[.18em] uppercase text-white/40">展开查看导演结果与最终 Prompt</summary>
+                        <div className="mt-2 space-y-3">
+                            {state.sceneAnalysis && (
+                                <div>
+                                    <div className="text-[10px] font-bold text-white/50">场景解析摘要</div>
+                                    <ul className="mt-1 space-y-0.5">
+                                        {summarizeSceneAnalysis(state.sceneAnalysis).map(line => (
+                                            <li key={line} className="text-[10px] leading-4 text-white/60">· {line}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                            {state.shotPlan.finalPrompt && (
+                                <div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="text-[10px] font-bold text-white/50">最终生图 Prompt（可编辑）</div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => void handleCopyPrompt()}
+                                                className="flex h-7 items-center gap-1 rounded-full border border-white/20 bg-white/10 px-3 text-[10px] font-bold text-white active:scale-95 transition-transform"
+                                            >
+                                                <Copy size={12} />{promptCopied ? '已复制' : '复制最终 Prompt'}
+                                            </button>
+                                            {promptDraft.trim() && promptDraft !== state.shotPlan.finalPrompt && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleRerenderWithDraftPrompt}
+                                                    className="h-7 rounded-full bg-white px-3 text-[10px] font-bold text-slate-900 active:scale-95 transition-transform"
+                                                >
+                                                    用此 Prompt 重拍
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <textarea
+                                        value={promptDraft}
+                                        onChange={e => setPromptDraft(e.target.value)}
+                                        rows={5}
+                                        spellCheck={false}
+                                        className="mt-1.5 w-full resize-y rounded-xl border border-white/10 bg-black/30 p-2.5 text-[10px] leading-4 text-white/75 outline-none focus:border-white/30"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </details>
+                )}
 
                 {/* 开发阶段调试区：仅 DEV 构建，普通玩家不可见 */}
                 {import.meta.env.DEV && (state.directorMetadata || state.rendererMetadata || state.shotPlan) && (

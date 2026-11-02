@@ -182,6 +182,23 @@ const DateSession: React.FC<DateSessionProps> = ({
 
     // Phase 3C：「见面摄影机」共享弹层（陪伴模式入口）
     const [showSceneCamera, setShowSceneCamera] = useState(false);
+    // 「选中文本生图」：打开摄影机时锁定的原文快照（原文叙事优先）
+    const [cameraSelectedText, setCameraSelectedText] = useState<string | undefined>(undefined);
+    // selectionchange 快照：点击相机按钮的瞬间系统可能已清空选区，所以选区有效时就记下文本
+    const latestSelectionRef = useRef<string | null>(null);
+    useEffect(() => {
+        const capture = () => {
+            const sel = window.getSelection();
+            const text = (sel?.toString() || '').replace(/\s+/g, ' ').trim();
+            latestSelectionRef.current = text.length >= 6 ? text : null;
+        };
+        document.addEventListener('selectionchange', capture);
+        return () => document.removeEventListener('selectionchange', capture);
+    }, []);
+    const openSceneCamera = () => {
+        setCameraSelectedText(latestSelectionRef.current || undefined);
+        setShowSceneCamera(true);
+    };
 
     // 顶栏折叠菜单：常驻只留「输入」+「菜单」两钮，低频操作全收进来
     const [showMenu, setShowMenu] = useState(false);
@@ -824,7 +841,7 @@ const DateSession: React.FC<DateSessionProps> = ({
             <div className="absolute top-0 right-0 p-4 pt-12 z-[100] flex flex-col items-end gap-2 pointer-events-auto">
                 <div className="flex gap-3">
                     {/* Phase 3C：摄影机入口 — 简洁相机 icon，不遮挡正文或输入框 */}
-                    <button onClick={(e) => { e.stopPropagation(); setShowSceneCamera(true); setShowMenu(false); setShowVoiceLangPicker(false); }} title="摄影机" aria-label="摄影机" className="w-10 h-10 rounded-full flex items-center justify-center border transition-all shadow-lg active:scale-95 bg-black/30 backdrop-blur-md border-white/20 text-white hover:bg-white/20">
+                    <button onClick={(e) => { e.stopPropagation(); openSceneCamera(); setShowMenu(false); setShowVoiceLangPicker(false); }} title="摄影机" aria-label="摄影机" className="w-10 h-10 rounded-full flex items-center justify-center border transition-all shadow-lg active:scale-95 bg-black/30 backdrop-blur-md border-white/20 text-white hover:bg-white/20">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" /></svg>
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); setShowInputBox(!showInputBox); setShowMenu(false); setShowVoiceLangPicker(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center border transition-all shadow-lg active:scale-95 ${showInputBox ? 'bg-primary border-primary text-white' : 'bg-black/30 backdrop-blur-md border-white/20 text-white hover:bg-white/20'}`}>
@@ -1246,13 +1263,14 @@ const DateSession: React.FC<DateSessionProps> = ({
                 </div>
             </Modal>
 
-            {/* Phase 3C：见面摄影机（陪伴模式入口，共享 SceneCameraModal） */}
+            {/* Phase 3C：见面摄影机（陪伴模式入口，共享 SceneCameraModal）；选中文字后打开 = 以该原文生图 */}
             <SceneCameraModal
                 open={showSceneCamera}
-                onClose={() => setShowSceneCamera(false)}
+                onClose={() => { setShowSceneCamera(false); setCameraSelectedText(undefined); }}
                 contextSource="companion"
                 character={char}
                 getSceneContext={() => buildCompanionSceneContext(messages, char.name)}
+                selectedText={cameraSelectedText}
             />
 
             {/* 留音海螺：原生文字选区 → 浮动「收藏选中文字」按钮（GAL 台词区 + 阅读模式消息区） */}

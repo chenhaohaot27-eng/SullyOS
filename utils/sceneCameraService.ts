@@ -19,6 +19,7 @@
 import type {
   SceneCameraMode,
   SceneCameraShotPlan,
+  SceneImageOptions,
   VisualIdentityPreset,
   CharacterProfile,
   ImageGenerationConfig,
@@ -47,6 +48,10 @@ export interface SceneCameraRequest {
   previousShotPlan?: SceneCameraShotPlan;
   /** 中止信号 */
   signal?: AbortSignal;
+  /** 画面导演选项（构图方式 / 环境保留 / 人物焦点 / 导演开关） */
+  options?: SceneImageOptions;
+  /** 用户选中的原文（「选中文本生图」时的最高画面依据） */
+  selectedText?: string;
 }
 
 /** Scene Camera 生成结果。 */
@@ -68,7 +73,7 @@ export interface SceneCameraResult {
  * @throws 当 Director 或 Renderer 调用失败时抛出错误
  */
 export async function generateSceneCamera(request: SceneCameraRequest): Promise<SceneCameraResult> {
-  const { mode, sceneContext, character, directorConfig, rendererConfig, previousShotPlan, signal } = request;
+  const { mode, sceneContext, character, directorConfig, rendererConfig, previousShotPlan, signal, options, selectedText } = request;
 
   // Phase 3B 范围限制
   if (mode !== 'scene-snapshot' && mode !== 'duo-photo') {
@@ -78,7 +83,7 @@ export async function generateSceneCamera(request: SceneCameraRequest): Promise<
   // 获取角色当前的 Visual Identity preset（用于 continuityConstraints）
   const activePreset = getActiveVisualIdentity(character);
 
-  // Step 1: 调用 Director 生成 ShotPlan
+  // Step 1: 调用 Director 生成 ShotPlan（两阶段：场景解析 → 视觉导演；失败内部降级）
   const directorOutput = await callDirector({
     apiConfig: directorConfig,
     mode,
@@ -86,6 +91,8 @@ export async function generateSceneCamera(request: SceneCameraRequest): Promise<
     characterName: character.name,
     activePresetName: activePreset?.name,
     previousShotPlan,
+    ...(options ? { options } : {}),
+    ...(selectedText ? { selectedText } : {}),
   });
 
   const shotPlan = directorOutput.shotPlan;
@@ -143,8 +150,16 @@ export async function generateShotPlanOnly(request: {
   character: CharacterProfile;
   directorConfig: DirectorApiConfig;
   previousShotPlan?: SceneCameraShotPlan;
+  /** 画面导演选项（构图方式 / 环境保留 / 人物焦点 / 导演开关） */
+  options?: SceneImageOptions;
+  /** 用户选中的原文（「选中文本生图」时的最高画面依据） */
+  selectedText?: string;
+  /** 当前图像模型类型（提示阶段二适配 prompt 风格） */
+  rendererProvider?: string;
+  /** 中止信号 */
+  signal?: AbortSignal;
 }): Promise<SceneCameraShotPlan> {
-  const { mode, sceneContext, character, directorConfig, previousShotPlan } = request;
+  const { mode, sceneContext, character, directorConfig, previousShotPlan, options, selectedText, rendererProvider, signal } = request;
 
   const activePreset = getActiveVisualIdentity(character);
 
@@ -155,6 +170,10 @@ export async function generateShotPlanOnly(request: {
     characterName: character.name,
     activePresetName: activePreset?.name,
     previousShotPlan,
+    ...(options ? { options } : {}),
+    ...(selectedText ? { selectedText } : {}),
+    ...(rendererProvider ? { rendererProvider } : {}),
+    ...(signal ? { signal } : {}),
   });
 
   return directorOutput.shotPlan;

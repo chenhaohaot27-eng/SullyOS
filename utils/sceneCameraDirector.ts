@@ -1,5 +1,5 @@
 /**
- * Scene Camera Director Service (Phase 3B)
+ * Scene Camera Director Service (Phase 3B → 两阶段导演升级)
  *
  * 职责：调用高阶文本模型，基于场景上下文生成结构化 ShotPlan。
  *
@@ -8,17 +8,23 @@
  *
  * 这两层完全解耦，Director 可以用任意文本模型（GPT/Claude/Gemini），
  * Renderer 可以用任意图像模型（GPT Images/Gemini Native/FLUX）。
+ *
+ * 升级（原文叙事优先）：Director 内部改为两阶段——
+ *   阶段一 Scene Analysis（场景解析）→ 阶段二 Prompt Directing（视觉导演）；
+ * 导演层任何失败都在内部降级为「基础 prompt 生成模式」，不再向调用方抛错
+ * （用户中止除外）。旧的直接抛错契约由 service 层测试 mock 保持兼容。
  */
 
-import type { SceneCameraShotPlan, SceneCameraMode } from '../types';
+import type { SceneAnalysis, SceneCameraShotPlan, SceneCameraMode, SceneImageOptions } from '../types';
 import type { DirectorApiConfig } from './sceneCameraPrompt';
+import { runTwoStageDirector } from './sceneImageDirector';
+import { completeChat } from './chatCompletionClient';
 import {
   buildDirectorSystemPrompt,
   buildDirectorUserPrompt,
   parseShotPlanFromJson,
   enrichAvoidConstraints,
 } from './sceneCameraPrompt';
-import { completeChat } from './chatCompletionClient';
 
 /** Director 调用的输入参数。 */
 export interface DirectorInput {
@@ -34,30 +40,68 @@ export interface DirectorInput {
   activePresetName?: string;
   /** 上一次 ShotPlan（用于差异化） */
   previousShotPlan?: SceneCameraShotPlan;
+  /** 画面导演选项（构图方式 / 环境保留 / 人物焦点）；缺省使用默认值 */
+  options?: SceneImageOptions;
+  /** 用户选中的原文（「选中文本生图」时的最高画面依据） */
+  selectedText?: string;
+  /** 当前图像模型类型（gpt-images / openai-images / gemini-native 等） */
+  rendererProvider?: string;
+  /** 中止信号（中止不是失败，原样上抛） */
+  signal?: AbortSignal;
 }
 
 /** Director 调用的输出结果。 */
 export interface DirectorOutput {
   /** 生成的 ShotPlan */
   shotPlan: SceneCameraShotPlan;
-  /** 原始 LLM 返回的文本（调试用） */
+  /** 原始 LLM 返回的文本（调试用；完全回退时为空串） */
   rawResponse: string;
   /** Director 使用的 provider 和 model */
   metadata: {
     provider: string;
     model: string;
   };
+  /** 阶段一场景解析结果（解析失败时为 undefined） */
+  sceneAnalysis?: SceneAnalysis;
+  /** 降级说明（阶段降级或完全回退到基础直生成时给出） */
+  fallbackNotice?: string;
 }
 
 /**
- * 调用 Director（高阶文本模型）生成 ShotPlan。
+ * 调用 Director（高阶文本模型）生成 ShotPlan —— 两阶段导演版本。
  *
- * @throws 当 API 调用失败或 JSON 解析失败时抛出错误
+ * 导演层失败（网络 / 超时 / JSON 无效）在内部降级为基础直生成，不抛错；
+ * 仅当用户中止（AbortSignal）时原样上抛。
  */
 export async function callDirector(input: DirectorInput): Promise<DirectorOutput> {
+  const { apiConfig } = input;
+
+  // 两阶段导演内部已消化所有导演层失败（降级为基础直生成）；
+  // 这里只会因用户中止（AbortSignal）上抛。
+  const result = await runTwoStageDirector(input);
+  return {
+    shotPlan: result.shotPlan,
+    rawResponse: result.rawResponse,
+    metadata: { provider: apiConfig.provider, model: apiConfig.model },
+    sceneAnalysis: result.sceneAnalysis,
+    fallbackNotice: result.fallbackNotice,
+  };
+}
+
+/**
+ * 旧版单阶段 Director 调用（legacy，保留给仍依赖旧契约的调用方 / 对照调试）。
+ * 新代码请使用 callDirector（两阶段 + 降级）。
+ */
+export async function callDirectorLegacy(input: {
+  apiConfig: DirectorApiConfig;
+  mode: SceneCameraMode;
+  sceneContext: string;
+  characterName: string;
+  activePresetName?: string;
+  previousShotPlan?: SceneCameraShotPlan;
+}): Promise<DirectorOutput> {
   const { apiConfig, mode, sceneContext, characterName, activePresetName, previousShotPlan } = input;
 
-  // 构建 Director prompt
   const systemPrompt = buildDirectorSystemPrompt();
   const userPrompt = buildDirectorUserPrompt({
     mode,
@@ -67,12 +111,11 @@ export async function callDirector(input: DirectorInput): Promise<DirectorOutput
     previousShotPlan,
   });
 
-  // 调用 completeChat（统一的文本模型接口）
   const apiConfigForChat = {
     baseUrl: apiConfig.baseUrl,
     apiKey: apiConfig.apiKey,
     model: apiConfig.model,
-    apiFormat: apiConfig.provider === 'gemini-native' ? 'gemini-native' : 'openai',
+    apiFormat: apiConfig.provider === 'gemini-native' ? 'gemini-native' : 'openai-compatible',
   };
 
   const body = {
@@ -81,25 +124,19 @@ export async function callDirector(input: DirectorInput): Promise<DirectorOutput
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    temperature: 0.7, // Director 需要一定创造力设计镜头
-    max_tokens: 2048, // ShotPlan JSON 不会太长
+    temperature: 0.7,
+    max_tokens: 2048,
     stream: false,
   };
 
   const response = await completeChat(apiConfigForChat, body);
 
-  // 提取文本内容（兼容 OpenAI 和 Gemini 响应格式）
   const rawResponse = response.choices?.[0]?.message?.content
     || response.content
     || JSON.stringify(response);
 
-  // 解析 JSON（容错处理 markdown code fence）
   let shotPlan = parseShotPlanFromJson(rawResponse, mode);
-
-  // 差异化增强：基于 previousShotPlan 补充 avoidConstraints
   shotPlan = enrichAvoidConstraints(shotPlan, previousShotPlan);
-
-  // 记录 Director metadata
   shotPlan.directorProvider = apiConfig.provider;
   shotPlan.directorModel = apiConfig.model;
 
@@ -112,3 +149,4 @@ export async function callDirector(input: DirectorInput): Promise<DirectorOutput
     },
   };
 }
+

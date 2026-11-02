@@ -3316,6 +3316,56 @@ export type SceneCameraMode = 'scene-snapshot' | 'duo-photo' | 'pov-selfie' | 'c
 /** 玩家在画面中的可见性策略（玩家无 Visual Identity 时的自然呈现方式）。 */
 export type SceneCameraPlayerVisibility = 'full' | 'back' | 'profile' | 'partial' | 'blur' | 'none';
 
+// ─────────────────────────────────────────────────────────────
+// Scene Image Directing Types（两阶段导演：场景解析 + 视觉导演）
+// ─────────────────────────────────────────────────────────────
+
+/** 构图方式：决定画面重心如何分配（人物优先 / 剧情平衡 / 原文还原）。 */
+export type SceneCompositionMode = 'character_focus' | 'narrative_balanced' | 'text_faithful';
+
+/** 环境保留程度：简化环境 / 保留关键元素 / 尽量完整还原。 */
+export type SceneEnvironmentDetail = 'minimal' | 'key_elements' | 'full_scene';
+
+/** 人物焦点：双人为主 / 当前角色为主 / 自动判断 / 允许 NPC 为主。 */
+export type SceneSubjectFocus = 'duo' | 'current_character' | 'auto' | 'npc_allowed';
+
+/** 「选中文本生图 / 见面摄影机」的用户可调导演选项（localStorage 持久化）。 */
+export interface SceneImageOptions {
+  compositionMode: SceneCompositionMode;
+  environmentDetail: SceneEnvironmentDetail;
+  subjectFocus: SceneSubjectFocus;
+  /** AI 导演开关：开启走两阶段导演；关闭直接用原文 + 基础设定生成。 */
+  directorEnabled: boolean;
+}
+
+/** 两阶段导演 · 阶段一「场景解析」的结构化结果（忠实转译原文，不做净化）。 */
+export interface SceneAnalysis {
+  /** 出场人物 */
+  characters_present: string[];
+  /** 当前叙事主体 / 画面主体建议 */
+  primary_subject: string;
+  /** 次要主体 */
+  secondary_subjects: string[];
+  /** 关键动作 */
+  key_actions: string[];
+  /** 场景空间 */
+  setting: string;
+  /** 关键物件 */
+  important_objects: string[];
+  /** 情绪与氛围 */
+  mood_tone: string;
+  /** 人物关系 / 互动性质 */
+  relationship_dynamics: string;
+  /** 建议景别 / 机位 / 视角 */
+  camera_suggestion: string;
+  /** 为什么这样构图 */
+  composition_reasoning: string;
+  /** 环境是否重要（low / medium / high，允许模型返回其他简短描述） */
+  environment_priority: string;
+  /** NPC 是否应成为主画面主体（none / secondary / primary，允许其他简短描述） */
+  npc_visual_priority: string;
+}
+
 /** Scene Camera 结构化摄影方案（Director 输出，Renderer 输入）。 */
 export interface SceneCameraShotPlan {
   version: number;
@@ -3355,6 +3405,10 @@ export interface SceneCameraShotPlan {
   directorModel?: string;
   rendererProvider?: string;
   rendererModel?: string;
+  /** 两阶段导演 · 阶段一「场景解析」结果（UI 导演思路预览用）。 */
+  sceneAnalysis?: SceneAnalysis;
+  /** 导演链路降级说明（例如「导演解析失败，已改为直接根据原文生成」）。 */
+  directorFallbackReason?: string;
   createdAt: number;
 }
 
