@@ -50,6 +50,12 @@ describe('configFromPreset', () => {
     expect(patch.temperature).toBe(0);
   });
 
+  it('Gemini 非流式开关：预设没存就不带（不覆盖用户当前设置），存了就照搬含 false', () => {
+    expect('geminiNonStream' in configFromPreset(preset('a', { baseUrl: 'https://x', model: 'm' }))).toBe(false);
+    expect(configFromPreset(preset('a', { baseUrl: 'https://x', model: 'm', geminiNonStream: true })).geminiNonStream).toBe(true);
+    expect(configFromPreset(preset('a', { baseUrl: 'https://x', model: 'm', geminiNonStream: false })).geminiNonStream).toBe(false);
+  });
+
   it('切换预设时携带协议格式，旧预设安全回退 OpenAI-compatible', () => {
     expect(configFromPreset(preset('native', {
       baseUrl: 'https://api.example.com',

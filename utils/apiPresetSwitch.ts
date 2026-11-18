@@ -27,7 +27,7 @@ import {
  */
 export type PresetSwitchPatch =
   Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'apiFormat'>
-  & Partial<Pick<APIConfig, 'stream' | 'temperature'>>;
+  & Partial<Pick<APIConfig, 'stream' | 'geminiNonStream' | 'temperature'>>;
 
 export function configFromPreset(preset: ApiPreset): PresetSwitchPatch {
   const patch: PresetSwitchPatch = {
@@ -37,6 +37,7 @@ export function configFromPreset(preset: ApiPreset): PresetSwitchPatch {
     apiFormat: normalizeChatApiFormat(preset.config.apiFormat),
   };
   if (typeof preset.config.stream === 'boolean') patch.stream = preset.config.stream;
+  if (typeof preset.config.geminiNonStream === 'boolean') patch.geminiNonStream = preset.config.geminiNonStream;
   if (typeof preset.config.temperature === 'number') patch.temperature = preset.config.temperature;
   return patch;
 }

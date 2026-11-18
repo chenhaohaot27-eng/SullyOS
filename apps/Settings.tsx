@@ -999,6 +999,7 @@ const Settings: React.FC = () => {
         model: normalizeApiModel(localModel),
         apiFormat: normalizeChatApiFormat(localApiFormat),
         stream: localStream,
+        geminiNonStream: localGeminiNonStream,
         temperature: localTemperature,
       });
       setNewPresetName('');
@@ -1038,6 +1039,7 @@ const Settings: React.FC = () => {
         apiKey: normalizeApiCredential(localKey),
         model: normalizeApiModel(localModel),
         apiFormat: normalizeChatApiFormat(localApiFormat),
+        geminiNonStream: localGeminiNonStream,
       }, {
         model: normalizeApiModel(localModel),
         messages: [{ role: 'user', content: 'Hi' }],
