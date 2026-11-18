@@ -104,6 +104,15 @@ import {
 import { buildRealtimeWorldBlock } from './realtimeWorld';
 import { handleSelfUpdate } from './selfUpdate';
 import {
+  handleImageGenSubmit,
+  handleImageGenStatus,
+  handleImageGenCancel,
+  handleImageGenResult,
+  runImageGenCronPass,
+  createD1ImageStore,
+  type ImageGenD1Like,
+} from './imageGen';
+import {
   buildMcpDirectHeaders,
   buildMcpFireBlock,
   buildMcpFireTools,
@@ -168,6 +177,8 @@ interface Env extends NativeFcmEnv {
   DB: unknown;
   /** 以下三项给 /self-update 用，都可选；没配 CF_API_TOKEN 就是不开自更新。见 ./selfUpdate。 */
   CF_API_TOKEN?: string;
+  /** S2：云端后台生图的结果存储（R2 私有桶，可选；没绑则 D1 直存小图）。 */
+  IMAGE_BUCKET?: unknown;
   CF_ACCOUNT_ID?: string;
   CF_SCRIPT_NAME?: string;
   /**
@@ -3088,6 +3099,9 @@ export default {
           // S1：这份 bundle 对敏感接口强制 AMSG_SERVER_TOKEN（旧 bundle 没有这个字段）。
           // 前端据此把「没配口令」从提醒升级为阻断级红字。
           serverTokenEnforced: true,
+          // S2：这份 bundle 支持云端后台生图；存储模式 r2（推荐）/ d1（≤900KB 小图兜底）。
+          imageGen: true,
+          imageStorage: env.IMAGE_BUCKET ? 'r2' : 'd1',
           // 这份代码认不认识「后台任务」（metadata.amsgKind → handler，见 fireKinds.ts）。
           // 老 bundle 没有这个字段，前端据此不去建那种任务——老 worker 会把它当聊天任务
           // 跑，然后卡在「本次任务指令缺失」终态失败：任务行不在用户的清单里，面板一片
@@ -3180,6 +3194,40 @@ export default {
       }
     }
 
+    // S2：云端后台生图端点。位于口令门 + owner_pin 之后（上面的 tokenGate 已返回过），
+    // 行级归属（task.user_id === X-User-Id）在 imageGen 各 handler 里再核对一次。
+    const imageGenMatch = pathname.match(/^\/image-gen(?:\/([^/]+)(\/cancel|\/result)?)?$/);
+    if (imageGenMatch) {
+      if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
+      if (typeof (env.DB as { prepare?: unknown } | null)?.prepare !== 'function' || !env.AMSG_MASTER_KEY?.trim()) {
+        return jsonWithCors(503, { success: false, error: { code: 'WORKER_CONFIG_MISSING', message: 'Worker 配置不完整（缺 D1 绑定或 AMSG_MASTER_KEY），云端生图不可用。' } });
+      }
+      const imageGenCtx = { request, env, json: jsonWithCors };
+      const [, taskId, suffix] = imageGenMatch as unknown as [string, string | undefined, string | undefined];
+      if (!taskId) {
+        if (method !== 'POST') {
+          return jsonWithCors(405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '/image-gen 只接受 POST' } });
+        }
+        return handleImageGenSubmit(imageGenCtx);
+      }
+      if (suffix === '/cancel') {
+        if (method !== 'POST') {
+          return jsonWithCors(405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '/image-gen/<id>/cancel 只接受 POST' } });
+        }
+        return handleImageGenCancel(imageGenCtx, decodeURIComponent(taskId));
+      }
+      if (suffix === '/result') {
+        if (method !== 'GET') {
+          return jsonWithCors(405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '/image-gen/<id>/result 只接受 GET' } });
+        }
+        return handleImageGenResult(imageGenCtx, decodeURIComponent(taskId));
+      }
+      if (method !== 'GET') {
+        return jsonWithCors(405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '/image-gen/<id> 只接受 GET' } });
+      }
+      return handleImageGenStatus(imageGenCtx, decodeURIComponent(taskId));
+    }
+
     const report = inspectWorkerEnv(env);
     if (!report.ok) {
       // 预检也得放行：带自定义头的请求会先发 OPTIONS，这一步被挡住的话正式请求
@@ -3218,5 +3266,18 @@ export default {
     // 整轮出错时上游把原因放在返回值里（同一份也会经 onError 记一行）。这里不再重复
     // 打印，但要把它咽掉——CF 不看 scheduled 的返回值，往外抛只会变成一条没上下文的堆栈。
     await upstream.scheduled(event, env);
+
+    // S2：云端后台生图——每分钟顺路消费队列 + 收敛租约 + 过期清理。
+    // 独立 try：生图这条线挂了不能拖垮主动消息的 cron。
+    try {
+      if (typeof (env.DB as { prepare?: unknown } | null)?.prepare === 'function' && env.AMSG_MASTER_KEY?.trim()) {
+        await runImageGenCronPass({
+          env: env as unknown as { DB: unknown; IMAGE_BUCKET?: unknown; AMSG_MASTER_KEY?: string },
+          store: createD1ImageStore(env.DB as ImageGenD1Like),
+        });
+      }
+    } catch (error) {
+      console.warn('[amsg] image-gen cron 附加处理失败（不影响主动消息）', error);
+    }
   },
 };

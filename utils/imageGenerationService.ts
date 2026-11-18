@@ -295,10 +295,192 @@ async function toInlineReference(input: ReferenceImageInput, fetchImpl: typeof f
     };
 }
 
+// ─── S2：云端模板的参考图收集（与 generateImage 同一合并序列）──────────────
+
+/**
+ * 按本地 generateImage 完全相同的优先级收集参考图并构建云端模板：
+ * ① isPrimary 长期身份图 ② 临时参考图 ③ 其他长期身份图，5 张截断；
+ * openai-images 不支持参考图时（仅身份图场景）跳过图片保留文字身份约束——
+ * 与本地行为一致（本地同场景也是跳过+保留文字），用户显式传参考图则明确抛错。
+ */
+export async function buildCloudImageGenTemplate(
+    options: GenerateImageOptions,
+    configOverride?: ImageGenerationConfig,
+): Promise<CloudImageGenRequestTemplate> {
+    const config = normalizeImageGenerationConfig(configOverride || loadImageGenerationConfig());
+    const prompt = options.prompt?.trim();
+    const noAuth = config.authMode === 'none';
+    if (!config.baseUrl || (!noAuth && !config.apiKey) || !config.model || !prompt) {
+        throw new ImageGenerationError('INVALID_CONFIG', noAuth
+            ? '请填写完整的生图 URL、模型和提示词'
+            : '请填写完整的生图 URL、API Key、模型和提示词');
+    }
+
+    let visualIdentity: VisualIdentity | undefined;
+    let identityReferences: Array<{ reference: VisualIdentityReference; blob: Blob }> = [];
+    let identityPrompt = '';
+    if (options.characterId) {
+        try {
+            const { DB } = await import('./db');
+            const char = await DB.getCharacter(options.characterId);
+            const activeVi = char ? getActiveVisualIdentity(char) : undefined;
+            if (activeVi) {
+                visualIdentity = normalizeVisualIdentity(activeVi);
+                if (visualIdentity.enabled && visualIdentity.references.length > 0) {
+                    identityReferences = await resolveVisualIdentityReferences(visualIdentity.references);
+                    identityPrompt = buildVisualIdentityPrompt(visualIdentity);
+                }
+            }
+        } catch (e) {
+            console.warn('[CloudImageGen] 视觉身份读取失败，继续生成（不带身份约束）:', e);
+        }
+    }
+
+    const merged: ReferenceImageInput[] = [];
+    const seenBlobRefs = new Set<string>();
+    for (const { reference, blob } of identityReferences) {
+        if (reference.isPrimary && !seenBlobRefs.has(reference.blobRef)) {
+            seenBlobRefs.add(reference.blobRef);
+            merged.push({ data: URL.createObjectURL(blob), mimeType: blob.type, name: `identity-primary-${reference.role}` });
+        }
+    }
+    merged.push(...(options.referenceImages || []));
+    for (const { reference, blob } of identityReferences) {
+        if (!reference.isPrimary && !seenBlobRefs.has(reference.blobRef)) {
+            seenBlobRefs.add(reference.blobRef);
+            merged.push({ data: URL.createObjectURL(blob), mimeType: blob.type, name: `identity-${reference.role}` });
+        }
+    }
+    const finalReferences = merged.slice(0, 5);
+    if (finalReferences.length && !config.allowReferenceImages) {
+        throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前配置已禁止参考图');
+    }
+
+    let skipReferences = false;
+    if (finalReferences.length && !ADAPTERS[config.provider].supportsReferenceImages) {
+        const hasUserProvidedRefs = (options.referenceImages?.length || 0) > 0;
+        if (config.provider === 'openai-images' && identityReferences.length > 0 && !hasUserProvidedRefs) {
+            skipReferences = true;
+            console.info('[CloudImageGen] openai-images 不支持参考图：跳过身份图片、保留身份文字约束（与本地行为一致）');
+        } else {
+            throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前接口模式不支持参考图，请改用 Gemini Native 或 GPT Images');
+        }
+    }
+
+    const identityMergedPrompt = identityPrompt ? `${identityPrompt}\n\n${prompt}` : prompt;
+    const finalPrompt = applyPhotoSemantics(identityMergedPrompt, {
+        identityActive: !!(visualIdentity?.enabled && visualIdentity.references.length > 0),
+    });
+
+    const inlineRefs = skipReferences ? [] : await Promise.all(finalReferences.map(async reference => {
+        const controller = new AbortController();
+        const inline = await toInlineReference(reference, fetch, controller.signal);
+        return { mimeType: inline.mimeType, base64: inline.base64 };
+    }));
+    return buildCloudImageGenRequestTemplate(
+        config,
+        { prompt: finalPrompt, style: options.style, resolution: options.resolution, aspectRatio: options.aspectRatio },
+        inlineRefs,
+    );
+}
+
 function composePrompt(prompt: string, style?: string): string {
     const cleanPrompt = prompt.trim();
     const cleanStyle = style?.trim();
     return cleanStyle ? `${cleanPrompt}\n\nStyle: ${cleanStyle}` : cleanPrompt;
+}
+
+// ─── S2：云端后台生图的上游请求模板 ─────────────────────────────
+// 客户端用与本地适配器**同一套**构建逻辑生成模板（含视觉身份参考图），密文交给自家
+// amsg Worker 执行；凭据只出现在 authHeaders，由 Worker 在已校验的 HTTPS 公网端点上注入。
+
+export interface CloudImageGenRequestTemplate {
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    bodyJson?: unknown;
+    formFields?: { name: string; value: string }[];
+    formFiles?: { name: string; filename: string; mimeType: string; base64: string }[];
+    authHeaders: Record<string, string>;
+}
+
+/**
+ * 按当前生图配置与选项构建上游请求模板（gemini-native / openai-images / gpt-images 三家
+ * 协议与本地 generateImage 完全同构；不支持参考图的 provider 传了参考图会明确抛错，
+ * 绝不静默丢弃——见 provider 支持（openai-images 不支持参考图）。
+ */
+export function buildCloudImageGenRequestTemplate(
+    config: ImageGenerationConfig,
+    options: Pick<GenerateImageOptions, 'prompt' | 'style' | 'resolution' | 'aspectRatio'>,
+    references: InlineReferenceImage[] = [],
+): CloudImageGenRequestTemplate {
+    const resolution = options.resolution || config.defaultResolution;
+    const aspectRatio = options.aspectRatio || config.defaultAspectRatio;
+    if (config.provider === 'openai-images' && references.length > 0) {
+        throw new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前生图接口不支持参考图：云端后台生图不会静默丢弃参考图，请切换支持参考图的接口或关闭参考图后重试。');
+    }
+    if (config.provider === 'gemini-native') {
+        const parts: any[] = [{ text: composePrompt(options.prompt, options.style) }];
+        for (const reference of references) {
+            parts.push({ inlineData: { mimeType: reference.mimeType, data: reference.base64 } });
+        }
+        return {
+            url: geminiEndpoint(config),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            bodyJson: {
+                contents: [{ role: 'user', parts }],
+                generationConfig: {
+                    responseModalities: ['TEXT', 'IMAGE'],
+                    imageConfig: { aspectRatio, imageSize: resolution },
+                },
+            },
+            authHeaders: geminiAuthHeaders(config),
+        };
+    }
+    // gpt-images（带参考图走 /images/edits multipart；官方模型用 output_format）
+    if (config.provider === 'gpt-images' && references.length > 0) {
+        const official = isOfficialGptImageModel(config.model);
+        const officialSize = official ? resolveGptImageSize(resolution, aspectRatio) : null;
+        const sizeValue = officialSize
+            ? `${officialSize.width}x${officialSize.height}`
+            : openAiSize(resolution, aspectRatio);
+        const editsEndpoint = openAiEndpoint(config.baseUrl).replace(/\/images\/generations$/i, '/images/edits');
+        return {
+            url: editsEndpoint,
+            method: 'POST',
+            headers: {},
+            formFields: [
+                { name: 'model', value: config.model },
+                { name: 'prompt', value: composePrompt(options.prompt, options.style) },
+                { name: 'n', value: '1' },
+                { name: 'size', value: sizeValue },
+                ...(official ? [{ name: 'output_format', value: 'png' }] : [{ name: 'response_format', value: 'b64_json' }]),
+            ],
+            formFiles: references.map((reference, index) => ({
+                name: official && references.length > 1 ? 'image[]' : 'image',
+                filename: `reference_${index}.${imageFileExtension(reference.mimeType)}`,
+                mimeType: reference.mimeType,
+                base64: reference.base64,
+            })),
+            authHeaders: bearerAuthHeaders(config),
+        };
+    }
+    // openai-images / gpt-images（无参考图）：/images/generations JSON
+    const official = config.provider === 'gpt-images' && isOfficialGptImageModel(config.model);
+    const officialSize = official ? resolveGptImageSize(resolution, aspectRatio) : null;
+    const sizeValue = officialSize
+        ? `${officialSize.width}x${officialSize.height}`
+        : openAiSize(resolution, aspectRatio);
+    return {
+        url: openAiEndpoint(config.baseUrl),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        bodyJson: official
+            ? { model: config.model, prompt: composePrompt(options.prompt, options.style), n: 1, size: sizeValue, output_format: 'png' }
+            : { model: config.model, prompt: composePrompt(options.prompt, options.style), n: 1, size: sizeValue, response_format: 'b64_json' },
+        authHeaders: bearerAuthHeaders(config),
+    };
 }
 
 /** 无鉴权模式（authMode === 'none'）下完全不携带鉴权头，避免 `Bearer undefined` 等伪造值。 */

@@ -37,6 +37,7 @@ import {
     settleStalePendingChatPhotos,
     CHAT_PHOTO_PENDING_STALE_MS,
 } from '../utils/chatPhotoGeneration';
+import { recoverCloudPhotoMessages } from '../utils/cloudImageGen';
 import { pruneBrowserTasks, registerBrowserTask, settleBrowserTask } from '../utils/browserTaskRecovery';
 import { useBlobRefUrl } from '../utils/blobRef';
 import ChatPhotoViewer from '../components/chat/ChatPhotoViewer';
@@ -712,8 +713,10 @@ const GroupChat: React.FC = () => {
             // 翻成「结果待确认」（failed + 手动重试），修复刷新后无限转圈/卡 pending。
             pruneBrowserTasks();
             DB.getRecentGroupMessagesWithCount(activeGroup.id, MESSAGE_PAGE_SIZE).then(async ({ messages: msgs, totalCount }) => {
-                const settled = await settleStalePendingChatPhotos(msgs);
-                if (settled > 0) {
+                // S2：先补收云端后台生图任务，再做本地 stale 结算（云任务窗口内不被误伤）。
+                const cloudSettled = await recoverCloudPhotoMessages(msgs);
+                const settled = cloudSettled > 0 ? 0 : await settleStalePendingChatPhotos(msgs);
+                if (settled + cloudSettled > 0) {
                     const reloaded = await DB.getRecentGroupMessagesWithCount(activeGroup.id, MESSAGE_PAGE_SIZE);
                     setMessages(reloaded.messages);
                     setTotalMsgCount(reloaded.totalCount);

@@ -33,6 +33,7 @@ import {
     IMAGE_GENERATION_SECTION_DEFAULT_OPEN,
     toggleImageGenerationSectionOpen,
 } from '../../utils/imageGenerationSettingsSection';
+import CloudImageGenToggle from './CloudImageGenToggle';
 
 interface Props {
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -387,6 +388,9 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                         <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${draft.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
                     </button>
                 </div>
+
+                {/* ─── S2：云端后台生成（提交到自己的 amsg Worker，锁屏/关页面后云端继续） ─── */}
+                <CloudImageGenToggle />
 
                 {/* ─── 接口预设：多套配置一键切换（原生 select，兼容 iPhone Safari / 安卓浏览器） ─── */}
                 <div className="rounded-2xl border border-slate-100 bg-white/60 p-3.5">

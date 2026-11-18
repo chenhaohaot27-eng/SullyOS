@@ -3016,6 +3016,78 @@ export const ActiveMsgClient = {
     return { updated, failed };
   },
 
+  // ─── S2：云端后台生图任务 ──────────────────────────────────────────
+  // 端点在 Worker 的 S1 口令门 + owner_pin 之后；信封用 userKey 加密（凭据不落明文）。
+
+  /** 受理（幂等）：相同 taskId 只回既有任务，不重复触发上游。 */
+  async submitImageGenTask(taskId: string, template: unknown): Promise<{ status: string; created: boolean }> {
+    const config = await ensureWorkerReady();
+    const client = await initializeClient(config);
+    const envelope = await encryptPayload(client, template);
+    const response = await fetchWithAuth('image-gen', config, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, envelope }),
+    }, '提交云端生图任务');
+    if (!response?.success) {
+      throw new Error(response?.error?.message || '云端生图任务提交失败。');
+    }
+    return {
+      status: String(response.data?.status || 'queued'),
+      created: response.data?.created !== false,
+    };
+  },
+
+  /** 状态查询：queued/running/completed/failed/unknown。 */
+  async queryImageGenTask(taskId: string): Promise<{
+    status: 'queued' | 'running' | 'completed' | 'failed' | 'unknown';
+    error?: string;
+    result?: { contentType: string; byteSize: number; revisedPrompt?: string };
+  } | null> {
+    const config = await ensureWorkerReady();
+    const response = await fetchWithAuth(`image-gen/${encodeURIComponent(taskId)}`, config, { method: 'GET' }, '查询云端生图任务');
+    if (!response?.success) {
+      const code = response?.error?.code;
+      if (code === 'TASK_NOT_FOUND') return null;
+      throw new Error(response?.error?.message || '查询云端生图任务失败。');
+    }
+    const data = response.data || {};
+    const status = String(data.status || 'unknown') as 'queued' | 'running' | 'completed' | 'failed' | 'unknown';
+    return {
+      status,
+      error: typeof data.error === 'string' ? data.error : undefined,
+      result: data.result || undefined,
+    };
+  },
+
+  /** 下载结果图片字节（鉴权 + 归属校验在服务端）。 */
+  async downloadImageGenResult(taskId: string): Promise<Blob> {
+    const config = await ensureWorkerReady();
+    const headers = new Headers();
+    if (config.serverToken) headers.set('X-Client-Token', config.serverToken);
+    headers.set('X-User-Id', config.userId);
+    const response = await fetch(`${normalizeWorkerBase(config.workerUrl)}/image-gen/${encodeURIComponent(taskId)}/result`, { headers });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+      throw new Error(body?.error?.message || `结果下载失败（HTTP ${response.status}）。`);
+    }
+    return await response.blob();
+  },
+
+  /** 取消（仅 queued）。 */
+  async cancelImageGenTask(taskId: string): Promise<boolean> {
+    const config = await ensureWorkerReady();
+    const response = await fetchWithAuth(`image-gen/${encodeURIComponent(taskId)}/cancel`, config, { method: 'POST' }, '取消云端生图任务');
+    return response?.success === true;
+  },
+
+  /** S2：读 /config-check 的原始 data（能力探测用：imageGen / imageStorage / serverTokenEnforced）。 */
+  async fetchWorkerConfigCheck(): Promise<Record<string, any> | null> {
+    const config = await ensureWorkerReady();
+    const response = await fetchWithAuth('config-check', config, { method: 'GET' }, '能力探测');
+    return (response?.data as Record<string, any>) || null;
+  },
+
   /**
    * 单角色版凭据刷新：面板保存后用。
    * 面板手里就有最新的角色级配置（onSave 落库是异步的，读 DB 会拿到旧的），

@@ -6,6 +6,7 @@ import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedu
 import { processImage } from '../utils/file';
 import { retryChatPhotoMessage } from '../utils/chatPhotoGeneration';
 import { settleStalePendingChatPhotos } from '../utils/chatPhotoGeneration';
+import { recoverCloudPhotoMessages } from '../utils/cloudImageGen';
 import { listStaleBrowserTasks, pruneBrowserTasks } from '../utils/browserTaskRecovery';
 import { toggleMessageFavorite } from '../utils/messageFavoriteCapture';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
@@ -391,8 +392,11 @@ const Chat: React.FC = () => {
                 console.info('[ChatRecovery] 检测到上次页面关闭时未完成的本地聊天生成，不自动重发', { count: staleChatTasks.length });
             }
             const recent = await DB.getRecentMessagesByCharId(char.id, 200);
+            // S2：先按 taskId 补收云端后台生图（completed→落图/failed→原因/unknown→待确认），
+            // 再做本地 stale 结算——云任务在窗口内不被本地 150s 判定误伤。
+            const cloudSettled = await recoverCloudPhotoMessages(recent);
             const settled = await settleStalePendingChatPhotos(recent);
-            if (settled > 0 && !cancelled) {
+            if (settled + cloudSettled > 0 && !cancelled) {
                 setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
             }
         })();

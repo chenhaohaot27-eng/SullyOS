@@ -8948,6 +8948,417 @@ async function handleSelfUpdate(request, env) {
   };
 }
 
+// worker/amsg/src/imageGen.ts
+var IMAGE_TASK_TTL_DAYS = 7;
+var IMAGE_PAYLOAD_MAX_BYTES = 900 * 1024;
+var IMAGE_D1_BLOB_MAX_BYTES = 900 * 1024;
+var IMAGE_R2_MAX_BYTES = 20 * 1024 * 1024;
+var IMAGE_UPSTREAM_TIMEOUT_MS = 3e5;
+var IMAGE_LEASE_MS = 12 * 60 * 1e3;
+var IMAGE_BATCH_LIMIT = 3;
+var IMAGE_TABLES_SQL = [
+  `CREATE TABLE IF NOT EXISTS image_tasks (
+    task_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    encrypted_payload TEXT NOT NULL,
+    result_meta TEXT,
+    error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    lease_until INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_image_tasks_status ON image_tasks(status, created_at)`,
+  `CREATE TABLE IF NOT EXISTS image_blobs (
+    task_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`
+];
+async function ensureImageTables(db) {
+  for (const sql of IMAGE_TABLES_SQL) await db.prepare(sql).run();
+}
+function createD1ImageStore(db) {
+  return {
+    async insertTaskIfAbsent(row) {
+      const result = await db.prepare(
+        "INSERT OR IGNORE INTO image_tasks (task_id, user_id, status, encrypted_payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(row.task_id, row.user_id, row.status, row.encrypted_payload, row.created_at, row.updated_at).run();
+      return (result?.meta?.changes ?? 1) > 0;
+    },
+    async getTask(taskId) {
+      const row = await db.prepare("SELECT task_id, user_id, status, encrypted_payload, result_meta, error, created_at, updated_at, lease_until FROM image_tasks WHERE task_id = ?").bind(taskId).first();
+      return row && typeof row.task_id === "string" ? row : null;
+    },
+    async claimTask(taskId, leaseUntil, now) {
+      const result = await db.prepare(
+        "UPDATE image_tasks SET status = 'running', lease_until = ?, updated_at = ? WHERE task_id = ? AND status = 'queued'"
+      ).bind(leaseUntil, now, taskId).run();
+      return (result?.meta?.changes ?? 0) > 0;
+    },
+    async expireStaleRunning(now) {
+      const result = await db.prepare(
+        "UPDATE image_tasks SET status = 'unknown', error = ?, updated_at = ? WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until < ?"
+      ).bind("\u6267\u884C\u79DF\u7EA6\u8D85\u65F6\uFF1A\u4E0A\u6E38\u7ED3\u679C\u4E0D\u660E\uFF08\u4E0D\u81EA\u52A8\u91CD\u53D1\uFF0C\u53EF\u624B\u52A8\u91CD\u8BD5\uFF09", now, now).run();
+      return result?.meta?.changes ?? 0;
+    },
+    async completeTask(taskId, resultMeta, now) {
+      await db.prepare(
+        "UPDATE image_tasks SET status = 'completed', result_meta = ?, error = NULL, updated_at = ?, lease_until = NULL WHERE task_id = ?"
+      ).bind(JSON.stringify(resultMeta), now, taskId).run();
+    },
+    async failTask(taskId, error, status, now) {
+      await db.prepare(
+        "UPDATE image_tasks SET status = ?, error = ?, updated_at = ?, lease_until = NULL WHERE task_id = ?"
+      ).bind(status, error, now, taskId).run();
+    },
+    async cancelTask(taskId, now) {
+      const result = await db.prepare(
+        "UPDATE image_tasks SET status = 'failed', error = '\u5DF2\u53D6\u6D88', updated_at = ?, lease_until = NULL WHERE task_id = ? AND status = 'queued'"
+      ).bind(now, taskId).run();
+      return (result?.meta?.changes ?? 0) > 0;
+    },
+    async listDueTasks(now, limit) {
+      const result = await db.prepare(
+        "SELECT task_id, user_id, status, lease_until FROM image_tasks WHERE status = 'queued' AND created_at <= ? ORDER BY created_at ASC LIMIT ?"
+      ).bind(now, limit).all();
+      return result?.results || [];
+    },
+    async putD1Blob(taskId, userId, contentType, bytes, now) {
+      await db.prepare(
+        "INSERT OR REPLACE INTO image_blobs (task_id, user_id, content_type, byte_size, data, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(taskId, userId, contentType, bytes.byteLength, base64Encode(bytes), now).run();
+    },
+    async getD1Blob(taskId) {
+      const row = await db.prepare("SELECT data, content_type, user_id FROM image_blobs WHERE task_id = ?").bind(taskId).first();
+      return row && typeof row.data === "string" ? { data: row.data, content_type: row.content_type || "image/png", user_id: row.user_id || "" } : null;
+    },
+    async deleteExpired(now) {
+      const cutoff = now - IMAGE_TASK_TTL_DAYS * 24 * 60 * 60 * 1e3;
+      const blobs = await db.prepare(
+        "DELETE FROM image_blobs WHERE task_id IN (SELECT task_id FROM image_tasks WHERE created_at < ? AND status IN ('completed', 'failed', 'unknown') LIMIT 200)"
+      ).bind(cutoff).run().catch(() => null);
+      const tasks = await db.prepare(
+        "DELETE FROM image_tasks WHERE created_at < ? AND status IN ('completed', 'failed', 'unknown') LIMIT 200"
+      ).bind(cutoff).run();
+      return (tasks?.meta?.changes ?? 0) + (blobs?.meta?.changes ?? 0);
+    }
+  };
+}
+function base64Encode(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+function base64Decode(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+var PRIVATE_HOST_RE = /^(localhost|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|0\.0\.0\.0|\[?::1\]?|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|.+\.local|.+\.internal)$/i;
+function validateUpstreamUrl(raw) {
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return { ok: false, error: "\u4E0A\u6E38\u5730\u5740\u65E0\u6CD5\u89E3\u6790" };
+  }
+  if (parsed.protocol !== "https:") return { ok: false, error: "\u4E0A\u6E38\u5730\u5740\u5FC5\u987B\u662F HTTPS\uFF08\u4E91\u7AEF\u4E0D\u4F1A\u5411\u660E\u6587 HTTP \u53D1\u9001\u51ED\u636E\uFF09" };
+  if (parsed.username || parsed.password) return { ok: false, error: "\u4E0A\u6E38\u5730\u5740\u4E0D\u5141\u8BB8\u643A\u5E26\u7528\u6237\u540D\u5BC6\u7801" };
+  if (parsed.port && parsed.port !== "443") return { ok: false, error: "\u4E0A\u6E38\u5730\u5740\u7AEF\u53E3\u53EA\u5141\u8BB8 443" };
+  if (PRIVATE_HOST_RE.test(parsed.hostname)) return { ok: false, error: "\u4E0A\u6E38\u5730\u5740\u662F\u5185\u7F51/\u672C\u673A\u5730\u5740\uFF0C\u4E91\u7AEF\u540E\u53F0\u751F\u56FE\u53EA\u8BBF\u95EE\u516C\u7F51\u7AEF\u70B9" };
+  return { ok: true, url: parsed.toString() };
+}
+var DATA_URI_RE = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
+function extractImageFromUpstreamPayload(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const root = payload;
+  const items = Array.isArray(root.data) ? root.data : Array.isArray(root.images) ? root.images : [];
+  for (const item of items) {
+    if (typeof item === "string") {
+      const fromString = imageFromValue(item);
+      if (fromString) return fromString;
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    for (const key of ["b64_json", "base64", "image", "url"]) {
+      const found = imageFromValue(item[key], item.mime_type || item.mimeType, item.revised_prompt || item.revisedPrompt);
+      if (found) return found;
+    }
+  }
+  for (const candidate of Array.isArray(root.candidates) ? root.candidates : []) {
+    const parts = candidate?.content?.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      const inline = part?.inlineData || part?.inline_data;
+      if (inline) {
+        const found = imageFromValue(`data:${inline.mimeType || inline.mime_type || "image/png"};base64,${inline.data}`);
+        if (found) return found;
+      }
+    }
+  }
+  return imageFromValue(root.b64_json) || imageFromValue(root.base64) || imageFromValue(root.image) || imageFromValue(root.url);
+}
+function imageFromValue(value, mimeType = "image/png", revisedPrompt) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const trimmed = value.trim();
+  const dataMatch = DATA_URI_RE.exec(trimmed);
+  if (dataMatch) return { base64: dataMatch[2].replace(/\s/g, ""), mimeType: dataMatch[1], revisedPrompt };
+  if (/^https?:\/\//i.test(trimmed)) return null;
+  if (trimmed.length < 8) return null;
+  return { base64: trimmed.replace(/\s/g, ""), mimeType, revisedPrompt };
+}
+var r2ObjectKey = (userId, taskId) => `img/${userId}/${taskId}`;
+async function runImageTask(taskId, userId, deps) {
+  const { store, env } = deps;
+  const now = deps.now ?? Date.now;
+  if (!await store.claimTask(taskId, now() + IMAGE_LEASE_MS, now())) return;
+  const task = await store.getTask(taskId);
+  if (!task || task.user_id !== userId) return;
+  let template;
+  try {
+    const userKey = await deriveUserEncryptionKey(userId, env.AMSG_MASTER_KEY || "");
+    template = await decryptPayload(JSON.parse(task.encrypted_payload), userKey);
+  } catch (error) {
+    await store.failTask(taskId, `\u4EFB\u52A1\u8F7D\u8377\u89E3\u5BC6\u5931\u8D25\uFF08\u6362\u8FC7 AMSG_MASTER_KEY\uFF1F\uFF09\uFF1A${error instanceof Error ? error.message : String(error)}`, "failed", now());
+    return;
+  }
+  try {
+    await executeUpstreamAndStore(taskId, userId, template, deps);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await store.failTask(taskId, `\u4E0A\u6E38\u8C03\u7528\u7ED3\u679C\u4E0D\u660E\uFF08${message}\uFF09\uFF1A\u4E0D\u81EA\u52A8\u91CD\u53D1\uFF0C\u53EF\u56DE\u9875\u9762\u624B\u52A8\u91CD\u8BD5`, "unknown", now());
+  }
+}
+async function executeUpstreamAndStore(taskId, userId, template, deps) {
+  const { store, env } = deps;
+  const now = deps.now ?? Date.now;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const upstreamCheck = validateUpstreamUrl(template.url);
+  if (!upstreamCheck.ok) {
+    await store.failTask(taskId, `\u4E0A\u6E38\u5730\u5740\u88AB\u62D2\u7EDD\uFF1A${upstreamCheck.error}`, "failed", now());
+    return;
+  }
+  let body;
+  const headers = { ...template.headers || {}, ...template.authHeaders || {} };
+  if (template.bodyJson !== void 0) {
+    body = JSON.stringify(template.bodyJson);
+  } else if (template.formFields || template.formFiles) {
+    const form = new FormData();
+    for (const field of template.formFields || []) form.append(field.name, field.value);
+    for (const file of template.formFiles || []) {
+      form.append(file.name, new Blob([base64Decode(file.base64).buffer], { type: file.mimeType }), file.filename);
+    }
+    body = form;
+  }
+  const response = await fetchImpl(upstreamCheck.url, {
+    method: template.method || "POST",
+    headers,
+    body,
+    redirect: "manual",
+    signal: AbortSignal.timeout(IMAGE_UPSTREAM_TIMEOUT_MS)
+  });
+  if (response.status >= 300 && response.status < 400) {
+    await store.failTask(taskId, `\u4E0A\u6E38\u8FD4\u56DE\u91CD\u5B9A\u5411\uFF08${response.status}\uFF09\uFF0C\u5DF2\u62D2\u7EDD\u8DDF\u968F`, "failed", now());
+    return;
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    await store.failTask(taskId, `\u4E0A\u6E38\u8FD4\u56DE HTTP ${response.status}\uFF1A${detail.slice(0, 200)}`, "failed", now());
+    return;
+  }
+  const payload = await response.json().catch(() => null);
+  const extracted = extractImageFromUpstreamPayload(payload);
+  if (!extracted || !extracted.base64) {
+    await store.failTask(taskId, "\u4E0A\u6E38\u54CD\u5E94\u91CC\u6CA1\u6709\u89E3\u6790\u5F97\u51FA\u56FE\u7247\uFF08\u534F\u8BAE\u4E0D\u517C\u5BB9\u6216\u7A7A\u7ED3\u679C\uFF09", "failed", now());
+    return;
+  }
+  const bytes = base64Decode(extracted.base64);
+  if (bytes.byteLength === 0) {
+    await store.failTask(taskId, "\u4E0A\u6E38\u8FD4\u56DE\u7684\u56FE\u7247\u5185\u5BB9\u4E3A\u7A7A", "failed", now());
+    return;
+  }
+  const bucket = deps.bucket || env.IMAGE_BUCKET;
+  const resultMeta = {
+    content_type: extracted.mimeType,
+    byte_size: bytes.byteLength,
+    revised_prompt: extracted.revisedPrompt
+  };
+  if (bucket) {
+    if (bytes.byteLength > IMAGE_R2_MAX_BYTES) {
+      await store.failTask(taskId, `\u7ED3\u679C\u56FE\u7247\u8D85\u8FC7 R2 \u4E0A\u9650 20MB`, "failed", now());
+      return;
+    }
+    await bucket.put(r2ObjectKey(userId, taskId), bytes, { httpMetadata: { contentType: extracted.mimeType } });
+    resultMeta.storage = "r2";
+    resultMeta.object_key = r2ObjectKey(userId, taskId);
+  } else {
+    if (bytes.byteLength > IMAGE_D1_BLOB_MAX_BYTES) {
+      await store.failTask(taskId, `\u7ED3\u679C\u56FE\u7247\u8D85\u8FC7 D1 \u76F4\u5B58\u4E0A\u9650 900KB\uFF1A\u8BF7\u7ED9 Worker \u7ED1\u5B9A R2\uFF08IMAGE_BUCKET\uFF09\u540E\u91CD\u8BD5`, "failed", now());
+      return;
+    }
+    await store.putD1Blob(taskId, userId, extracted.mimeType, bytes, now());
+    resultMeta.storage = "d1";
+  }
+  await store.completeTask(taskId, resultMeta, now());
+}
+async function runImageGenCronPass(deps) {
+  const { store } = deps;
+  const now = deps.now ?? Date.now;
+  let ran = 0;
+  try {
+    try {
+      await ensureImageTables(deps.env.DB);
+    } catch {
+    }
+    await store.expireStaleRunning(now());
+    for (const task of await store.listDueTasks(now(), IMAGE_BATCH_LIMIT)) {
+      await runImageTask(task.task_id, task.user_id, deps);
+      ran += 1;
+    }
+  } catch (error) {
+    console.warn("[image-gen] cron \u6D88\u8D39\u5931\u8D25\uFF08\u4E0B\u4E2A\u5468\u671F\u518D\u8BD5\uFF09", error);
+  }
+  let expired = 0;
+  try {
+    expired = await store.deleteExpired(now());
+    const bucket = deps.bucket || deps.env.IMAGE_BUCKET;
+    if (bucket) {
+      const listed = await bucket.list({ prefix: "img/", limit: 500 });
+      for (const object of listed.objects || []) {
+        const taskId = object.key.split("/").pop() || "";
+        const task = await store.getTask(taskId).catch(() => null);
+        if (!task) await bucket.delete(object.key).catch(() => null);
+      }
+    }
+  } catch (error) {
+    console.warn("[image-gen] \u8FC7\u671F\u6E05\u7406\u5931\u8D25\uFF08\u4E0B\u4E2A\u5468\u671F\u518D\u8BD5\uFF09", error);
+  }
+  return { ran, expired };
+}
+var storeOverrideForTests = null;
+var storeOf = (ctx) => storeOverrideForTests ?? ctx.store ?? createD1ImageStore(ctx.env.DB);
+var userIdOf = (request) => request.headers.get("x-user-id")?.trim() || "";
+async function handleImageGenSubmit(ctx) {
+  const { request, env, json } = ctx;
+  const now = ctx.now ?? Date.now;
+  const userId = userIdOf(request);
+  const body = await request.json().catch(() => null);
+  const taskId = typeof body?.taskId === "string" ? body.taskId.trim() : "";
+  const envelope = body?.envelope;
+  if (!taskId || !envelope || typeof envelope !== "object") {
+    return json(400, { success: false, error: { code: "INVALID_SUBMIT", message: "\u9700\u8981 { taskId, envelope }" } });
+  }
+  const encryptedPayload = JSON.stringify(envelope);
+  if (encryptedPayload.length > IMAGE_PAYLOAD_MAX_BYTES) {
+    return json(413, {
+      success: false,
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: `\u4EFB\u52A1\u8F7D\u8377\uFF08\u542B\u53C2\u8003\u56FE\uFF09\u8D85\u8FC7\u4E0A\u9650\u3002\u53C2\u8003\u56FE\u4E0D\u4F1A\u88AB\u9759\u9ED8\u4E22\u5F03\uFF1A\u8BF7\u538B\u7F29\u53C2\u8003\u56FE/\u51CF\u5C11\u6570\u91CF\u540E\u91CD\u8BD5\uFF0C\u6216\u6539\u7528\u65E0\u53C2\u8003\u56FE\u751F\u6210\u3002`
+      }
+    });
+  }
+  try {
+    const userKey = await deriveUserEncryptionKey(userId, env.AMSG_MASTER_KEY || "");
+    const template = await decryptPayload(envelope, userKey);
+    const check = validateUpstreamUrl(template.url);
+    if (!check.ok) return json(400, { success: false, error: { code: "UPSTREAM_REJECTED", message: `\u4E0A\u6E38\u5730\u5740\u88AB\u62D2\u7EDD\uFF1A${check.error}` } });
+  } catch {
+    return json(400, { success: false, error: { code: "ENVELOPE_INVALID", message: "\u8F7D\u8377\u89E3\u5BC6\u5931\u8D25\uFF1A\u8BF7\u786E\u8BA4 AMSG_MASTER_KEY \u4E0E\u672C\u673A\u914D\u7F6E\u4E00\u81F4" } });
+  }
+  const store = storeOf(ctx);
+  if (!storeOverrideForTests && !ctx.store) await ensureImageTables(env.DB);
+  const inserted = await store.insertTaskIfAbsent({
+    task_id: taskId,
+    user_id: userId,
+    status: "queued",
+    encrypted_payload: encryptedPayload,
+    result_meta: null,
+    error: null,
+    created_at: now(),
+    updated_at: now(),
+    lease_until: null
+  });
+  const task = await store.getTask(taskId);
+  if (!task) return json(500, { success: false, error: { code: "SUBMIT_FAILED", message: "\u4EFB\u52A1\u767B\u8BB0\u5931\u8D25" } });
+  return json(inserted ? 202 : 200, {
+    success: true,
+    data: {
+      taskId,
+      status: task.status,
+      created: inserted,
+      note: inserted ? void 0 : "\u4EFB\u52A1\u5DF2\u5B58\u5728\uFF08\u5E42\u7B49\u547D\u4E2D\uFF0C\u672A\u91CD\u590D\u63D0\u4EA4\u4E0A\u6E38\uFF09"
+    }
+  });
+}
+function statusView(task) {
+  const meta = task.result_meta ? JSON.parse(task.result_meta) : null;
+  return {
+    taskId: task.task_id,
+    status: task.status,
+    error: task.error || void 0,
+    result: meta ? {
+      contentType: typeof meta.content_type === "string" ? meta.content_type : "image/png",
+      byteSize: typeof meta.byte_size === "number" ? meta.byte_size : 0,
+      revisedPrompt: typeof meta.revised_prompt === "string" ? meta.revised_prompt : void 0
+    } : void 0,
+    createdAt: task.created_at,
+    updatedAt: task.updated_at
+  };
+}
+async function loadOwnedTask(ctx, taskId) {
+  const store = storeOf(ctx);
+  const task = await store.getTask(taskId);
+  if (!task) return null;
+  if (task.user_id !== userIdOf(ctx.request)) return "forbidden";
+  return task;
+}
+async function handleImageGenStatus(ctx, taskId) {
+  const task = await loadOwnedTask(ctx, taskId);
+  if (task === "forbidden") return ctx.json(403, { success: false, error: { code: "TASK_FORBIDDEN", message: "\u4EFB\u52A1\u4E0D\u5C5E\u4E8E\u5F53\u524D\u5F52\u5C5E\uFF08X-User-Id \u4E0E\u4EFB\u52A1\u5F52\u5C5E\u4E0D\u4E00\u81F4\uFF09" } });
+  if (!task) return ctx.json(404, { success: false, error: { code: "TASK_NOT_FOUND", message: "\u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u8FC7\u671F\u6E05\u7406" } });
+  return ctx.json(200, { success: true, data: statusView(task) });
+}
+async function handleImageGenCancel(ctx, taskId) {
+  const task = await loadOwnedTask(ctx, taskId);
+  if (task === "forbidden") return ctx.json(403, { success: false, error: { code: "TASK_FORBIDDEN", message: "\u4EFB\u52A1\u4E0D\u5C5E\u4E8E\u5F53\u524D\u5F52\u5C5E" } });
+  if (!task) return ctx.json(404, { success: false, error: { code: "TASK_NOT_FOUND", message: "\u4EFB\u52A1\u4E0D\u5B58\u5728" } });
+  const store = storeOf(ctx);
+  const cancelled = await store.cancelTask(taskId, (ctx.now ?? Date.now)());
+  if (!cancelled) return ctx.json(409, { success: false, error: { code: "NOT_CANCELLABLE", message: `\u4EFB\u52A1\u5DF2\u8FDB\u5165 ${task.status}\uFF0C\u4E0D\u80FD\u53D6\u6D88` } });
+  return ctx.json(200, { success: true, data: { taskId, status: "failed", note: "\u5DF2\u53D6\u6D88" } });
+}
+async function handleImageGenResult(ctx, taskId) {
+  const task = await loadOwnedTask(ctx, taskId);
+  if (task === "forbidden") return ctx.json(403, { success: false, error: { code: "TASK_FORBIDDEN", message: "\u4EFB\u52A1\u4E0D\u5C5E\u4E8E\u5F53\u524D\u5F52\u5C5E" } });
+  if (!task) return ctx.json(404, { success: false, error: { code: "TASK_NOT_FOUND", message: "\u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u8FC7\u671F\u6E05\u7406" } });
+  if (task.status !== "completed" || !task.result_meta) {
+    return ctx.json(409, { success: false, error: { code: "NOT_COMPLETED", message: `\u4EFB\u52A1\u72B6\u6001\u662F ${task.status}\uFF0C\u8FD8\u6CA1\u6709\u53EF\u4E0B\u8F7D\u7684\u7ED3\u679C` } });
+  }
+  const meta = JSON.parse(task.result_meta);
+  const bucket = ctx.env.IMAGE_BUCKET;
+  if (meta.storage === "r2" && bucket) {
+    const object = await bucket.get(meta.object_key || "");
+    if (!object) return ctx.json(410, { success: false, error: { code: "RESULT_EXPIRED", message: "\u7ED3\u679C\u56FE\u7247\u5DF2\u88AB\u8FC7\u671F\u6E05\u7406" } });
+    return new Response(object.body, {
+      status: 200,
+      headers: { "Content-Type": meta.content_type || "image/png", "Cache-Control": "private, no-store" }
+    });
+  }
+  const store = storeOf(ctx);
+  const blob = await store.getD1Blob(taskId);
+  if (!blob) return ctx.json(410, { success: false, error: { code: "RESULT_EXPIRED", message: "\u7ED3\u679C\u56FE\u7247\u5DF2\u88AB\u8FC7\u671F\u6E05\u7406" } });
+  return new Response(base64Decode(blob.data), {
+    status: 200,
+    headers: { "Content-Type": blob.content_type, "Cache-Control": "private, no-store" }
+  });
+}
+
 // utils/mcpFireCore.ts
 var DEFAULT_MAX_TOOL_NAME_LEN = 64;
 var MCP_FIRE_NAME_PREFIX = "mcp__";
@@ -13907,6 +14318,9 @@ var src_default = {
           // S1：这份 bundle 对敏感接口强制 AMSG_SERVER_TOKEN（旧 bundle 没有这个字段）。
           // 前端据此把「没配口令」从提醒升级为阻断级红字。
           serverTokenEnforced: true,
+          // S2：这份 bundle 支持云端后台生图；存储模式 r2（推荐）/ d1（≤900KB 小图兜底）。
+          imageGen: true,
+          imageStorage: env.IMAGE_BUCKET ? "r2" : "d1",
           // 这份代码认不认识「后台任务」（metadata.amsgKind → handler，见 fireKinds.ts）。
           // 老 bundle 没有这个字段，前端据此不去建那种任务——老 worker 会把它当聊天任务
           // 跑，然后卡在「本次任务指令缺失」终态失败：任务行不在用户的清单里，面板一片
@@ -13983,6 +14397,37 @@ var src_default = {
         });
       }
     }
+    const imageGenMatch = pathname.match(/^\/image-gen(?:\/([^/]+)(\/cancel|\/result)?)?$/);
+    if (imageGenMatch) {
+      if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+      if (typeof env.DB?.prepare !== "function" || !env.AMSG_MASTER_KEY?.trim()) {
+        return jsonWithCors(503, { success: false, error: { code: "WORKER_CONFIG_MISSING", message: "Worker \u914D\u7F6E\u4E0D\u5B8C\u6574\uFF08\u7F3A D1 \u7ED1\u5B9A\u6216 AMSG_MASTER_KEY\uFF09\uFF0C\u4E91\u7AEF\u751F\u56FE\u4E0D\u53EF\u7528\u3002" } });
+      }
+      const imageGenCtx = { request, env, json: jsonWithCors };
+      const [, taskId, suffix] = imageGenMatch;
+      if (!taskId) {
+        if (method !== "POST") {
+          return jsonWithCors(405, { success: false, error: { code: "METHOD_NOT_ALLOWED", message: "/image-gen \u53EA\u63A5\u53D7 POST" } });
+        }
+        return handleImageGenSubmit(imageGenCtx);
+      }
+      if (suffix === "/cancel") {
+        if (method !== "POST") {
+          return jsonWithCors(405, { success: false, error: { code: "METHOD_NOT_ALLOWED", message: "/image-gen/<id>/cancel \u53EA\u63A5\u53D7 POST" } });
+        }
+        return handleImageGenCancel(imageGenCtx, decodeURIComponent(taskId));
+      }
+      if (suffix === "/result") {
+        if (method !== "GET") {
+          return jsonWithCors(405, { success: false, error: { code: "METHOD_NOT_ALLOWED", message: "/image-gen/<id>/result \u53EA\u63A5\u53D7 GET" } });
+        }
+        return handleImageGenResult(imageGenCtx, decodeURIComponent(taskId));
+      }
+      if (method !== "GET") {
+        return jsonWithCors(405, { success: false, error: { code: "METHOD_NOT_ALLOWED", message: "/image-gen/<id> \u53EA\u63A5\u53D7 GET" } });
+      }
+      return handleImageGenStatus(imageGenCtx, decodeURIComponent(taskId));
+    }
     const report = inspectWorkerEnv(env);
     if (!report.ok) {
       if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -14010,6 +14455,16 @@ var src_default = {
       return;
     }
     await upstream.scheduled(event, env);
+    try {
+      if (typeof env.DB?.prepare === "function" && env.AMSG_MASTER_KEY?.trim()) {
+        await runImageGenCronPass({
+          env,
+          store: createD1ImageStore(env.DB)
+        });
+      }
+    } catch (error) {
+      console.warn("[amsg] image-gen cron \u9644\u52A0\u5904\u7406\u5931\u8D25\uFF08\u4E0D\u5F71\u54CD\u4E3B\u52A8\u6D88\u606F\uFF09", error);
+    }
   }
 };
 export {

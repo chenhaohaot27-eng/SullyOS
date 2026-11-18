@@ -27,6 +27,7 @@ import { loadImageGenerationConfig } from './imageGenerationConfig';
 import { chatPhotoIntentKey, claimChatPhotoTurn, type ChatPhotoIntent } from './chatPhotoIntent';
 import { syncAssistantPhotoToGallery } from './gallerySync';
 import { registerBrowserTask, settleBrowserTask } from './browserTaskRecovery';
+import { isCloudImageGenActive, submitCloudPhotoTask, CLOUD_IMAGE_UNKNOWN_SETTLE_MS } from './cloudImageGen';
 
 export type ChatPhotoStatus = 'pending' | 'ready' | 'failed';
 
@@ -234,6 +235,13 @@ export async function executeChatPhotoIntent(args: ExecuteChatPhotoArgs): Promis
         metadata: { ...(inheritMeta || {}), chatPhoto: meta },
     } as Parameters<typeof DB.saveMessage>[0]);
     await refresh?.();
+    // S2：云端后台生成开启时优先上云——提交即返回，之后切 App/锁屏/关页面都由云端继续，
+    // 消息凭 metadata.cloudImageTaskId 在回页面时补收（cloudImageGen.recoverCloudPhotoMessages）。
+    if (await isCloudImageGenActive()) {
+        await submitCloudPhotoTask({ char, intent, messageId, onToast });
+        await refresh?.();
+        return;
+    }
     await runChatPhotoGeneration({ char, messageId, intent, onToast });
     await refresh?.();
 }
@@ -287,8 +295,13 @@ export interface ExecuteGroupChatPhotoArgs {
  * runChatPhotoGeneration（视觉身份/参考图/预设/blobref/相册同步全部一致），
  * 成功后 content 变 blobref、metadata.chatPhoto.status='ready'。
  */
-export async function runGroupChatPhotoMessage(args: ExecuteGroupChatPhotoArgs): Promise<ChatPhotoRunOutcome> {
+export async function runGroupChatPhotoMessage(args: ExecuteGroupChatPhotoArgs): Promise<ChatPhotoRunOutcome | 'cloud-submitted'> {
     const { char, groupId, intent, messageId, onToast } = args;
+    // S2：群聊自主发图同样优先走云端后台任务（消息带 groupId+charId 双关联，补收一致）。
+    if (await isCloudImageGenActive()) {
+        const submitted = await submitCloudPhotoTask({ char, intent, messageId, groupId, onToast });
+        return submitted ? 'cloud-submitted' : { status: 'failed', reason: '云端任务提交失败，已标记可手动重试' };
+    }
     return runChatPhotoGeneration({ char, messageId, intent, onToast, groupId });
 }
 
@@ -309,6 +322,23 @@ export async function settleStalePendingChatPhotos(
         if (message.type !== 'image') continue;
         const meta = message.metadata?.chatPhoto as ChatPhotoMeta | undefined;
         if (!meta || meta.status !== 'pending') continue;
+        // S2：云端任务的 pending 由 cloudImageGen 按 taskId 查询收敛——本地 stale 判定
+        // 只处理「任务已被云端接走超过云端收敛窗口仍未落图」的残余，且只用云端的
+        // 「结果待确认」口径，绝不误伤还在云端排队/执行中的任务。
+        if (message.metadata?.cloudImageTaskId) {
+            if (nowMs - (meta.createdAt || 0) <= CLOUD_IMAGE_UNKNOWN_SETTLE_MS) continue;
+            if (message.metadata.cloudSettled !== true) {
+                try {
+                    await DB.updateMessageMetadata(message.id, prev => ({
+                        ...(prev || {}),
+                        cloudSettled: true,
+                        chatPhoto: { ...(prev?.chatPhoto || {}), status: 'failed', reason: CLOUD_IMAGE_UNCONFIRMED_REASON_FALLBACK },
+                    }));
+                    settled += 1;
+                } catch { /* 下次再试 */ }
+            }
+            continue;
+        }
         if (nowMs - (meta.createdAt || 0) <= CHAT_PHOTO_PENDING_STALE_MS) continue;
         try {
             await DB.updateMessageMetadata(message.id, prev => ({
@@ -325,3 +355,6 @@ export async function settleStalePendingChatPhotos(
     }
     return settled;
 }
+
+/** 云端任务的本地兜底文案（与 cloudImageGen.CLOUD_IMAGE_UNCONFIRMED_REASON 同口径）。 */
+const CLOUD_IMAGE_UNCONFIRMED_REASON_FALLBACK = '云端生成结果待确认（任务超时未收敛，未自动重发以避免重复扣费）。可点重试重新生成。';
