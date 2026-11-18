@@ -25,6 +25,11 @@ export interface GeminiNativeCallOptions {
   fetchImpl?: typeof fetch;
   /** 调用来源（安全脱敏的用途标签，如「聊天回复」），只进诊断日志，不进请求体。 */
   source?: string;
+  /**
+   * true → 走 `:generateContent`（一次性完整 JSON），用于和流式 `:streamGenerateContent`
+   * 做对照排查中转站问题。缺省 / false = 现有流式行为，不改变任何已有调用。
+   */
+  nonStream?: boolean;
 }
 
 export interface GeminiProviderState {
@@ -77,7 +82,7 @@ function clonePart<T extends JsonRecord>(part: T): T {
   return JSON.parse(JSON.stringify(part));
 }
 
-export function buildGeminiNativeEndpoint(baseUrl: string, model: string): string {
+export function buildGeminiNativeEndpoint(baseUrl: string, model: string, nonStream = false): string {
   let root = String(baseUrl ?? '').trim().replace(/\/+$/, '');
   if (!root) {
     throw new GeminiNativeAdapterError('Gemini Native requires a non-empty base URL and model.');
@@ -91,7 +96,8 @@ export function buildGeminiNativeEndpoint(baseUrl: string, model: string): strin
   if (!modelId) {
     throw new GeminiNativeAdapterError('Gemini Native requires a non-empty base URL and model.');
   }
-  return `${root}/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
+  const base = `${root}/models/${encodeURIComponent(modelId)}`;
+  return nonStream ? `${base}:generateContent` : `${base}:streamGenerateContent?alt=sse`;
 }
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -481,9 +487,23 @@ class SseEventDecoder {
 function feedJsonPayload(raw: string, assembler: GeminiResponseAssembler): void {
   const trimmed = raw.trim();
   if (!trimmed || trimmed === '[DONE]') return;
-  const parsed = JSON.parse(trimmed);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    // 个别中转站在事件之间只给单个换行（缺空行），多个 `data:` 会被并成一个 payload。
+    // 每行各是一个完整 JSON 时逐行喂入；任何一行解析不了就按原错误抛出，不吞数据。
+    const lines = trimmed.split('\n').map(line => line.trim()).filter(line => line && line !== '[DONE]');
+    if (lines.length < 2) throw error;
+    const items: unknown[] = [];
+    for (const line of lines) {
+      try { items.push(JSON.parse(line)); } catch { throw error; }
+    }
+    items.forEach(item => assembler.feed(item as JsonRecord));
+    return;
+  }
   if (Array.isArray(parsed)) parsed.forEach(item => assembler.feed(item));
-  else assembler.feed(parsed);
+  else assembler.feed(parsed as JsonRecord);
 }
 
 async function readGeminiResponse(
@@ -591,11 +611,11 @@ export async function requestGeminiNativeChat(
   openAiBody: JsonRecord,
   options: GeminiNativeCallOptions = {},
 ): Promise<JsonRecord> {
-  const endpoint = buildGeminiNativeEndpoint(baseUrl, model);
+  const endpoint = buildGeminiNativeEndpoint(baseUrl, model, options.nonStream === true);
   const nativeBody = buildGeminiNativeRequest(openAiBody);
   // 安全脱敏的请求摘要：只有来源/模型/消息数/末尾角色/工具数，不含密钥、正文与图片数据。
   console.info(
-    `[GeminiNative] → streamGenerateContent source=${options.source || 'unknown'}`
+    `[GeminiNative] → ${options.nonStream === true ? 'generateContent' : 'streamGenerateContent'} source=${options.source || 'unknown'}`
     + ` model=${String(openAiBody.model || model)} messages=${Array.isArray(openAiBody.messages) ? openAiBody.messages.length : 0}`
     + ` contentsTail=${describeContentsTail(nativeBody.contents)}`
     + ` systemParts=${nativeBody.systemInstruction?.parts.length ?? 0}`

@@ -332,6 +332,9 @@ export interface APIConfig {
   // Per-API streaming toggle. Some endpoints only support stream:true.
   // Missing → false (默认非流式).
   stream?: boolean;
+  // 仅 apiFormat === 'gemini-native' 生效：true → 用非流式 generateContent（排查中转站流式问题的对照开关）。
+  // Missing / false → 现有的 streamGenerateContent 行为。
+  geminiNonStream?: boolean;
   // Per-API temperature for chat / 约会 main calls. Missing → 0.85.
   temperature?: number;
 }

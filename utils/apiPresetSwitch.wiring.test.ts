@@ -31,9 +31,9 @@ describe('草稿同步不跨区块打架', () => {
     expect(settings).not.toMatch(/\}, \[apiConfig\]\);/);
   });
 
-  it('主 API 那份只盯自己的六个字段（含请求格式）', () => {
+  it('主 API 那份只盯自己的七个字段（含请求格式、Gemini 非流式）', () => {
     expect(settings).toMatch(
-      /\}, \[apiConfig\.baseUrl, apiConfig\.apiKey, apiConfig\.model, apiConfig\.apiFormat, apiConfig\.stream, apiConfig\.temperature\]\);/,
+      /\}, \[apiConfig\.baseUrl, apiConfig\.apiKey, apiConfig\.model, apiConfig\.apiFormat, apiConfig\.stream, apiConfig\.geminiNonStream, apiConfig\.temperature\]\);/,
     );
   });
 });

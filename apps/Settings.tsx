@@ -466,6 +466,7 @@ const Settings: React.FC = () => {
   const [localModel, setLocalModel] = useState(String(apiConfig.model || ''));
   const [localApiFormat, setLocalApiFormat] = useState<ChatApiFormat>(normalizeChatApiFormat(apiConfig.apiFormat));
   const [localStream, setLocalStream] = useState<boolean>(apiConfig.stream === true);
+  const [localGeminiNonStream, setLocalGeminiNonStream] = useState<boolean>(apiConfig.geminiNonStream === true);
   const [localTemperature, setLocalTemperature] = useState<number>(
     typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85
   );
@@ -848,8 +849,9 @@ const Settings: React.FC = () => {
       setLocalModel(String(apiConfig.model || ''));
       setLocalApiFormat(normalizeChatApiFormat(apiConfig.apiFormat));
       setLocalStream(apiConfig.stream === true);
+      setLocalGeminiNonStream(apiConfig.geminiNonStream === true);
       setLocalTemperature(typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85);
-  }, [apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model, apiConfig.apiFormat, apiConfig.stream, apiConfig.temperature]);
+  }, [apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model, apiConfig.apiFormat, apiConfig.stream, apiConfig.geminiNonStream, apiConfig.temperature]);
 
   useEffect(() => {
       setLocalVisionEnabled(apiConfig.visionApi?.enabled === true);
@@ -1015,6 +1017,7 @@ const Settings: React.FC = () => {
       model: normalizeApiModel(localModel),
       apiFormat: normalizeChatApiFormat(localApiFormat),
       stream: localStream,
+      geminiNonStream: localGeminiNonStream,
       temperature: localTemperature,
     };
     setLocalKey(nextConfig.apiKey);
@@ -2354,6 +2357,21 @@ const Settings: React.FC = () => {
                                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${localStream ? 'translate-x-4' : 'translate-x-0.5'}`} />
                                 </button>
                             </div>
+                            {localApiFormat === 'gemini-native' && (
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <span className="text-[10px] text-slate-400">Gemini 原生：非流式请求</span>
+                                        <p className="text-[9px] text-slate-300 mt-0.5">改用 generateContent 一次性返回，仅用于对照排查中转站流式问题</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setLocalGeminiNonStream(v => !v)}
+                                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${localGeminiNonStream ? 'bg-slate-400' : 'bg-slate-200'}`}
+                                    >
+                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${localGeminiNonStream ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                    </button>
+                                </div>
+                            )}
                             <div>
                                 <div className="flex items-center justify-between">
                                     <span className="text-[10px] text-slate-400">温度 (Temperature)</span>

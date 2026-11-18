@@ -2,7 +2,7 @@
 import { DB } from './db';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { CharacterProfile, CharPlaylistSong } from '../types';
-import { sanitizeForBubble } from './sanitize';
+import { mergeSplitPairs, protectAtomicTags, sanitizeForBubble } from './sanitize';
 import { extractTransferCommands } from './transferFormat';
 import { refundRejectedTransfer } from './transferWallet';
 import { detectExplicitHighCostRequest, gateAssistantHighCostAction, getLastUserMessageText } from './autonomousActions';
@@ -544,7 +544,8 @@ export const ChatParser = {
         // 容全角冒号：中文模型常输出 [[SEND_EMOJI：表情名]]（与 utils/sanitize.ts 的
         // replaceSendEmoji / SEND_PHOTO 标签同一高频变体）。此前只认半角冒号会让整个
         // 标签漏进气泡变成文字，表情包图片根本不发送——这是「角色发表情包只有文字」的直接根因。
-        const emojiPattern = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;
+        // 名称内部允许换行（模型偶尔把 [[SEND_EMOJI:\n名称]] 折行），上限 100 字防止漏闭合时吞正文。
+        const emojiPattern = /\[\[SEND_EMOJI[:：]\s*([\s\S]{0,100}?)\]\]/g;
         const parts: {type: 'text' | 'emoji', content: string}[] = [];
         let lastIndex = 0;
         let emojiMatch;
@@ -554,7 +555,7 @@ export const ChatParser = {
                 const textBefore = content.slice(lastIndex, emojiMatch.index).trim();
                 if (textBefore) parts.push({ type: 'text', content: textBefore });
             }
-            parts.push({ type: 'emoji', content: emojiMatch[1].trim() });
+            parts.push({ type: 'emoji', content: emojiMatch[1].replace(/\s+/g, ' ').trim() });
             lastIndex = emojiMatch.index + emojiMatch[0].length;
         }
 
@@ -588,15 +589,19 @@ export const ChatParser = {
             return `\n${ATOM}${idx}${ATOM}\n`;
         });
 
+        // 0.5 保护完整的 [[QUOTE/引用/SEND_EMOJI:…]]：标签内部的换行不是气泡边界，
+        //     否则半截标签会被撕进不同气泡 (QUOTE 配不上被引用消息、表情包名残缺)。
+        const tagGuard = protectAtomicTags(guardedText);
+
         // 1. Split on line breaks (AI decides where to break)
-        const lineChunks = guardedText.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/)
+        const lineChunks = mergeSplitPairs(tagGuard.guarded.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/)
             .map(c => c.trim())
-            .filter(c => c.length > 0);
+            .filter(c => c.length > 0));
 
         const ATOM_GLOBAL = new RegExp(`${ATOM}(\\d+)${ATOM}`, 'g');
         const restoreVoice = (s: string) => s.replace(ATOM_GLOBAL, (_m, n) => voiceBlocks[Number(n)] ?? '');
         return lineChunks
-            .map(restoreVoice)
+            .map(c => restoreVoice(tagGuard.restore(c)))
             .filter(c => c.length > 0);
     }
 }

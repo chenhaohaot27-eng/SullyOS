@@ -15,7 +15,7 @@ export interface ChatCompletionOptions {
 }
 
 export type ChatCompletionApiConfig = Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>
-  & Partial<Pick<APIConfig, 'apiFormat'>>;
+  & Partial<Pick<APIConfig, 'apiFormat' | 'geminiNonStream'>>;
 
 /**
  * 手动 ⚡ 续写时聊天历史最后一条是 assistant：OpenAI 兼容端点把它当 prefill/续写
@@ -86,6 +86,7 @@ export async function completeChat(
         streamHooks: body.stream === false ? undefined : options.streamHooks,
         fetchImpl: options.fetchImpl,
         source: options.meta?.purpose,
+        nonStream: apiConfig.geminiNonStream === true,
       },
     );
   }

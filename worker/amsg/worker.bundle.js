@@ -11335,6 +11335,67 @@ var stripLiteralBackslashN = (t) => t.replace(/\\n/g, "\n");
 var stripSourceTags = (t) => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, "\n");
 var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
 var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
+var stripLeadingDateTag = (t) => t.replace(/^[ \t]*\[\s*\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}[^\]]{0,40}\][ \t]*/gm, "");
+var spaced = (word) => Array.from(word).join("\\s*");
+var EMOTION_TAG_RE = new RegExp(
+  `^[ \\t]*\\[\\s*(?:${["normal", "happy", "angry", "sad", "shy"].map(spaced).join("|")})\\s*\\][ \\t]*`,
+  "gim"
+);
+var stripLeadingEmotionTag = (t) => t.replace(EMOTION_TAG_RE, "");
+var TAG_ATOM = String.fromCharCode(3);
+var TAG_ATOM_RE = new RegExp(`${TAG_ATOM}(\\d+)${TAG_ATOM}`, "g");
+var PROTECTED_TAG_RE = new RegExp(
+  `\\[\\s*\\[\\s*(${["QUOTE", "QUATE", "\u5F15\u7528", "SEND_EMOJI"].map(spaced).join("|")})\\s*[:\uFF1A]([\\s\\S]{0,300}?)\\]\\s*\\]`,
+  "g"
+);
+var CLEAN_TAG_RE = /^\[\[(?:QUOTE|QUATE|引用|SEND_EMOJI)[:：][^\n\r\u2028\u2029]*\]\]$/;
+function canonicalTag(m, rawName, body) {
+  if (CLEAN_TAG_RE.test(m)) return m;
+  const name = rawName.replace(/\s+/g, "");
+  return `[[${name}:${body.replace(/\s*(?:\r\n|\r|\n|\u2028|\u2029)\s*/g, " ")}]]`;
+}
+function repairSplitTags(t) {
+  if (t.indexOf("[") < 0) return t;
+  return t.replace(PROTECTED_TAG_RE, (m, name, body) => canonicalTag(m, name, body));
+}
+function protectAtomicTags(text) {
+  const tags = [];
+  const guarded = text.replace(PROTECTED_TAG_RE, (m, name, body) => {
+    tags.push(canonicalTag(m, name, body));
+    return `${TAG_ATOM}${tags.length - 1}${TAG_ATOM}`;
+  });
+  return {
+    guarded,
+    restore: (s) => tags.length === 0 ? s : s.replace(TAG_ATOM_RE, (_m, n) => tags[Number(n)] ?? "")
+  };
+}
+var PAIR_CLOSE = { "\u201C": "\u201D", "\u300C": "\u300D", "\u300E": "\u300F", "\uFF08": "\uFF09", "\u300A": "\u300B" };
+var PAIR_OPEN_RE = /[“「『（《]/;
+var PAIR_ANY_RE = /[“”「」『』（）《》]/g;
+var MERGE_MAX_CHARS = 120;
+function dangling(line) {
+  const stack = [];
+  for (const ch of line.match(PAIR_ANY_RE) ?? []) {
+    if (PAIR_CLOSE[ch]) stack.push(PAIR_CLOSE[ch]);
+    else if (stack[stack.length - 1] === ch) stack.pop();
+  }
+  return stack.length === 1 ? stack[0] : null;
+}
+function mergeSplitPairs(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const cur = lines[i];
+    const next = lines[i + 1];
+    const want = next === void 0 ? null : dangling(cur);
+    if (want && cur.length + next.length <= MERGE_MAX_CHARS && !PAIR_OPEN_RE.test(next) && dangling(next) === null && next.includes(want) && (next.match(PAIR_ANY_RE) ?? []).every((c) => c === want)) {
+      out.push(cur + next);
+      i++;
+    } else {
+      out.push(cur);
+    }
+  }
+  return out;
+}
 var stripRoleNamePrefix = (t) => t.replace(/^[\w一-龥]+:\s*/, "");
 var stripBusinessTagsForBubble = (t) => t.replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION|SEND_PHOTO)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
 var stripBusinessTagsForNotification = (t) => stripBusinessTagsForBubble(t).replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD|SEND_PHOTO)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[XHS_[A-Z_]+\]\]/g, "");
@@ -11460,6 +11521,7 @@ function sanitizeForNotification(text) {
   let result = text;
   result = stripLiteralBackslashN(result);
   result = stripThinkBlocks(result);
+  result = repairSplitTags(result);
   result = replaceHtmlBlocks(result);
   result = replaceEmojiReverseTag(result);
   result = replaceSendEmoji(result);
@@ -11467,6 +11529,8 @@ function sanitizeForNotification(text) {
   result = extractTranslationOriginal(result);
   result = stripTimestamps(result);
   result = stripChineseDate(result);
+  result = stripLeadingDateTag(result);
+  result = stripLeadingEmotionTag(result);
   result = stripRoleNamePrefix(result);
   result = stripSystemLogLeak(result);
   result = stripSourceTags(result);
@@ -11486,6 +11550,7 @@ function sanitizeIntoSegments(text) {
   let cleaned = stripLiteralBackslashN(text);
   cleaned = stripThinkBlocks(cleaned);
   cleaned = normalizeVoiceTags(cleaned);
+  cleaned = repairSplitTags(cleaned);
   cleaned = normalizeTranslationTags(cleaned);
   const ATOM_MARKER = String.fromCharCode(2);
   const atomBlocks = [];
@@ -11525,6 +11590,8 @@ ${ATOM_MARKER}B${idx}${ATOM_MARKER}
   cleaned = stripBusinessTagsForNotification(cleaned);
   cleaned = stripTimestamps(cleaned);
   cleaned = stripChineseDate(cleaned);
+  cleaned = stripLeadingDateTag(cleaned);
+  cleaned = stripLeadingEmotionTag(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);
   cleaned = stripSourceTags(cleaned);
   cleaned = stripLegacyTrans(cleaned);
@@ -11588,7 +11655,8 @@ function sanitizeTextForBanner(text) {
   return result;
 }
 function chunkText(text) {
-  return text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
+  const { guarded, restore } = protectAtomicTags(text);
+  return mergeSplitPairs(guarded.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0)).map(restore).filter((c) => c.length > 0);
 }
 function splitOnSendEmoji(chunk) {
   const re = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;

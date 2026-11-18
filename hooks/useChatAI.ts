@@ -1180,6 +1180,7 @@ export const useChatAI = ({
                 apiKey: effectiveApi.apiKey || 'sk-none',
                 model: effectiveApi.model,
                 apiFormat: effectiveApi.apiFormat,
+                geminiNonStream: (effectiveApi as any).geminiNonStream === true,
             };
             // 旧配置/非法值继续走 OpenAI；只有显式选择 Native 才切换协议。
             const openAiCompatible = effectiveApi.apiFormat !== 'gemini-native';

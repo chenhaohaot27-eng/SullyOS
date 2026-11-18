@@ -37,6 +37,110 @@ const stripTimestamps = (t: string): string =>
 const stripChineseDate = (t: string): string => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, '');
 
 /**
+ * 行首的完整日期/时间标签（含跨行断开的形态，如 `[2026-11-18\n10:00]` / `[2026-11-\n18]`）。
+ * 只在行首剥，正文中间的方括号不动；不跨过 `]`，所以不会吞掉后面的正文。
+ */
+const stripLeadingDateTag = (t: string): string =>
+  t.replace(/^[ \t]*\[\s*\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}[^\]]{0,40}\][ \t]*/gm, '');
+
+const spaced = (word: string): string => Array.from(word).join('\\s*');
+
+/**
+ * 行首的见面模式情绪标签 `[normal]/[happy]/[angry]/[sad]/[shy]`。聊天气泡里没有这套协议，
+ * 模型照搬见面历史时会让它们漏出来，单独成行时还会多出一个只有标签的气泡。
+ * 只剥行首且只认这五个固定词（容忍标签内部被换行/空格拆开，如 `[sh\ny]`），正文里的同形方括号不动。
+ */
+const EMOTION_TAG_RE = new RegExp(
+  `^[ \\t]*\\[\\s*(?:${['normal', 'happy', 'angry', 'sad', 'shy'].map(spaced).join('|')})\\s*\\][ \\t]*`,
+  'gim',
+);
+const stripLeadingEmotionTag = (t: string): string => t.replace(EMOTION_TAG_RE, '');
+
+// ─── 原子标签保护 / 修复 ─────────────────────────────────────────────────────
+
+const TAG_ATOM = String.fromCharCode(3);
+const TAG_ATOM_RE = new RegExp(`${TAG_ATOM}(\\d+)${TAG_ATOM}`, 'g');
+// 引用 / 表情包标签：名称后必须跟分隔符，内容最多 300 字，避免漏闭合时吞掉整段正文。
+// 容忍名称被拆开（`[[QUO\nTE:`）与收尾 `]` `]` 之间折行。
+const PROTECTED_TAG_RE = new RegExp(
+  `\\[\\s*\\[\\s*(${['QUOTE', 'QUATE', '引用', 'SEND_EMOJI'].map(spaced).join('|')})\\s*[:：]([\\s\\S]{0,300}?)\\]\\s*\\]`,
+  'g',
+);
+const CLEAN_TAG_RE = /^\[\[(?:QUOTE|QUATE|引用|SEND_EMOJI)[:：][^\n\r\u2028\u2029]*\]\]$/;
+
+/** 规整成下游认得的 `[[NAME:内容]]`；原本就是单行规范的标签字节原样返回。 */
+function canonicalTag(m: string, rawName: string, body: string): string {
+  if (CLEAN_TAG_RE.test(m)) return m;
+  const name = rawName.replace(/\s+/g, '');
+  return `[[${name}:${body.replace(/\s*(?:\r\n|\r|\n|\u2028|\u2029)\s*/g, ' ')}]]`;
+}
+
+/**
+ * 把被换行撕开的完整 `[[QUOTE|引用|SEND_EMOJI:…]]` 修回单行规范形态。落库前跑一次，
+ * 下游（splitResponse / QUOTE 正则 / worker 分段）都不用各自容错。未闭合的不动。
+ */
+export function repairSplitTags(t: string): string {
+  if (t.indexOf('[') < 0) return t;
+  return t.replace(PROTECTED_TAG_RE, (m, name: string, body: string) => canonicalTag(m, name, body));
+}
+
+/**
+ * 把完整的引用 / 表情包标签换成不含换行的占位符，防止标签内部的换行把标签撕到几个气泡里。
+ * 占位符原地替换（不额外加换行），所以标签原来独占一行或紧贴正文的形态都不变。
+ */
+export function protectAtomicTags(text: string): { guarded: string; restore: (s: string) => string } {
+  const tags: string[] = [];
+  const guarded = text.replace(PROTECTED_TAG_RE, (m, name: string, body: string) => {
+    tags.push(canonicalTag(m, name, body));
+    return `${TAG_ATOM}${tags.length - 1}${TAG_ATOM}`;
+  });
+  return {
+    guarded,
+    restore: (s: string) => (tags.length === 0 ? s : s.replace(TAG_ATOM_RE, (_m, n) => tags[Number(n)] ?? '')),
+  };
+}
+
+// ─── 成对标点跨行断裂合并 ────────────────────────────────────────────────────
+
+const PAIR_CLOSE: Record<string, string> = { '“': '”', '「': '」', '『': '』', '（': '）', '《': '》' };
+const PAIR_OPEN_RE = /[“「『（《]/;
+const PAIR_ANY_RE = /[“”「」『』（）《》]/g;
+const MERGE_MAX_CHARS = 120;
+
+/** 行尾还悬着的 CJK 成对开标点（如 `“今天天气` 没写 `”`），返回其对应的闭标点；否则 null。 */
+function dangling(line: string): string | null {
+  const stack: string[] = [];
+  for (const ch of line.match(PAIR_ANY_RE) ?? []) {
+    if (PAIR_CLOSE[ch]) stack.push(PAIR_CLOSE[ch]);
+    else if (stack[stack.length - 1] === ch) stack.pop();
+  }
+  return stack.length === 1 ? stack[0] : null;
+}
+
+/**
+ * 一对 CJK 引号/括号被换行撕开（上一行留着开标点、下一行出现唯一的闭标点且没有新的开标点）时，
+ * 把这两行并回一行。只处理这一种可可靠识别的断裂：下一行没有闭标点（多段引语）、
+ * 合并后超长、或下一行自己又开了新标点，都保持原样的一行一泡。
+ */
+export function mergeSplitPairs(lines: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const cur = lines[i];
+    const next = lines[i + 1];
+    const want = next === undefined ? null : dangling(cur);
+    if (want && cur.length + next.length <= MERGE_MAX_CHARS
+      && !PAIR_OPEN_RE.test(next) && dangling(next) === null
+      && next.includes(want) && (next.match(PAIR_ANY_RE) ?? []).every(c => c === want)) {
+      out.push(cur + next);
+      i++;
+    } else {
+      out.push(cur);
+    }
+  }
+  return out;
+}
+
+/**
  * 整个字符串首行的角色名 prefix `Sully:` / `User:` (无 m flag — 跟
  * applyAssistantPostProcessing.ts:normalizeAiContent 行为对齐).
  */
@@ -369,6 +473,7 @@ export function sanitizeForNotification(text: string): string {
   result = stripLiteralBackslashN(result);
   // 2. think 块最早剥 — 里面可能含其他 tag 影响后续匹配
   result = stripThinkBlocks(result);
+  result = repairSplitTags(result);
   // 3. HTML 块替换 — 内部 markdown/tag 不应被处理
   result = replaceHtmlBlocks(result);
   // 4. 反向 emoji tag 先于正向 SEND_EMOJI (反向可能也走 SEND_EMOJI 重写, 但这里直接转最终展示)
@@ -380,6 +485,8 @@ export function sanitizeForNotification(text: string): string {
   // 6. LLM mimicking 历史的 leak: 时间戳 / 日期 / 角色名 prefix / 系统日志
   result = stripTimestamps(result);
   result = stripChineseDate(result);
+  result = stripLeadingDateTag(result);
+  result = stripLeadingEmotionTag(result);
   result = stripRoleNamePrefix(result);
   result = stripSystemLogLeak(result);
   // 7. 源标签 [聊天] 等
@@ -422,9 +529,12 @@ export function sanitizeForBubble(
   //      applyAssistantPostProcessing Step 8 双语拆泡都靠严格配对正则)
   result = normalizeVoiceTags(result);
   result = normalizeTranslationTags(result);
+  result = repairSplitTags(result); // 引用/表情标签被换行撕开时修回单行
   // 2. 源标签 / 时间戳 / 系统日志 leak / 业务标签
   result = stripSourceTags(result);
   result = stripTimestamps(result);
+  result = stripLeadingDateTag(result);
+  result = stripLeadingEmotionTag(result);
   result = stripSystemLogLeak(result);
   result = stripMarkdownHeaders(result);
   result = stripBusinessTagsForBubble(result);
@@ -498,6 +608,7 @@ export function sanitizeIntoSegments(text: string): Segment[] {
   let cleaned = stripLiteralBackslashN(text);
   cleaned = stripThinkBlocks(cleaned);
   cleaned = normalizeVoiceTags(cleaned); // 语音标签自愈 — Phase 1.5 的配对保护靠它兜底
+  cleaned = repairSplitTags(cleaned); // 引用/表情标签被换行撕开时修回单行
   cleaned = normalizeTranslationTags(cleaned); // 翻译标签自愈 — 同上, Phase 1.5 的 <翻译> 原子保护靠它命中
 
   // Phase 1.5: 原子语义块交给 amsg-instant 标准 protected-block splitter 识别,
@@ -542,6 +653,8 @@ export function sanitizeIntoSegments(text: string): Segment[] {
   cleaned = stripBusinessTagsForNotification(cleaned);
   cleaned = stripTimestamps(cleaned);
   cleaned = stripChineseDate(cleaned);
+  cleaned = stripLeadingDateTag(cleaned);
+  cleaned = stripLeadingEmotionTag(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);
   cleaned = stripSourceTags(cleaned);
   // 注意: 这里**不**剥 stripQuotes — 引用要带到客户端让 Step 7 配 aiReplyTarget.
@@ -641,8 +754,11 @@ function sanitizeTextForBanner(text: string): string {
  *  2. trim + filter empty；行内普通空格原样保留
  */
 function chunkText(text: string): string[] {
-  return text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/)
+  const { guarded, restore } = protectAtomicTags(text);
+  return mergeSplitPairs(guarded.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/)
     .map((c) => c.trim())
+    .filter((c) => c.length > 0))
+    .map(restore)
     .filter((c) => c.length > 0);
 }
 
