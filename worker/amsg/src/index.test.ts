@@ -3006,7 +3006,7 @@ describe('inspectWorkerEnv — 配置自检', () => {
     expect(report.warnings.map((w: any) => w.code)).toContain('VAPID_MISSING');
   });
 
-  it('没配共享密钥时提醒端点是公开的（这种坏法完全静默，不提醒没人会发现）', () => {
+  it('没配共享密钥时报告 SERVER_TOKEN_MISSING（S1 起敏感接口已被口令门关死，这条警告负责把迁移步骤带到前端）', () => {
     const report = inspectWorkerEnv({ ...fullEnv, AMSG_SERVER_TOKEN: undefined });
     expect(report.ok).toBe(true);
     expect(report.warnings.map((w: any) => w.code)).toContain('SERVER_TOKEN_MISSING');
@@ -3014,17 +3014,23 @@ describe('inspectWorkerEnv — 配置自检', () => {
 });
 
 describe('worker 入口 — 配置不全时的响应', () => {
-  const brokenEnv = { AMSG_MASTER_KEY: '', DB: undefined } as any;
+  const brokenEnv = { AMSG_MASTER_KEY: '', DB: undefined, AMSG_SERVER_TOKEN: 'tok' } as any;
   const fullEnv = {
     AMSG_MASTER_KEY: 'a'.repeat(64),
     VAPID_EMAIL: 'mailto:a@b.c',
     VAPID_PUBLIC_KEY: 'pub',
     VAPID_PRIVATE_KEY: 'priv',
+    AMSG_SERVER_TOKEN: 'tok',
     DB: { prepare: () => {} },
   } as any;
 
+  // S1 起敏感接口要过口令门：这里的请求默认带正确口令（口令门自身的行为
+  // 由 tokenGate.test.ts 专门覆盖，这组测试关注的是「过了门之后」的各层响应）。
   const call = (url: string, init: RequestInit = {}, env: any = brokenEnv) =>
-    (worker as any).fetch(new Request(url, init), env, { waitUntil: () => {} });
+    (worker as any).fetch(new Request(url, {
+      ...init,
+      headers: { 'X-Client-Token': 'tok', ...(init.headers || {}) },
+    }), env, { waitUntil: () => {} });
 
   it('回明确的 WORKER_CONFIG_MISSING，而不是笼统的「服务器内部错误」', async () => {
     const response = await call('https://w.example/messages');
@@ -3970,11 +3976,16 @@ describe('即时对话的接线', () => {
     VAPID_EMAIL: 'mailto:a@b.c',
     VAPID_PUBLIC_KEY: 'pub',
     VAPID_PRIVATE_KEY: 'priv',
+    AMSG_SERVER_TOKEN: 'tok',
     DB: { prepare: () => {} },
   } as any;
 
+  // S1：口令门在这些路由之前，测试请求默认带正确口令（门本身的行为在 tokenGate.test.ts）。
   const call = (url: string, init: RequestInit = {}, env: any = fullEnv) =>
-    (worker as any).fetch(new Request(url, init), env, { waitUntil: () => {} });
+    (worker as any).fetch(new Request(url, {
+      ...init,
+      headers: { 'X-Client-Token': 'tok', ...(init.headers || {}) },
+    }), env, { waitUntil: () => {} });
 
   it('/config-check 带包装层能力标志（设置页拿它当唯一的版本门槛）', async () => {
     const response = await call('https://w.example/config-check');
@@ -4020,7 +4031,7 @@ describe('即时对话的接线', () => {
     const response = await call(
       'https://w.example/instant-chat',
       { method: 'POST', body: '{}' },
-      { AMSG_MASTER_KEY: '', DB: undefined } as any,
+      { AMSG_MASTER_KEY: '', DB: undefined, AMSG_SERVER_TOKEN: 'tok' } as any,
     );
     expect(response.status).toBe(503);
     expect((await response.json()).error.code).toBe('WORKER_CONFIG_MISSING');

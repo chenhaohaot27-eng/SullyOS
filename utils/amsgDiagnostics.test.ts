@@ -192,6 +192,33 @@ describe('buildAmsgDiagnosticRows — 红绿判定', () => {
     expect(summarizeAmsgDiagnostics(rows)).toBe('ok');
   });
 
+  it('S1：SERVER_TOKEN_MISSING → 访问口令行报红并带迁移指引；无警告时为绿', () => {
+    const bad = buildAmsgDiagnosticRows({
+      probe: {
+        reachable: true,
+        report: healthyReport({
+          config: {
+            ok: true,
+            missing: [],
+            message: '',
+            warnings: [{ code: 'SERVER_TOKEN_MISSING', message: '迁移：① 在 Cloudflare 添加 AMSG_SERVER_TOKEN…' }],
+          },
+        }),
+      },
+      localPushSubscribed: true,
+    });
+    const tokenRow = rowOf(bad, 'serverToken');
+    expect(tokenRow.level).toBe('bad');
+    expect(tokenRow.detail).toContain('迁移');
+    expect(summarizeAmsgDiagnostics(bad)).not.toBe('ok');
+
+    const good = buildAmsgDiagnosticRows({
+      probe: { reachable: true, report: healthyReport() },
+      localPushSubscribed: true,
+    });
+    expect(rowOf(good, 'serverToken').level).toBe('ok');
+  });
+
   it('连不上时其余各项是 unknown，不假装绿', () => {
     const rows = buildAmsgDiagnosticRows({
       probe: { reachable: false, reason: '连不上你的 Worker（amsg.example.workers.dev）。' },

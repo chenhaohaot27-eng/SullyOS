@@ -2521,7 +2521,7 @@ export const inspectWorkerEnv = (env: Env): WorkerEnvReport => {
   if (!env.AMSG_SERVER_TOKEN?.trim()) {
     warnings.push({
       code: 'SERVER_TOKEN_MISSING',
-      message: '没设 AMSG_SERVER_TOKEN，这个 Worker 地址对公网开放，知道地址的人都能读写你的任务。',
+      message: '没设 AMSG_SERVER_TOKEN：这个 Worker 的任务/订阅/凭据等敏感接口已全部关闭（403），主动消息与即时对话不可用。迁移：① 在 Cloudflare 的 Settings → Variables and Secrets 添加 AMSG_SERVER_TOKEN（Secret，可用 SullyOS 设置页的「随机」按钮生成）；② 在 SullyOS 设置里填同一串；③ 点「重新连接并验证」。已有数据不会被动清除。',
     });
   }
 
@@ -2534,6 +2534,155 @@ export const inspectWorkerEnv = (env: Env): WorkerEnvReport => {
     warnings,
   };
 };
+
+// ─── S1：敏感接口口令强制 + 单用户归属绑定 ─────────────────────────
+//
+// 背景（docs/cloud-background-phase1-audit.md §3）：上游库的 serverToken 是可选项，
+// 没配时 isAuthorized 恒 true——知道 Worker 地址的任何人都能读写任务、凭据，甚至用
+// 受害者的 X-User-Id 覆盖 push_subscriptions 行、把对方的聊天回复劫持到自己的设备。
+// S1 起这道闸改在包装层强制执行：
+//   1. AMSG_SERVER_TOKEN 没配 → 一切敏感端点 403 SERVER_TOKEN_REQUIRED（诊断三件套
+//      /config-check、/debug、/self-update 除外，各自有边界）；
+//   2. 配了但请求的 X-Client-Token 缺失/不符 → 401 INVALID_CLIENT_TOKEN（恒时比较）；
+//   3. 通过口令后再做「单用户归属绑定」：owner_pin 表记住这个 Worker 的主人 user_id，
+//      X-User-Id 只是数据分区键、从来不是凭据——绑定确保即使口令泄露被改 userId 也
+//      撞不上别人的分区；首次绑定只在「口令验证通过 + 存量数据归属核对」之后发生，
+//      绝不盲目认第一个请求者。换设备/换 ID 走 POST /owner-rebind（同样要口令）。
+// 不引入多租户：每个玩家一个 Worker，口令就是所有者凭据。
+
+/** 恒时比较（与上游库同款 HMAC 手法，防时序侧信道）。 */
+async function timingSafeTokenEqual(provided: string, configured: string): Promise<boolean> {
+  try {
+    const enc = new TextEncoder();
+    const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+    const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const a = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(provided)));
+    const b = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(configured)));
+    let diff = 0;
+    for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+    return diff === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** 测试可注入的最小 D1 形状（worker 运行时就是 env.DB）。 */
+export interface TokenGateD1Like {
+  prepare(sql: string): {
+    bind(...args: unknown[]): { first(): Promise<unknown>; run(): Promise<unknown>; all(): Promise<unknown> };
+    first(): Promise<unknown>;
+    run(): Promise<unknown>;
+    all(): Promise<unknown>;
+  };
+}
+
+/** 归属核对要看的存量表：这四张表里出现过的 user_id 就是「这个部署已有人认领」的证据。 */
+export const OWNER_PIN_SOURCE_TABLES = ['scheduled_messages', 'push_subscriptions', 'llm_credentials', 'client_state'] as const;
+
+async function ensureOwnerPinTable(db: TokenGateD1Like): Promise<void> {
+  await db.prepare(
+    'CREATE TABLE IF NOT EXISTS owner_pin (id INTEGER PRIMARY KEY CHECK (id = 1), user_id TEXT NOT NULL, pinned_at INTEGER NOT NULL)',
+  ).run();
+}
+
+async function readOwnerPin(db: TokenGateD1Like): Promise<string | null> {
+  await ensureOwnerPinTable(db);
+  const row = await db.prepare('SELECT user_id FROM owner_pin WHERE id = 1').first() as { user_id?: unknown } | null;
+  return typeof row?.user_id === 'string' && row.user_id ? row.user_id : null;
+}
+
+export async function writeOwnerPin(db: TokenGateD1Like, userId: string, now: number): Promise<void> {
+  await ensureOwnerPinTable(db);
+  await db.prepare('INSERT OR REPLACE INTO owner_pin (id, user_id, pinned_at) VALUES (1, ?, ?)').bind(userId, now).run();
+}
+
+async function collectExistingUserIds(db: TokenGateD1Like): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const table of OWNER_PIN_SOURCE_TABLES) {
+    try {
+      const result = await db.prepare(`SELECT DISTINCT user_id FROM ${table} LIMIT 5`).all() as { results?: { user_id?: unknown }[] } | null;
+      for (const row of result?.results || []) {
+        if (typeof row?.user_id === 'string' && row.user_id) ids.add(row.user_id);
+      }
+    } catch { /* 表还没建（全新库）＝没有存量归属 */ }
+  }
+  return [...ids];
+}
+
+const OWNER_MISMATCH_MESSAGE = '这个 Worker 是单用户部署，已绑定归属者：本次请求的 X-User-Id 与主人不一致，已拒绝。X-User-Id 只是数据标识、不是凭据；请在 SullyOS「主动消息 2.0」设置里沿用原来的用户 ID。确属本人更换设备/重装，请带正确口令 POST /owner-rebind 重新绑定（其他 user_id 名下的数据不会被删除，但要用原 ID 才读得到）。';
+
+export interface TokenGateOptions {
+  db?: TokenGateD1Like;
+  now?: () => number;
+}
+
+/**
+ * 敏感接口的统一授权门。返回 null = 放行（交给后续路由/上游，上游仍会再验一次口令）；
+ * 返回 Response = 直接以它回复，不进上游。
+ * 独立导出供 tokenGate.test.ts 在服务端接口层直测（不依赖两个浏览器标签页那类假隔离）。
+ */
+export async function enforceServerTokenGate(
+  request: Request,
+  env: Env,
+  options?: TokenGateOptions,
+): Promise<Response | null> {
+  const configured = env.AMSG_SERVER_TOKEN?.trim() || '';
+  if (!configured) {
+    return jsonWithCors(403, {
+      success: false,
+      error: {
+        code: 'SERVER_TOKEN_REQUIRED',
+        message: '这个 Worker 没有配置 AMSG_SERVER_TOKEN：为防止任何知道地址的人读写任务/订阅/凭据，敏感接口已全部关闭。迁移方法：① 在 Cloudflare Worker 的 Settings → Variables and Secrets 里添加 AMSG_SERVER_TOKEN（类型 Secret，可用 SullyOS 设置页的「随机」按钮生成）；② 在 SullyOS「主动消息 2.0」设置里填入同一串；③ 点「重新连接并验证」。已有任务/订阅/记录不会被清除。',
+      },
+    });
+  }
+  const provided = request.headers.get('x-client-token') || '';
+  if (!provided || !(await timingSafeTokenEqual(provided, configured))) {
+    return jsonWithCors(401, {
+      success: false,
+      error: {
+        code: 'INVALID_CLIENT_TOKEN',
+        message: '访问口令缺失或不正确：请在 SullyOS「主动消息 2.0」设置里填入与 Worker 的 AMSG_SERVER_TOKEN 完全一致的口令。换了口令的话，两端都要改成新的那一串。',
+      },
+    });
+  }
+
+  // ── 单用户归属绑定（防「改 X-User-Id 撞别人分区」）──
+  // /owner-rebind 是「合法换绑」的唯一通道，本身就要跳过 pin 检查（否则 ID 一变就永远
+  // 进不来了）；它仍然必须带正确口令（上面已验）。
+  const pathname = new URL(request.url).pathname.replace(/\/+$/, '');
+  if (pathname.endsWith('/owner-rebind')) return null;
+  const db = options?.db ?? ((env.DB as unknown as TokenGateD1Like | null));
+  if (!db || typeof db.prepare !== 'function') return null;
+  const userId = request.headers.get('x-user-id')?.trim() || '';
+  if (!userId) return null; // 没有 X-User-Id 的请求交给上游按既有规则处理
+  const now = (options?.now ?? Date.now)();
+  try {
+    const pinned = await readOwnerPin(db);
+    if (pinned === null) {
+      // 首次绑定：先核对存量归属。库里已有其他 user_id 的数据而本次请求不是其中之一
+      // → 拒绝（不盲目绑定第一个请求者）；请求者名下已有数据、或是全新库 → 绑定。
+      const existing = await collectExistingUserIds(db);
+      if (existing.length > 0 && !existing.includes(userId)) {
+        return jsonWithCors(403, {
+          success: false,
+          error: { code: 'OWNER_MISMATCH', message: OWNER_MISMATCH_MESSAGE },
+        });
+      }
+      await writeOwnerPin(db, userId, now);
+    } else if (pinned !== userId) {
+      return jsonWithCors(403, {
+        success: false,
+        error: { code: 'OWNER_MISMATCH', message: OWNER_MISMATCH_MESSAGE },
+      });
+    }
+  } catch (error) {
+    // 归属绑定是防混淆的次级闸（主人已凭口令进门）；库抖一下不能把主人挡死，
+    // 记一条日志放行——口令鉴权在上面已经生效。
+    console.warn('[amsg] owner pin 检查失败（放行，口令鉴权仍生效）', error);
+  }
+  return null;
+}
 
 /**
  * 预检放行的请求头。
@@ -2548,6 +2697,8 @@ export const inspectWorkerEnv = (env: Env): WorkerEnvReport => {
 const CORS_ALLOW_HEADERS =
   'Content-Type, Content-Encoding, X-User-Id, X-Payload-Encrypted, X-Encryption-Version, '
   + 'X-Response-Encrypted, X-Client-Token';
+
+
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -2934,6 +3085,9 @@ export default {
           ...inspectWorkerEnv(env),
           instantChat: true,
           instantTick: !!env.INSTANT_TICK,
+          // S1：这份 bundle 对敏感接口强制 AMSG_SERVER_TOKEN（旧 bundle 没有这个字段）。
+          // 前端据此把「没配口令」从提醒升级为阻断级红字。
+          serverTokenEnforced: true,
           // 这份代码认不认识「后台任务」（metadata.amsgKind → handler，见 fireKinds.ts）。
           // 老 bundle 没有这个字段，前端据此不去建那种任务——老 worker 会把它当聊天任务
           // 跑，然后卡在「本次任务指令缺失」终态失败：任务行不在用户的清单里，面板一片
@@ -2982,6 +3136,48 @@ export default {
         data: result.ok ? result : undefined,
         error: result.ok ? undefined : { code: result.code, message: result.message },
       });
+    }
+
+    // S1：从这儿开始全是敏感端点（任务/订阅/凭据/状态/outbox/即时对话/上游一切路由）。
+    // 统一口令门——诊断三件套（config-check / debug / self-update）在上面已各自返回。
+    // 预检（OPTIONS）不带自定义头，必须先放行，否则带 X-Client-Token 的正式请求
+    // 根本发不出去（同上面 CORS 注释的教训）。
+    if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
+    const tokenGate = await enforceServerTokenGate(request, env);
+    if (tokenGate) return tokenGate;
+
+    // /owner-rebind：凭正确口令把单用户归属绑定换成本次请求的 X-User-Id。
+    // 只重绑指针，绝不动任何 user_id 名下的数据（迁移设备/换 ID 后找回自己的分区）。
+    if (pathname.endsWith('/owner-rebind')) {
+      if (method !== 'POST') {
+        return jsonWithCors(405, {
+          success: false,
+          error: { code: 'METHOD_NOT_ALLOWED', message: '/owner-rebind 只接受 POST' },
+        });
+      }
+      const nextUserId = request.headers.get('x-user-id')?.trim() || '';
+      if (!nextUserId) {
+        return jsonWithCors(400, {
+          success: false,
+          error: { code: 'OWNER_ID_REQUIRED', message: '/owner-rebind 需要带 X-User-Id 头（要绑定的新主人 ID）。' },
+        });
+      }
+      try {
+        const db = env.DB as unknown as TokenGateD1Like;
+        await writeOwnerPin(db, nextUserId, Date.now());
+        return jsonWithCors(200, {
+          success: true,
+          data: {
+            ownerUserId: nextUserId,
+            note: '归属已重新绑定。其他 user_id 名下的数据没有被删除，但只有把 SullyOS 设置里的用户 ID 换成对应值才读得到。',
+          },
+        });
+      } catch (error) {
+        return jsonWithCors(500, {
+          success: false,
+          error: { code: 'OWNER_REBIND_FAILED', message: `归属绑定写入失败：${error instanceof Error ? error.message : String(error)}` },
+        });
+      }
     }
 
     const report = inspectWorkerEnv(env);

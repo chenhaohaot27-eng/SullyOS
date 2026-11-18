@@ -13622,7 +13622,7 @@ var inspectWorkerEnv = (env) => {
   if (!env.AMSG_SERVER_TOKEN?.trim()) {
     warnings.push({
       code: "SERVER_TOKEN_MISSING",
-      message: "\u6CA1\u8BBE AMSG_SERVER_TOKEN\uFF0C\u8FD9\u4E2A Worker \u5730\u5740\u5BF9\u516C\u7F51\u5F00\u653E\uFF0C\u77E5\u9053\u5730\u5740\u7684\u4EBA\u90FD\u80FD\u8BFB\u5199\u4F60\u7684\u4EFB\u52A1\u3002"
+      message: "\u6CA1\u8BBE AMSG_SERVER_TOKEN\uFF1A\u8FD9\u4E2A Worker \u7684\u4EFB\u52A1/\u8BA2\u9605/\u51ED\u636E\u7B49\u654F\u611F\u63A5\u53E3\u5DF2\u5168\u90E8\u5173\u95ED\uFF08403\uFF09\uFF0C\u4E3B\u52A8\u6D88\u606F\u4E0E\u5373\u65F6\u5BF9\u8BDD\u4E0D\u53EF\u7528\u3002\u8FC1\u79FB\uFF1A\u2460 \u5728 Cloudflare \u7684 Settings \u2192 Variables and Secrets \u6DFB\u52A0 AMSG_SERVER_TOKEN\uFF08Secret\uFF0C\u53EF\u7528 SullyOS \u8BBE\u7F6E\u9875\u7684\u300C\u968F\u673A\u300D\u6309\u94AE\u751F\u6210\uFF09\uFF1B\u2461 \u5728 SullyOS \u8BBE\u7F6E\u91CC\u586B\u540C\u4E00\u4E32\uFF1B\u2462 \u70B9\u300C\u91CD\u65B0\u8FDE\u63A5\u5E76\u9A8C\u8BC1\u300D\u3002\u5DF2\u6709\u6570\u636E\u4E0D\u4F1A\u88AB\u52A8\u6E05\u9664\u3002"
     });
   }
   return {
@@ -13632,6 +13632,99 @@ var inspectWorkerEnv = (env) => {
     warnings
   };
 };
+async function timingSafeTokenEqual(provided, configured) {
+  try {
+    const enc = new TextEncoder();
+    const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+    const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const a = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(provided)));
+    const b = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(configured)));
+    let diff = 0;
+    for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+    return diff === 0;
+  } catch {
+    return false;
+  }
+}
+var OWNER_PIN_SOURCE_TABLES = ["scheduled_messages", "push_subscriptions", "llm_credentials", "client_state"];
+async function ensureOwnerPinTable(db) {
+  await db.prepare(
+    "CREATE TABLE IF NOT EXISTS owner_pin (id INTEGER PRIMARY KEY CHECK (id = 1), user_id TEXT NOT NULL, pinned_at INTEGER NOT NULL)"
+  ).run();
+}
+async function readOwnerPin(db) {
+  await ensureOwnerPinTable(db);
+  const row = await db.prepare("SELECT user_id FROM owner_pin WHERE id = 1").first();
+  return typeof row?.user_id === "string" && row.user_id ? row.user_id : null;
+}
+async function writeOwnerPin(db, userId, now) {
+  await ensureOwnerPinTable(db);
+  await db.prepare("INSERT OR REPLACE INTO owner_pin (id, user_id, pinned_at) VALUES (1, ?, ?)").bind(userId, now).run();
+}
+async function collectExistingUserIds(db) {
+  const ids = /* @__PURE__ */ new Set();
+  for (const table of OWNER_PIN_SOURCE_TABLES) {
+    try {
+      const result = await db.prepare(`SELECT DISTINCT user_id FROM ${table} LIMIT 5`).all();
+      for (const row of result?.results || []) {
+        if (typeof row?.user_id === "string" && row.user_id) ids.add(row.user_id);
+      }
+    } catch {
+    }
+  }
+  return [...ids];
+}
+var OWNER_MISMATCH_MESSAGE = "\u8FD9\u4E2A Worker \u662F\u5355\u7528\u6237\u90E8\u7F72\uFF0C\u5DF2\u7ED1\u5B9A\u5F52\u5C5E\u8005\uFF1A\u672C\u6B21\u8BF7\u6C42\u7684 X-User-Id \u4E0E\u4E3B\u4EBA\u4E0D\u4E00\u81F4\uFF0C\u5DF2\u62D2\u7EDD\u3002X-User-Id \u53EA\u662F\u6570\u636E\u6807\u8BC6\u3001\u4E0D\u662F\u51ED\u636E\uFF1B\u8BF7\u5728 SullyOS\u300C\u4E3B\u52A8\u6D88\u606F 2.0\u300D\u8BBE\u7F6E\u91CC\u6CBF\u7528\u539F\u6765\u7684\u7528\u6237 ID\u3002\u786E\u5C5E\u672C\u4EBA\u66F4\u6362\u8BBE\u5907/\u91CD\u88C5\uFF0C\u8BF7\u5E26\u6B63\u786E\u53E3\u4EE4 POST /owner-rebind \u91CD\u65B0\u7ED1\u5B9A\uFF08\u5176\u4ED6 user_id \u540D\u4E0B\u7684\u6570\u636E\u4E0D\u4F1A\u88AB\u5220\u9664\uFF0C\u4F46\u8981\u7528\u539F ID \u624D\u8BFB\u5F97\u5230\uFF09\u3002";
+async function enforceServerTokenGate(request, env, options) {
+  const configured = env.AMSG_SERVER_TOKEN?.trim() || "";
+  if (!configured) {
+    return jsonWithCors(403, {
+      success: false,
+      error: {
+        code: "SERVER_TOKEN_REQUIRED",
+        message: "\u8FD9\u4E2A Worker \u6CA1\u6709\u914D\u7F6E AMSG_SERVER_TOKEN\uFF1A\u4E3A\u9632\u6B62\u4EFB\u4F55\u77E5\u9053\u5730\u5740\u7684\u4EBA\u8BFB\u5199\u4EFB\u52A1/\u8BA2\u9605/\u51ED\u636E\uFF0C\u654F\u611F\u63A5\u53E3\u5DF2\u5168\u90E8\u5173\u95ED\u3002\u8FC1\u79FB\u65B9\u6CD5\uFF1A\u2460 \u5728 Cloudflare Worker \u7684 Settings \u2192 Variables and Secrets \u91CC\u6DFB\u52A0 AMSG_SERVER_TOKEN\uFF08\u7C7B\u578B Secret\uFF0C\u53EF\u7528 SullyOS \u8BBE\u7F6E\u9875\u7684\u300C\u968F\u673A\u300D\u6309\u94AE\u751F\u6210\uFF09\uFF1B\u2461 \u5728 SullyOS\u300C\u4E3B\u52A8\u6D88\u606F 2.0\u300D\u8BBE\u7F6E\u91CC\u586B\u5165\u540C\u4E00\u4E32\uFF1B\u2462 \u70B9\u300C\u91CD\u65B0\u8FDE\u63A5\u5E76\u9A8C\u8BC1\u300D\u3002\u5DF2\u6709\u4EFB\u52A1/\u8BA2\u9605/\u8BB0\u5F55\u4E0D\u4F1A\u88AB\u6E05\u9664\u3002"
+      }
+    });
+  }
+  const provided = request.headers.get("x-client-token") || "";
+  if (!provided || !await timingSafeTokenEqual(provided, configured)) {
+    return jsonWithCors(401, {
+      success: false,
+      error: {
+        code: "INVALID_CLIENT_TOKEN",
+        message: "\u8BBF\u95EE\u53E3\u4EE4\u7F3A\u5931\u6216\u4E0D\u6B63\u786E\uFF1A\u8BF7\u5728 SullyOS\u300C\u4E3B\u52A8\u6D88\u606F 2.0\u300D\u8BBE\u7F6E\u91CC\u586B\u5165\u4E0E Worker \u7684 AMSG_SERVER_TOKEN \u5B8C\u5168\u4E00\u81F4\u7684\u53E3\u4EE4\u3002\u6362\u4E86\u53E3\u4EE4\u7684\u8BDD\uFF0C\u4E24\u7AEF\u90FD\u8981\u6539\u6210\u65B0\u7684\u90A3\u4E00\u4E32\u3002"
+      }
+    });
+  }
+  const pathname = new URL(request.url).pathname.replace(/\/+$/, "");
+  if (pathname.endsWith("/owner-rebind")) return null;
+  const db = options?.db ?? env.DB;
+  if (!db || typeof db.prepare !== "function") return null;
+  const userId = request.headers.get("x-user-id")?.trim() || "";
+  if (!userId) return null;
+  const now = (options?.now ?? Date.now)();
+  try {
+    const pinned = await readOwnerPin(db);
+    if (pinned === null) {
+      const existing = await collectExistingUserIds(db);
+      if (existing.length > 0 && !existing.includes(userId)) {
+        return jsonWithCors(403, {
+          success: false,
+          error: { code: "OWNER_MISMATCH", message: OWNER_MISMATCH_MESSAGE }
+        });
+      }
+      await writeOwnerPin(db, userId, now);
+    } else if (pinned !== userId) {
+      return jsonWithCors(403, {
+        success: false,
+        error: { code: "OWNER_MISMATCH", message: OWNER_MISMATCH_MESSAGE }
+      });
+    }
+  } catch (error) {
+    console.warn("[amsg] owner pin \u68C0\u67E5\u5931\u8D25\uFF08\u653E\u884C\uFF0C\u53E3\u4EE4\u9274\u6743\u4ECD\u751F\u6548\uFF09", error);
+  }
+  return null;
+}
 var CORS_ALLOW_HEADERS2 = "Content-Type, Content-Encoding, X-User-Id, X-Payload-Encrypted, X-Encryption-Version, X-Response-Encrypted, X-Client-Token";
 var CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -13811,6 +13904,9 @@ var src_default = {
           ...inspectWorkerEnv(env),
           instantChat: true,
           instantTick: !!env.INSTANT_TICK,
+          // S1：这份 bundle 对敏感接口强制 AMSG_SERVER_TOKEN（旧 bundle 没有这个字段）。
+          // 前端据此把「没配口令」从提醒升级为阻断级红字。
+          serverTokenEnforced: true,
           // 这份代码认不认识「后台任务」（metadata.amsgKind → handler，见 fireKinds.ts）。
           // 老 bundle 没有这个字段，前端据此不去建那种任务——老 worker 会把它当聊天任务
           // 跑，然后卡在「本次任务指令缺失」终态失败：任务行不在用户的清单里，面板一片
@@ -13853,6 +13949,40 @@ var src_default = {
         error: result.ok ? void 0 : { code: result.code, message: result.message }
       });
     }
+    if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+    const tokenGate = await enforceServerTokenGate(request, env);
+    if (tokenGate) return tokenGate;
+    if (pathname.endsWith("/owner-rebind")) {
+      if (method !== "POST") {
+        return jsonWithCors(405, {
+          success: false,
+          error: { code: "METHOD_NOT_ALLOWED", message: "/owner-rebind \u53EA\u63A5\u53D7 POST" }
+        });
+      }
+      const nextUserId = request.headers.get("x-user-id")?.trim() || "";
+      if (!nextUserId) {
+        return jsonWithCors(400, {
+          success: false,
+          error: { code: "OWNER_ID_REQUIRED", message: "/owner-rebind \u9700\u8981\u5E26 X-User-Id \u5934\uFF08\u8981\u7ED1\u5B9A\u7684\u65B0\u4E3B\u4EBA ID\uFF09\u3002" }
+        });
+      }
+      try {
+        const db = env.DB;
+        await writeOwnerPin(db, nextUserId, Date.now());
+        return jsonWithCors(200, {
+          success: true,
+          data: {
+            ownerUserId: nextUserId,
+            note: "\u5F52\u5C5E\u5DF2\u91CD\u65B0\u7ED1\u5B9A\u3002\u5176\u4ED6 user_id \u540D\u4E0B\u7684\u6570\u636E\u6CA1\u6709\u88AB\u5220\u9664\uFF0C\u4F46\u53EA\u6709\u628A SullyOS \u8BBE\u7F6E\u91CC\u7684\u7528\u6237 ID \u6362\u6210\u5BF9\u5E94\u503C\u624D\u8BFB\u5F97\u5230\u3002"
+          }
+        });
+      } catch (error) {
+        return jsonWithCors(500, {
+          success: false,
+          error: { code: "OWNER_REBIND_FAILED", message: `\u5F52\u5C5E\u7ED1\u5B9A\u5199\u5165\u5931\u8D25\uFF1A${error instanceof Error ? error.message : String(error)}` }
+        });
+      }
+    }
     const report = inspectWorkerEnv(env);
     if (!report.ok) {
       if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -13884,6 +14014,7 @@ var src_default = {
 };
 export {
   InstantTickDO,
+  OWNER_PIN_SOURCE_TABLES,
   amsgFireSettled,
   amsgHooks,
   amsgReasoningKey,
@@ -13893,6 +14024,7 @@ export {
   classifySchemaProbeError,
   configureInstantErrorPush,
   src_default as default,
+  enforceServerTokenGate,
   inspectPushDelivery,
   inspectWorkerEnv,
   offloadOversizedPush,
@@ -13901,5 +14033,6 @@ export {
   runFireRenewTool,
   runFireScheduleTool,
   runMcpFireTool,
-  splitSchemaMissing
+  splitSchemaMissing,
+  writeOwnerPin
 };

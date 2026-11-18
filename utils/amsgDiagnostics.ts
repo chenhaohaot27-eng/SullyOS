@@ -409,6 +409,19 @@ export const buildAmsgDiagnosticRows = (input: AmsgDiagnosticsInput): AmsgDiagno
     detail: masterKeyMissing ? MASTER_KEY_MISSING_HINT : masterKeyFormat?.message || '已配置。',
   });
 
+  // S1：Worker 敏感接口已强制口令（serverTokenEnforced），没配 = 主动消息/即时对话整条不可用。
+  // 旧 bundle 没有 SERVER_TOKEN_MISSING 的阻断语义，这里按「有警告就红」处理——老 Worker
+  // 的老警告文案本来也是「对公网开放」，报红同样是正确建议。
+  const tokenMissing = config.warnings.find((item) => item.code === 'SERVER_TOKEN_MISSING');
+  rows.push({
+    key: 'serverToken',
+    label: '访问口令',
+    level: tokenMissing ? 'bad' : 'ok',
+    detail: tokenMissing
+      ? tokenMissing.message
+      : 'AMSG_SERVER_TOKEN 已配置，任务/订阅/凭据等接口受口令保护。',
+  });
+
   // 库都没绑的话，下面这些查出来必然是「什么都没有」，报红会把人往错的方向引。
   if (dbMissing || !storage.reachable) {
     rows.push({

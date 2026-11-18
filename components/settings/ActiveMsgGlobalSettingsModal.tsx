@@ -1292,14 +1292,14 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
 
           <div>
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">
-              共享密钥（可选）
+              访问口令（必填）
             </label>
             <div className="flex gap-2">
               <input
                 type="password"
                 value={config.serverToken || ''}
                 onChange={(event) => patchConfig({ serverToken: event.target.value })}
-                placeholder="worker 配了 AMSG_SERVER_TOKEN 才需要填"
+                placeholder="与 Worker 的 AMSG_SERVER_TOKEN 完全一致；没有就点「随机」生成后在 Cloudflare 里配上同一串"
                 className="flex-1 bg-white/70 border border-slate-200 rounded-2xl px-4 py-3 text-sm"
               />
               <button
@@ -1313,6 +1313,9 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
             {generatedServerToken ? (
               <SecretReveal value={generatedServerToken} className="mt-1.5" />
             ) : null}
+            <p className="mt-1.5 px-1 text-[10px] leading-relaxed text-slate-400">
+              新版 Worker 已把口令设为必需：没配置时任务/订阅/凭据接口一律 403。老部署迁移：先用「随机」生成一串 → 在 Cloudflare Worker 的 Settings → Variables and Secrets 添加 AMSG_SERVER_TOKEN（Secret）→ 两边保持一致 → 点「重新连接并验证」。已有任务与记录不会被清除。
+            </p>
           </div>
 
           {/*
