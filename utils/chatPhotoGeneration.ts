@@ -14,7 +14,7 @@
  * Authorization 或完整请求；reason 在写库前对 config.apiKey 做一次额外脱敏兜底。
  */
 
-import type { CharacterProfile } from '../types';
+import type { CharacterProfile, Message } from '../types';
 import { DB } from './db';
 import { putImageBlob, resolveRefToDataUrl } from './blobRef';
 import {
@@ -26,6 +26,7 @@ import {
 import { loadImageGenerationConfig } from './imageGenerationConfig';
 import { chatPhotoIntentKey, claimChatPhotoTurn, type ChatPhotoIntent } from './chatPhotoIntent';
 import { syncAssistantPhotoToGallery } from './gallerySync';
+import { registerBrowserTask, settleBrowserTask } from './browserTaskRecovery';
 
 export type ChatPhotoStatus = 'pending' | 'ready' | 'failed';
 
@@ -82,10 +83,26 @@ interface RunArgs {
     messageId: number;
     intent: ChatPhotoIntent;
     onToast?: (msg: string, type: 'info' | 'success' | 'error') => void;
+    /** 群聊拍照消息：消息本体带 groupId（charId 仍是发送者），台账/日志归属用。 */
+    groupId?: string;
 }
 
-/** 核心生图流程：不带 claim（execute 与 retry 共用），调用方负责去重。 */
-async function runChatPhotoGeneration({ char, messageId, intent, onToast }: RunArgs): Promise<ChatPhotoRunOutcome> {
+/**
+ * 核心生图流程：不带 claim（execute 与 retry 共用），调用方负责去重。
+ * 全程挂浏览器任务台账（register/settle）：页面在生成期间被切后台/刷新导致没有销账时，
+ * 回到页面由 settleStalePendingChatPhotos 把消息翻成「结果待确认」+ 手动重试，
+ * 绝不自动重发（生图接口无异步任务 ID 可查，重复请求可能重复扣费）。
+ */
+async function runChatPhotoGeneration({ char, messageId, intent, onToast, groupId }: RunArgs): Promise<ChatPhotoRunOutcome> {
+    const browserTaskId = registerBrowserTask({ kind: 'photo', charId: char.id, groupId });
+    try {
+        return await runChatPhotoGenerationInner({ char, messageId, intent, onToast, groupId });
+    } finally {
+        settleBrowserTask(browserTaskId);
+    }
+}
+
+async function runChatPhotoGenerationInner({ char, messageId, intent, onToast }: RunArgs): Promise<ChatPhotoRunOutcome> {
     const config = loadImageGenerationConfig();
     // 可观测性：分阶段记录（安全脱敏——只有阶段/角色ID/长度，不含 prompt 内容、Key、图片数据）。
     const stageLog = (stage: string, extra: Record<string, unknown> = {}) => {
@@ -224,13 +241,17 @@ export async function executeChatPhotoIntent(args: ExecuteChatPhotoArgs): Promis
 /**
  * 手动重试：按消息 metadata.chatPhoto 里冻存的意图原样重跑一次（用户显式点击，
  * 不受 claim 限制；也不做任何自动重试）。
+ * groupId 传入时按群线程查消息（群聊拍照消息带 groupId，不在私聊线程里）。
  */
 export async function retryChatPhotoMessage(
     char: CharacterProfile,
     messageId: number,
     onToast?: (msg: string, type: 'info' | 'success' | 'error') => void,
+    groupId?: string,
 ): Promise<ChatPhotoRunOutcome | null> {
-    const messages = await DB.getMessagesByCharId(char.id, true);
+    const messages: Message[] = groupId
+        ? await DB.getGroupMessages(groupId)
+        : await DB.getMessagesByCharId(char.id, true);
     const message = messages.find(m => m.id === messageId);
     const meta = message?.metadata?.chatPhoto as ChatPhotoMeta | undefined;
     if (!message || message.type !== 'image' || !meta || !String(meta.prompt || '').trim()) return null;
@@ -244,5 +265,63 @@ export async function retryChatPhotoMessage(
         const { reason: _drop, ...rest } = (prev?.chatPhoto || {}) as ChatPhotoMeta;
         return { ...(prev || {}), chatPhoto: { ...rest, status: 'pending', createdAt: Date.now() } };
     });
-    return runChatPhotoGeneration({ char, messageId, intent, onToast });
+    return runChatPhotoGeneration({ char, messageId, intent, onToast, groupId });
+}
+
+// ─── 群聊自主发图（C 类）与后台恢复（A 类）──────────────────
+
+export interface ExecuteGroupChatPhotoArgs {
+    /** 发送者（照片按其性格/身份生成，相册同步到其名下）。 */
+    char: CharacterProfile;
+    /** 群 ID：消息带 groupId + charId 双关联。 */
+    groupId: string;
+    intent: ChatPhotoIntent;
+    /** 群聊侧统一落库后的消息 id（由调用方先落 pending 消息再调这里）。 */
+    messageId: number;
+    onToast?: (msg: string, type: 'info' | 'success' | 'error') => void;
+    refresh?: () => Promise<void> | void;
+}
+
+/**
+ * 群聊拍照消息的生成执行：消息已由调用方落库（pending），这里复用同一套
+ * runChatPhotoGeneration（视觉身份/参考图/预设/blobref/相册同步全部一致），
+ * 成功后 content 变 blobref、metadata.chatPhoto.status='ready'。
+ */
+export async function runGroupChatPhotoMessage(args: ExecuteGroupChatPhotoArgs): Promise<ChatPhotoRunOutcome> {
+    const { char, groupId, intent, messageId, onToast } = args;
+    return runChatPhotoGeneration({ char, messageId, intent, onToast, groupId });
+}
+
+/** 「结果待确认」的标准说明：页面中断时无法判断上游是否已出图/计费，交给用户决定是否重试。 */
+export const CHAT_PHOTO_UNCONFIRMED_REASON = '页面在生成期间中断，结果待确认（未自动重试以避免重复扣费）。可点击重试重新生成。';
+
+/**
+ * 后台恢复结算（A5）：把超过 CHAT_PHOTO_PENDING_STALE_MS 仍是 pending 的拍照消息
+ * 翻成 failed +「结果待确认」原因。幂等：已 failed/ready 的不动。
+ * 返回结算条数。调用方传「刚加载出来的消息列表」（单聊线程或群线程均可）。
+ */
+export async function settleStalePendingChatPhotos(
+    messages: Message[],
+    nowMs: number = Date.now(),
+): Promise<number> {
+    let settled = 0;
+    for (const message of messages) {
+        if (message.type !== 'image') continue;
+        const meta = message.metadata?.chatPhoto as ChatPhotoMeta | undefined;
+        if (!meta || meta.status !== 'pending') continue;
+        if (nowMs - (meta.createdAt || 0) <= CHAT_PHOTO_PENDING_STALE_MS) continue;
+        try {
+            await DB.updateMessageMetadata(message.id, prev => ({
+                ...(prev || {}),
+                chatPhoto: { ...(prev?.chatPhoto || {}), status: 'failed', reason: CHAT_PHOTO_UNCONFIRMED_REASON },
+            }));
+            settled += 1;
+        } catch (error) {
+            console.warn('[ChatPhoto] 恢复结算写入失败（下次再试）', { messageId: message.id, error });
+        }
+    }
+    if (settled > 0) {
+        console.info(`[ChatPhoto] 后台恢复结算：${settled} 条 pending 超时，翻为「结果待确认」`);
+    }
+    return settled;
 }

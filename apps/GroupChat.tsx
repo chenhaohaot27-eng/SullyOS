@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallba
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { Message, GroupProfile, CharacterProfile, MessageType, ChatTheme, BubbleStyle, EmojiCategory } from '../types';
+import { Message, GroupProfile, CharacterProfile, MessageType, ChatTheme, BubbleStyle, EmojiCategory, GroupAutonomyLevel } from '../types';
 import { safeResponseJson } from '../utils/safeApi';
 import Modal from '../components/os/Modal';
 import { ContextBuilder } from '../utils/context';
@@ -18,10 +18,32 @@ import { buildChatFineTuneCss } from '../utils/chatFineTuneCss';
 import { parseDirectorActions, stripSkipMarker, parseGroupTopicBox } from '../utils/groupChat/parse';
 import { GroupPacketMeta, PacketReceiptMeta, ClaimResult, claimPacket, effectivePacketStatus, makePacketMeta } from '../utils/groupChat/redpacket';
 import { messageLogText } from '../utils/groupChat/format';
+import {
+    GroupAutonomyScheduler,
+    capAutonomyActions,
+    consumePhotoQuota,
+    loadGroupAutonomyState,
+    saveGroupAutonomyState,
+    normalizeGroupAutonomyLevel,
+    GROUP_AUTONOMY_LEVELS,
+    MAX_MESSAGES_PER_AUTONOMY_ROUND,
+} from '../utils/groupChat/autonomy';
+import { extractGroupPhotoFromActions, planGroupAutonomyPhoto } from '../utils/groupChat/autonomyPhoto';
+import { loadImageGenerationConfig } from '../utils/imageGenerationConfig';
+import {
+    type ChatPhotoMeta,
+    retryChatPhotoMessage,
+    runGroupChatPhotoMessage,
+    settleStalePendingChatPhotos,
+    CHAT_PHOTO_PENDING_STALE_MS,
+} from '../utils/chatPhotoGeneration';
+import { pruneBrowserTasks, registerBrowserTask, settleBrowserTask } from '../utils/browserTaskRecovery';
+import { useBlobRefUrl } from '../utils/blobRef';
+import ChatPhotoViewer from '../components/chat/ChatPhotoViewer';
 import { trackEvent } from '../utils/analytics';
 import { markAmsgStateDirty } from '../utils/amsgStateSync';
 import { buildMemberTimeline, DEFAULT_MEMBER_TIMELINE_CAP } from '../utils/groupChat/timeline';
-import { buildEmojiContextStr, buildGroupHistoryBlock, buildDirectorInstruction, buildRoundRobinInstruction, GroupHistoryBlock } from '../utils/groupChat/prompts';
+import { buildEmojiContextStr, buildGroupHistoryBlock, buildDirectorInstruction, buildRoundRobinInstruction, buildAutonomyInstruction, GroupHistoryBlock } from '../utils/groupChat/prompts';
 import { dispatchMemberActions } from '../utils/groupChat/dispatch';
 import { completeGroupChatWithMcp } from '../utils/groupChat/mcp';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
@@ -111,6 +133,86 @@ const GroupPacketCard = ({ msg, nameOf, onOpen }: {
     );
 };
 
+// --- Sub-Component: 群聊拍照气泡（C 类：角色自主发图的消息形态） ---
+// 与私聊 MessageItem 的 ChatPhotoBubble 同协议：metadata.chatPhoto 驱动
+// pending（正在拍照…）/ ready（blobref 真图 + 全屏预览）/ failed（原因 + 手动重试）。
+// stale pending（页面在生成期间被切走/刷新）同样按 failed 展示并给重试——绝不无限转圈。
+const GroupChatPhotoBubble: React.FC<{
+    msg: Message;
+    char?: CharacterProfile;
+    onRetry?: (msg: Message) => void;
+}> = ({ msg, char, onRetry }) => {
+    const meta = msg.metadata?.chatPhoto as ChatPhotoMeta | undefined;
+    const imageUrl = useBlobRefUrl(msg.content || undefined);
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const [nowTick, setNowTick] = useState(() => Date.now());
+    useEffect(() => {
+        if (!meta || meta.status !== 'pending') return;
+        const timer = setInterval(() => setNowTick(Date.now()), 10_000);
+        return () => clearInterval(timer);
+    }, [meta?.status]);
+    if (!meta) return null;
+    const isStalePending = meta.status === 'pending' && nowTick - (meta.createdAt || 0) > CHAT_PHOTO_PENDING_STALE_MS;
+
+    if (meta.status === 'ready') {
+        return (
+            <div className="w-[220px] max-w-full">
+                {imageUrl ? (
+                    <>
+                        <img
+                            src={imageUrl}
+                            className="w-full rounded-2xl shadow-sm cursor-zoom-in"
+                            alt={meta.caption || '照片'}
+                            loading="lazy"
+                            onClick={() => setViewerOpen(true)}
+                            style={{ WebkitTouchCallout: 'default' } as React.CSSProperties}
+                        />
+                        {viewerOpen && (
+                            <ChatPhotoViewer
+                                content={msg.content}
+                                displayUrl={imageUrl}
+                                caption={meta.caption}
+                                onClose={() => setViewerOpen(false)}
+                            />
+                        )}
+                    </>
+                ) : (
+                    <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[图片已丢失]</div>
+                )}
+                {!!meta.caption?.trim() && (
+                    <div className="mt-1 px-1 text-[12px] leading-relaxed text-slate-600">{meta.caption}</div>
+                )}
+            </div>
+        );
+    }
+
+    if (meta.status === 'pending' && !isStalePending) {
+        return (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/95 border border-white/70 shadow-sm text-xs text-slate-500">
+                <svg className="animate-spin h-3.5 w-3.5 shrink-0 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>{char?.name ? `${char.name} 正在拍照…` : '正在拍照…'}</span>
+            </div>
+        );
+    }
+
+    const reason = meta.status === 'failed' && meta.reason ? meta.reason : '生成中断，结果待确认';
+    return (
+        <div className="w-[220px] max-w-full px-4 py-3 rounded-2xl bg-rose-50/90 border border-rose-100 shadow-sm">
+            <div className="text-[12px] text-rose-700 font-semibold leading-relaxed">📷 照片没有生成成功</div>
+            <div className="mt-1 text-[11px] text-rose-500/90 leading-relaxed break-all">{reason}</div>
+            {onRetry && char && (
+                <button
+                    type="button"
+                    onClick={() => onRetry(msg)}
+                    className="mt-2 px-3 py-1 rounded-lg bg-rose-500 text-white text-[11px] font-bold active:scale-95 transition-transform"
+                >
+                    重试
+                </button>
+            )}
+        </div>
+    );
+};
+
 // --- Sub-Component: Group Message Bubble ---
 const GroupMessageItem = React.memo(({
     msg,
@@ -125,6 +227,7 @@ const GroupMessageItem = React.memo(({
     onReply,
     nameOf,
     onPacketClick,
+    onPhotoRetry,
     styleConfig,
     themeScopeClass,
     isFirstInGroup,
@@ -148,6 +251,8 @@ const GroupMessageItem = React.memo(({
     onReply: (msg: Message) => void,
     nameOf: (id: string) => string,
     onPacketClick: (msg: Message) => void,
+    /** 群拍照消息（metadata.chatPhoto）failed/stale 时的手动重试 */
+    onPhotoRetry?: (msg: Message) => void,
     /** 气泡样式（用户=群设置选的主题 user 侧；成员=统一或各自私聊主题 ai 侧）。引用需稳定（memo） */
     styleConfig: BubbleStyle,
     /** 将当前成员的气泡工坊 CSS 限定在自己的消息上，防止群成员主题互串。 */
@@ -329,6 +434,11 @@ const GroupMessageItem = React.memo(({
     const renderContent = () => {
         switch (msg.type) {
             case 'image':
+                // C 类群拍照消息（metadata.chatPhoto）：pending/ready/failed/预览/重试专用气泡。
+                // 普通图片（用户发的 base64）维持原样。
+                if (msg.metadata?.chatPhoto) {
+                    return <GroupChatPhotoBubble msg={msg} char={char} onRetry={onPhotoRetry} />;
+                }
                 return (
                     <div className="relative group cursor-pointer" onClick={(e) => {
                         if (selectionMode) handleClick(e);
@@ -490,6 +600,18 @@ const GroupChat: React.FC = () => {
     const charactersRef = useRef(characters);
     charactersRef.current = characters;
 
+    // 自主活跃调度器在 mount-only 的 effect 里启动，回调里必须读这些 ref 才不会拿到旧闭包。
+    const groupsRef = useRef(groups);
+    groupsRef.current = groups;
+    const activeGroupRef = useRef<GroupProfile | null>(null);
+    activeGroupRef.current = activeGroup;
+    const apiConfigRef = useRef(apiConfig);
+    apiConfigRef.current = apiConfig;
+    const userProfileRef = useRef(userProfile);
+    userProfileRef.current = userProfile;
+    // 正在跑自主轮的群（防止同一群并发两轮：手动闪电 + 自主轮 / 双 tick）
+    const autonomyBusyGroupsRef = useRef<Set<string>>(new Set());
+
     // 同理 ref 出最新 messages：派发循环里逐条落库时要按"当前窗口大小"刷新，
     // 闭包里的 messages 是触发那一刻的旧值，长度会越算越小
     const messagesRef = useRef<Message[]>([]);
@@ -534,6 +656,8 @@ const GroupChat: React.FC = () => {
             return Number.isFinite(v) && v > 0 ? v : 30;
         } catch { return 30; }
     });
+    const contextLimitRef = useRef(contextLimit);
+    contextLimitRef.current = contextLimit;
     
     // Selection Mode
     const [selectionMode, setSelectionMode] = useState(false);
@@ -542,6 +666,10 @@ const GroupChat: React.FC = () => {
     // Data State
     const [emojis, setEmojis] = useState<{name: string, url: string, categoryId?: string}[]>([]);
     const [categories, setCategories] = useState<EmojiCategory[]>([]); // New
+    const emojisRef = useRef(emojis);
+    emojisRef.current = emojis;
+    const categoriesRef = useRef(categories);
+    categoriesRef.current = categories;
     
     // Create/Edit Group State
     const [tempGroupName, setTempGroupName] = useState('');
@@ -550,6 +678,11 @@ const GroupChat: React.FC = () => {
     const [tempReplyMode, setTempReplyMode] = useState<'director' | 'roundRobin'>('director');
     const [tempMemberBubbleIndependent, setTempMemberBubbleIndependent] = useState(false);
     const [tempUserBubbleThemeId, setTempUserBubbleThemeId] = useState<string>('');
+    // 群自主活跃（B 类）：设置面板暂存值
+    const [tempAutonomyEnabled, setTempAutonomyEnabled] = useState(false);
+    const [tempAutonomyLevel, setTempAutonomyLevel] = useState<GroupAutonomyLevel>('daily');
+    const [tempPhotoEnabled, setTempPhotoEnabled] = useState(false);
+    const [tempPhotoDailyCap, setTempPhotoDailyCap] = useState<number>(2);
     const [selectedMembers, setSelectedMembers] = useState<Set<string>>(new Set());
     const [memberGroupId, setMemberGroupId] = useState(GROUP_FILTER_ALL); // 建群选成员的分组筛选
     const [transferAmount, setTransferAmount] = useState('');
@@ -575,9 +708,19 @@ const GroupChat: React.FC = () => {
     useEffect(() => {
         if (activeGroup) {
             setVisibleCount(MESSAGE_PAGE_SIZE);
-            DB.getRecentGroupMessagesWithCount(activeGroup.id, MESSAGE_PAGE_SIZE).then(({ messages: msgs, totalCount }) => {
-                setMessages(msgs);
-                setTotalMsgCount(totalCount);
+            // A 类后台恢复：回页面先清陈年任务台账，再把超时 pending 的拍照消息
+            // 翻成「结果待确认」（failed + 手动重试），修复刷新后无限转圈/卡 pending。
+            pruneBrowserTasks();
+            DB.getRecentGroupMessagesWithCount(activeGroup.id, MESSAGE_PAGE_SIZE).then(async ({ messages: msgs, totalCount }) => {
+                const settled = await settleStalePendingChatPhotos(msgs);
+                if (settled > 0) {
+                    const reloaded = await DB.getRecentGroupMessagesWithCount(activeGroup.id, MESSAGE_PAGE_SIZE);
+                    setMessages(reloaded.messages);
+                    setTotalMsgCount(reloaded.totalCount);
+                } else {
+                    setMessages(msgs);
+                    setTotalMsgCount(totalCount);
+                }
             });
             // Fetch emojis AND categories
             Promise.all([DB.getEmojis(), DB.getEmojiCategories()]).then(([es, cats]) => {
@@ -794,6 +937,13 @@ const GroupChat: React.FC = () => {
             memberBubbleIndependent: tempMemberBubbleIndependent,
             // 空串 = 默认紫，存 undefined 保持向后兼容语义
             userBubbleThemeId: tempUserBubbleThemeId || undefined,
+            // 自主活跃配置：开关关掉也整份保留（level 等暂存值不丢，再开回来不用重选）
+            autonomyConfig: {
+                enabled: tempAutonomyEnabled,
+                level: normalizeGroupAutonomyLevel(tempAutonomyLevel),
+                photoEnabled: tempAutonomyEnabled && tempPhotoEnabled,
+                photoDailyCap: Math.max(0, Math.min(50, Math.floor(Number.isFinite(tempPhotoDailyCap) ? tempPhotoDailyCap : 2))),
+            },
         };
         // 走 context 的 updateGroup：同步内存 groups + DB，避免退出后读回旧值
         await updateGroup(activeGroup.id, updates);
@@ -971,6 +1121,15 @@ const GroupChat: React.FC = () => {
         setModalType('packet-detail');
     }, []);
 
+    // 群拍照消息的手动重试（C 类）：失败/结果待确认时用户显式点击，原样重跑意图。
+    const handleGroupPhotoRetry = useCallback(async (msg: Message) => {
+        const groupId = activeGroupRef.current?.id || msg.groupId;
+        const char = charactersRef.current.find(c => c.id === msg.charId);
+        if (!groupId || !char) return;
+        await retryChatPhotoMessage(char, msg.id, addToast, groupId);
+        if (activeGroupRef.current?.id === groupId) await refreshMessages(groupId);
+    }, [addToast]);
+
     const handleGroupImageClick = useCallback((url: string) => window.open(url, '_blank'), []);
     const handleGroupReply = useCallback((target: Message) => { setReplyTarget(target); trackEvent('引用回复一条群消息'); }, []);
 
@@ -1079,6 +1238,10 @@ const GroupChat: React.FC = () => {
         setTempReplyMode(activeGroup?.replyMode ?? 'director');
         setTempMemberBubbleIndependent(activeGroup?.memberBubbleIndependent ?? false);
         setTempUserBubbleThemeId(activeGroup?.userBubbleThemeId ?? '');
+        setTempAutonomyEnabled(activeGroup?.autonomyConfig?.enabled === true);
+        setTempAutonomyLevel(normalizeGroupAutonomyLevel(activeGroup?.autonomyConfig?.level));
+        setTempPhotoEnabled(activeGroup?.autonomyConfig?.photoEnabled === true);
+        setTempPhotoDailyCap(typeof activeGroup?.autonomyConfig?.photoDailyCap === 'number' ? activeGroup.autonomyConfig.photoDailyCap : 2);
         if (activeGroup) void loadTopicBoxStats(activeGroup);
         setModalType('settings');
         setShowPanel('none');
@@ -1109,10 +1272,10 @@ const GroupChat: React.FC = () => {
 
     // --- Logic: Group AI Generation (Director / Round-Robin) ---
 
-    // 两种模式共用：系统头（群名/时间/共享场景）。
-    // 共享场景块（用户档案 + 共有世界书 + 共有 worldview）——每个角色都"看见"的
-    // 舞台只描述一次，避免按成员数 N 倍复制；角色的人设/印象/记忆仍保持完整。
-    const buildGroupSystemHeader = (currentMsgs: Message[], groupMembers: CharacterProfile[]) => {
+    // 两种模式共用：系统头（群名/时间/共享场景）。自主轮传 groupOverride 以支持
+    // 非当前群（后台群）也用同一套头（默认 activeGroup，行为不变）。
+    const buildGroupSystemHeader = (currentMsgs: Message[], groupMembers: CharacterProfile[], groupOverride?: GroupProfile) => {
+        const grp = groupOverride ?? activeGroup;
         const lastMsg = currentMsgs[currentMsgs.length - 1];
         const timeGapInfo = lastMsg ? getTimeGapHint(lastMsg.timestamp) : "这是群聊的第一条消息。";
         // 带上完整日期（年月日 + 星期），只给 HH:MM 时角色感知不到"过了几天"——
@@ -1120,15 +1283,15 @@ const GroupChat: React.FC = () => {
         const nowDate = new Date();
         const weekNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
         const currentTimeStr = `${nowDate.getFullYear()}年${nowDate.getMonth() + 1}月${nowDate.getDate()}日 ${weekNames[nowDate.getDay()]} ${virtualTime.hours.toString().padStart(2, '0')}:${virtualTime.minutes.toString().padStart(2, '0')}`;
-        const liveMsgs = currentMsgs.filter(m => m.id > (activeGroup?.archivedThroughMessageId || 0));
+        const liveMsgs = currentMsgs.filter(m => m.id > (grp?.archivedThroughMessageId || 0));
         const sharedScene = ContextBuilder.buildGroupSharedScene(groupMembers, userProfile, liveMsgs);
 
         const header = `【系统：群聊模拟器配置】
-当前群名: "${activeGroup?.name}"
+当前群名: "${grp?.name}"
 当前系统时间: ${currentTimeStr}
 时间流逝感知: ${timeGapInfo}
 
-${sharedScene.text}${activeGroup ? buildGroupTopicContext(activeGroup) : ''}`;
+${sharedScene.text}${grp ? buildGroupTopicContext(grp) : ''}`;
         return { header, sharedScene };
     };
 
@@ -1137,11 +1300,13 @@ ${sharedScene.text}${activeGroup ? buildGroupTopicContext(activeGroup) : ''}`;
         member: CharacterProfile,
         currentMsgs: Message[],
         sharedScene: ReturnType<typeof ContextBuilder.buildGroupSharedScene>,
+        groupOverride?: GroupProfile,
     ): Promise<string> => {
-        const timelineCap = activeGroup?.memberTimelineCap ?? DEFAULT_MEMBER_TIMELINE_CAP;
+        const grp = groupOverride ?? activeGroup;
+        const timelineCap = grp?.memberTimelineCap ?? DEFAULT_MEMBER_TIMELINE_CAP;
         // 记忆宫殿检索源用当前群线程（滤掉媒体消息，base64 不能进 embedding query）：
         // 角色应召回与"群里正聊的话题"相关的记忆，而不是私聊近况（旧行为，召回跑偏）
-        const liveGroupMsgs = currentMsgs.filter(m => m.id > (activeGroup?.archivedThroughMessageId || 0));
+        const liveGroupMsgs = currentMsgs.filter(m => m.id > (grp?.archivedThroughMessageId || 0));
         const palaceQueryMsgs = liveGroupMsgs.slice(-30).filter(m => !m.type || m.type === 'text');
         await injectMemoryPalace(member, palaceQueryMsgs, undefined, userProfile.name);
         // 角色块：跳过共享场景已包含的部分（用户档案 / 共有 worldview / 共有世界书）
@@ -1564,6 +1729,186 @@ ${memberTimeline || '(暂无互动记录)'}
         }
     };
 
+    // ─── 自主活跃轮（B/C 类）─────────────────────────────────────────
+    // 与手动闪电的区别：①没有人刚刚发言，指令换成 buildAutonomyInstruction（允许全员沉默、
+    // 严禁代替玩家发言、单轮消息上限收紧）；②支持后台群（不在当前视图也能跑，refresh 仅在
+    // 该群是当前群时刷新 UI）；③SEND_PHOTO 意图过五道闸后真正调生图 API（每轮最多 1 张、
+    // 每群每天有配额）；④全程挂浏览器任务台账（回页面可检测中断）。
+    // 调度状态由 GroupAutonomyScheduler 持久化管理（随机间隔/夜间静默/群级冷却/用户活跃避让）。
+    const runAutonomousRound = useCallback(async (groupId: string) => {
+        const group = groupsRef.current.find(g => g.id === groupId);
+        if (!group || group.autonomyConfig?.enabled !== true) return;
+        // 手动生成正在进行（当前群）或该群已有自主轮在跑：本轮放弃，等下一个检查点
+        if (autonomyBusyGroupsRef.current.has(groupId)) return;
+        if (abortRef.current && activeGroupRef.current?.id === groupId) return;
+        const apiCfg = apiConfigRef.current;
+        if (!apiCfg.apiKey) return;
+        autonomyBusyGroupsRef.current.add(groupId);
+        const browserTaskId = registerBrowserTask({ kind: 'group-round', groupId });
+        const isActive = activeGroupRef.current?.id === groupId;
+        if (isActive) { setIsTyping(true); setMcpStatus('自主活跃检查中…'); }
+        const abort = new AbortController();
+        if (isActive) abortRef.current = abort;
+        try {
+            const groupMembers = charactersRef.current.filter(c => group.members.includes(c.id));
+            if (groupMembers.length === 0) return;
+            const promptCap = Math.max(contextLimitRef.current, group.memberTimelineCap ?? DEFAULT_MEMBER_TIMELINE_CAP, GROUP_TOPIC_HOT_ZONE);
+            const { messages: freshMsgs } = await DB.getRecentGroupMessagesWithCount(group.id, promptCap);
+            const refreshIfActive = async () => { if (activeGroupRef.current?.id === group.id) await refreshMessages(group.id); };
+
+            // 1. 与手动轮同一套上下文（群头 + 成员档案 + 历史），保证角色表现完全一致
+            const { header, sharedScene } = buildGroupSystemHeader(freshMsgs, groupMembers, group);
+            let context = header;
+            for (const member of groupMembers) {
+                context += await buildMemberBlock(member, freshMsgs, sharedScene, group);
+            }
+            const liveHistoryMsgs = freshMsgs.filter(m => m.id > (group.archivedThroughMessageId || 0));
+            const historyWindow = liveHistoryMsgs.slice(-contextLimitRef.current);
+            const preparedHistory = await materializeVisionDescriptions(historyWindow, apiCfg.visionApi);
+            const history = buildGroupHistoryBlock(
+                preparedHistory,
+                charactersRef.current,
+                emojisRef.current,
+                userProfileRef.current.name,
+                3,
+                { useVisionDescriptions: apiCfg.visionApi?.enabled === true },
+            );
+            const emojiContextStr = buildEmojiContextStr(emojisRef.current, categoriesRef.current, group.members);
+
+            // 2. 自主发图决策（五道闸：开关/API/配额/单轮上限）
+            const imgConfig = loadImageGenerationConfig();
+            const imageApiReady = imgConfig.enabled === true && (imgConfig.authMode === 'none' || !!imgConfig.apiKey);
+            const photoPlan = planGroupAutonomyPhoto({
+                group,
+                imageApiReady,
+                state: loadGroupAutonomyState(),
+                photosThisRound: 0,
+            });
+
+            // 3. 自主轮指令：允许沉默、由模型决定谁发言、严禁代替玩家、（可选）发图规则
+            const htmlPromptExt = group.htmlModeEnabled
+                ? `\n\n【群聊 HTML 适配】[html]...[/html] 块要写在某个角色自己的 content 字符串内部；HTML 属性一律用单引号（如 <div style='...'>），避免双引号破坏外层 JSON。`
+                : '';
+            const prompt = `${context}\n\n${buildDirectorInstruction(history, emojiContextStr)}${htmlPromptExt}\n${buildAutonomyInstruction({
+                userName: userProfileRef.current.name,
+                photoAllowed: photoPlan.allowed,
+                maxMessages: MAX_MESSAGES_PER_AUTONOMY_ROUND,
+            })}\n`;
+
+            const data = await completeGroupChatWithMcp({
+                url: `${apiCfg.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiCfg.apiKey}` },
+                body: {
+                    model: apiCfg.model,
+                    messages: [{ role: "user", content: buildUserMessageContent(prompt, history) }],
+                    temperature: 0.9,
+                    max_tokens: 8000
+                },
+                groupId: group.id,
+                userName: userProfileRef.current.name,
+                signal: abort.signal,
+                onStatus: isActive ? setMcpStatus : undefined,
+            });
+
+            // 4. 解析 + 双保险：丢弃任何 charId='user' 的动作（严禁代替玩家发言），
+            //    单轮截断到 MAX_MESSAGES_PER_AUTONOMY_ROUND（最大连续消息保护）
+            const rawContent = data.choices?.[0]?.message?.content ?? '';
+            const rawActions = parseDirectorActions(rawContent).filter(a => a.charId !== 'user');
+            if (rawActions.length === 0 && String(rawContent).trim()) {
+                console.warn('[GroupAutonomy] 自主轮输出无法解析（按全员沉默处理）', { groupId: group.id });
+            }
+            const { photos, cleanedActions } = extractGroupPhotoFromActions(capAutonomyActions(rawActions));
+            const actions = capAutonomyActions(cleanedActions);
+            // __AUTONOMY_PART2__
+
+            // 5. 文本/表情/引用/红包照常走既有派发管线
+            if (actions.length > 0) {
+                await dispatchMemberActions(actions, {
+                    groupId: group.id,
+                    memberIds: group.members,
+                    characters: charactersRef.current,
+                    emojis: emojisRef.current,
+                    categories: categoriesRef.current,
+                    refresh: refreshIfActive,
+                    addToast,
+                    signal: abort.signal,
+                    resolveQuote: undefined, // 后台群没有 UI 的 resolveQuote 快照，引用标记会被静默剥除（既有降级行为）
+                    userName: userProfileRef.current.name,
+                    htmlMode: !!group.htmlModeEnabled,
+                });
+            }
+
+            // 6. 真正生图（C 类核心）：必须同时满足决策放行 + 发送者是群成员。
+            //    配额「生成尝试即消耗」——失败不返还，避免反复扣费。绝不输出占位文本冒充图片。
+            const photo = photos[0];
+            if (photoPlan.allowed && photo) {
+                const sender = groupMembers.find(c => c.id === photo.charId);
+                if (sender) {
+                    saveGroupAutonomyState(consumePhotoQuota(loadGroupAutonomyState(), group.id));
+                    const messageId = await DB.saveMessage({
+                        charId: sender.id,
+                        groupId: group.id,
+                        role: 'assistant',
+                        type: 'image',
+                        content: '',
+                        metadata: {
+                            autonomyRound: true,
+                            chatPhoto: {
+                                status: 'pending',
+                                caption: photo.intent.caption,
+                                includeCharacter: photo.intent.includeCharacter,
+                                style: photo.intent.style,
+                                prompt: photo.intent.prompt,
+                                createdAt: Date.now(),
+                            },
+                        },
+                    } as Parameters<typeof DB.saveMessage>[0]);
+                    await refreshIfActive();
+                    await runGroupChatPhotoMessage({
+                        char: sender,
+                        groupId: group.id,
+                        intent: photo.intent,
+                        messageId,
+                        onToast: isActive ? addToast : undefined,
+                    });
+                    await refreshIfActive();
+                }
+            }
+
+        } catch (e: any) {
+            if (e?.name === 'AbortError') {
+                console.info('[GroupAutonomy] 自主轮被中止', { groupId });
+            } else {
+                console.warn('[GroupAutonomy] 自主轮失败（等下一个检查点，不重试）', { groupId, error: e?.message || e });
+            }
+        } finally {
+            autonomyBusyGroupsRef.current.delete(groupId);
+            settleBrowserTask(browserTaskId);
+            if (isActive) { setIsTyping(false); setMcpStatus(''); abortRef.current = null; }
+            try { markGroupMembersDirty(group.members); } catch { /* 状态同步失败不影响本轮 */ }
+            if (isActive) runGroupTopicArchive();
+        }
+    }, [addToast]);
+
+    // __AUTONOMY_SCHEDULER__
+
+    // 前台自主活跃调度：GroupChat 应用打开期间常驻。document.hidden 时 tick 自动跳过；
+    // 回到前台后按持久化的 nextCheckAt 最多补一轮（不会连环爆发）。
+    useEffect(() => {
+        GroupAutonomyScheduler.start({
+            getGroups: () => groupsRef.current,
+            getGroupMessages: async (groupId) => {
+                const { messages } = await DB.getRecentGroupMessagesWithCount(groupId, 20);
+                return messages;
+            },
+            onRound: (groupId) => runAutonomousRound(groupId),
+        });
+        return () => GroupAutonomyScheduler.stop();
+        // mount-only：回调内部全部读 ref，不依赖渲染期闭包
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+
     // 触发入口：按群设置分发到导演/轮询；生成中再点 = 停止
     const triggerGroupAI = async (_msgs?: Message[]) => {
         unlockWhiteboxAudio();
@@ -1830,6 +2175,7 @@ ${memberTimeline || '(暂无互动记录)'}
                             onReply={handleGroupReply}
                             nameOf={nameOf}
                             onPacketClick={openPacketDetail}
+                            onPhotoRetry={handleGroupPhotoRetry}
                             styleConfig={isUser ? userBubbleTheme.user : (memberTheme?.ai || PRESET_THEME_GROUP.ai)}
                             themeScopeClass={isUser ? 'sully-group-user-theme' : (memberThemeScopeClasses.get(m.charId) || 'sully-group-default-theme')}
                             isFirstInGroup={isFirstInGroup}
@@ -2141,6 +2487,68 @@ ${memberTimeline || '(暂无互动记录)'}
                                 <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-5 text-center text-[10px] text-slate-400">聊天还在近期热区里。内容足够多后，会自动出现第一只公共话题盒。</div>
                             )}
                         </div>
+                    </div>
+
+                    {/* Group Autonomy (B/C) */}
+                    <div className="pt-2 border-t border-slate-100">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">自主活跃</label>
+                        <div
+                            className="flex items-center gap-2 mb-2 cursor-pointer"
+                            onClick={() => { setTempAutonomyEnabled(!tempAutonomyEnabled); trackEvent('切换群聊自主活跃', { enabled: !tempAutonomyEnabled }); }}
+                        >
+                            <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${tempAutonomyEnabled ? 'bg-violet-500 border-violet-500' : 'bg-slate-100 border-slate-300'}`}>
+                                {tempAutonomyEnabled && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                            </div>
+                            <div className="flex-1">
+                                <div className="text-xs font-bold text-slate-700">允许成员自主活跃（默认关闭）</div>
+                                <p className="text-[9px] text-slate-400 mt-0.5 leading-tight">网页打开期间，调度器按活跃程度随机检查：由模型结合群聊内容、性格与关系决定是否发言、由谁发言，允许全员沉默；角色可互相交流，绝不代替你发言。夜间（23:00–07:00）自动降低频率。</p>
+                            </div>
+                        </div>
+                        {tempAutonomyEnabled && (
+                            <>
+                                <div className="flex flex-col gap-2 mb-3">
+                                    {(['light', 'daily', 'lively'] as const).map(level => (
+                                        <div
+                                            key={level}
+                                            onClick={() => { setTempAutonomyLevel(level); trackEvent('切换群聊自主活跃程度', { level }); }}
+                                            className={`p-3 rounded-xl border cursor-pointer transition-all ${tempAutonomyLevel === level ? 'border-violet-400 bg-violet-50 ring-1 ring-violet-400' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                                        >
+                                            <div className="text-xs font-bold text-slate-700">{GROUP_AUTONOMY_LEVELS[level].label}</div>
+                                            <p className="text-[9px] text-slate-400 mt-1 leading-tight">
+                                                {level === 'light' ? '隔半天冒个泡，最省 token' : level === 'daily' ? '日常节奏，偶尔有人接话' : '群里比较热闹，进出频繁'}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                                    <div
+                                        className="flex items-center gap-2 cursor-pointer"
+                                        onClick={() => { setTempPhotoEnabled(!tempPhotoEnabled); trackEvent('切换群聊自主发图', { enabled: !tempPhotoEnabled }); }}
+                                    >
+                                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors shrink-0 ${tempPhotoEnabled ? 'bg-violet-500 border-violet-500' : 'bg-slate-100 border-slate-300'}`}>
+                                            {tempPhotoEnabled && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="text-xs font-bold text-slate-700">允许角色自主发图</div>
+                                            <p className="text-[9px] text-slate-400 mt-0.5 leading-tight">自主轮里角色可按自己的性格与近况分享真实照片（自拍/日常/环境/食物/宠物/旅行等），真正调用生图 API。需「设置 → 生图」已配置并启用，否则不会生成。</p>
+                                        </div>
+                                    </div>
+                                    {tempPhotoEnabled && (
+                                        <div className="mt-3 flex items-center gap-2">
+                                            <span className="text-[10px] text-slate-500 shrink-0">每群每天最多自动生成</span>
+                                            <input
+                                                type="number" min={0} max={50}
+                                                value={tempPhotoDailyCap}
+                                                onChange={e => setTempPhotoDailyCap(parseInt(e.target.value, 10) || 0)}
+                                                className="w-16 px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs text-center outline-none focus:border-violet-300"
+                                            />
+                                            <span className="text-[10px] text-slate-500">张（0 = 关闭；每次自主轮最多 1 张）</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="mt-2 text-[9px] text-slate-400 leading-tight">提示：iOS Safari 无法保证网页在后台持续运行——关闭网页后自主轮暂停，重新打开会按计划补一次（最多一轮）；真正的离线持续执行需要服务端支持群聊上下文，当前版本尚未提供。</p>
+                            </>
+                        )}
                     </div>
 
                     {/* Danger Zone */}

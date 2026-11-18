@@ -5,6 +5,8 @@ import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
 import { processImage } from '../utils/file';
 import { retryChatPhotoMessage } from '../utils/chatPhotoGeneration';
+import { settleStalePendingChatPhotos } from '../utils/chatPhotoGeneration';
+import { listStaleBrowserTasks, pruneBrowserTasks } from '../utils/browserTaskRecovery';
 import { toggleMessageFavorite } from '../utils/messageFavoriteCapture';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
@@ -372,6 +374,30 @@ const Chat: React.FC = () => {
         window.addEventListener(AMSG_INSTANT_CHAT_PENDING_EVENT, sync);
         return () => window.removeEventListener(AMSG_INSTANT_CHAT_PENDING_EVENT, sync);
     }, [activeCharacterId]);
+
+    // A 类后台恢复（浏览器侧任务）：进角色时——
+    //   1. 清陈年任务台账；
+    //   2. 把超时 pending 的拍照消息翻成「结果待确认」（failed + 手动重试），
+    //      修复刷新/锁屏回来后图片 pending 卡死、无限转圈；
+    //   3. 本地聊天生成在页面关闭后无法续跑（无服务端任务 ID 可查）：只检测、提示，
+    //      绝不自动重发（重复扣费风险由用户手动重发承担）。
+    useEffect(() => {
+        if (!char) return;
+        let cancelled = false;
+        (async () => {
+            pruneBrowserTasks();
+            const staleChatTasks = listStaleBrowserTasks({ kind: 'chat', charId: char.id });
+            if (staleChatTasks.length > 0) {
+                console.info('[ChatRecovery] 检测到上次页面关闭时未完成的本地聊天生成，不自动重发', { count: staleChatTasks.length });
+            }
+            const recent = await DB.getRecentMessagesByCharId(char.id, 200);
+            const settled = await settleStalePendingChatPhotos(recent);
+            if (settled > 0 && !cancelled) {
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [char?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const characterChatApiConfig = useMemo(
         () => resolveCharacterChatApiConfig(apiConfig, char),

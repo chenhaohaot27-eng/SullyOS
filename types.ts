@@ -3239,6 +3239,31 @@ export interface GroupProfile {
     htmlModeEnabled?: boolean;
     /** HTML 模式自定义提示词（追加在内置提示词之后） */
     htmlModeCustomPrompt?: string;
+    /**
+     * 群聊自主活跃配置（默认关闭）。
+     * 开启后前台（网页打开期间）由调度器按活跃程度的随机间隔触发自主轮：
+     * 模型结合群聊内容、角色性格与人物关系决定是否发言、由谁发言，允许全员沉默。
+     * 注意：iOS Safari 无法保证网页后台持续运行，关闭网页后自主轮暂停；
+     * 真正的离线持续执行需要服务端具备群聊上下文（当前云端 Worker 只存单聊 fire_pack）。
+     */
+    autonomyConfig?: GroupAutonomyConfig;
+}
+
+/** 群聊自主活跃程度。 */
+export type GroupAutonomyLevel = 'light' | 'daily' | 'lively';
+
+export interface GroupAutonomyConfig {
+    /** 总开关，默认 false。 */
+    enabled: boolean;
+    /** 活跃程度：light=轻度(2–4h)、daily=日常(1–2h)、lively=热闹(30–60min)。 */
+    level: GroupAutonomyLevel;
+    /**
+     * 允许角色在自主轮里自主发图（默认 false）。
+     * 仅当本开关开启、群自主活跃开启且生图 API 已配置时才会真正生图。
+     */
+    photoEnabled?: boolean;
+    /** 每群每天自动生成图片上限（默认 2；0 = 关闭自主生图）。每次自主轮最多生成 1 张。 */
+    photoDailyCap?: number;
 }
 
 export interface GroupTopicBox {
