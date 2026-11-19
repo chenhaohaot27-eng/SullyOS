@@ -247,8 +247,14 @@ const DATA_URI_RE = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i;
 /**
  * 从三家协议的响应里抽第一张图（镜像 utils/imageGenerationService 的抽取逻辑；
  * worker bundle 不引浏览器依赖，故在此自含一份并注明同源）。
+ * 返回两类：inline（base64 / data URI，直接可用）与 url（外链——由执行器按
+ * 「HTTPS 公网 + 无重定向 + 图片类型 + 大小上限」的安全策略取回，不能安全取回就报错）。
  */
-export function extractImageFromUpstreamPayload(payload: unknown): { base64: string; mimeType: string; revisedPrompt?: string } | null {
+export type ExtractedImage =
+  | { kind: 'inline'; base64: string; mimeType: string; revisedPrompt?: string }
+  | { kind: 'url'; url: string; mimeType?: string; revisedPrompt?: string };
+
+export function extractImageFromUpstreamPayload(payload: unknown): ExtractedImage | null {
   if (!payload || typeof payload !== 'object') return null;
   const root = payload as Record<string, any>;
   const items = Array.isArray(root.data) ? root.data : Array.isArray(root.images) ? root.images : [];
@@ -278,14 +284,17 @@ export function extractImageFromUpstreamPayload(payload: unknown): { base64: str
   return imageFromValue(root.b64_json) || imageFromValue(root.base64) || imageFromValue(root.image) || imageFromValue(root.url);
 }
 
-function imageFromValue(value: unknown, mimeType = 'image/png', revisedPrompt?: string): { base64: string; mimeType: string; revisedPrompt?: string } | null {
+function imageFromValue(value: unknown, mimeType = 'image/png', revisedPrompt?: string): ExtractedImage | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   const trimmed = value.trim();
   const dataMatch = DATA_URI_RE.exec(trimmed);
-  if (dataMatch) return { base64: dataMatch[2].replace(/\s/g, ''), mimeType: dataMatch[1], revisedPrompt };
-  if (/^https?:\/\//i.test(trimmed)) return null;
+  if (dataMatch) return { kind: 'inline', base64: dataMatch[2].replace(/\s/g, ''), mimeType: dataMatch[1], revisedPrompt };
+  if (/^https?:\/\//i.test(trimmed)) {
+    // 外链结果：不下结论，交给执行器的安全取回；非 https 在那儿也会被明确拒绝。
+    return { kind: 'url', url: trimmed, mimeType: mimeType.startsWith('image/') ? mimeType : undefined, revisedPrompt };
+  }
   if (trimmed.length < 8) return null;
-  return { base64: trimmed.replace(/\s/g, ''), mimeType, revisedPrompt };
+  return { kind: 'inline', base64: trimmed.replace(/\s/g, ''), mimeType, revisedPrompt };
 }
 
 // ─── 执行器（cron 消费队列）──────────────────────────────
@@ -365,18 +374,62 @@ async function executeUpstreamAndStore(taskId: string, userId: string, template:
   }
   const payload = await response.json().catch(() => null);
   const extracted = extractImageFromUpstreamPayload(payload);
-  if (!extracted || !extracted.base64) {
+  if (!extracted) {
     await store.failTask(taskId, '上游响应里没有解析得出图片（协议不兼容或空结果）', 'failed', now());
     return;
   }
-  const bytes = base64Decode(extracted.base64);
+  let bytes: Uint8Array;
+  let mimeType: string;
+  if (extracted.kind === 'url') {
+    // 外链结果：服务端安全取回——HTTPS 公网地址（同上游校验）、不带任何凭据、
+    // 不跟重定向、必须是图片内容类型、Content-Length 预检 + 实测大小上限。
+    const urlCheck = validateUpstreamUrl(extracted.url);
+    if (!urlCheck.ok) {
+      await store.failTask(taskId, `上游返回的图片外链被拒绝（${urlCheck.error}）：不会取回，也不假装生成成功`, 'failed', now());
+      return;
+    }
+    const limit = (deps.bucket || (env.IMAGE_BUCKET as unknown as ImageBucketLike | undefined)) ? IMAGE_R2_MAX_BYTES : IMAGE_D1_BLOB_MAX_BYTES;
+    const imageResponse = await fetchImpl(urlCheck.url, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (imageResponse.status >= 300 && imageResponse.status < 400) {
+      await store.failTask(taskId, `图片外链返回重定向（${imageResponse.status}），已拒绝跟随`, 'failed', now());
+      return;
+    }
+    if (!imageResponse.ok) {
+      await store.failTask(taskId, `图片外链取回失败（HTTP ${imageResponse.status}）`, 'failed', now());
+      return;
+    }
+    const contentType = (imageResponse.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+    if (!contentType.startsWith('image/')) {
+      await store.failTask(taskId, `图片外链的内容类型不是图片（${contentType || '未知'}），已拒绝`, 'failed', now());
+      return;
+    }
+    const declaredLength = Number(imageResponse.headers.get('Content-Length') || '');
+    if (Number.isFinite(declaredLength) && declaredLength > limit) {
+      await store.failTask(taskId, `图片外链声明大小超过上限（${Math.round(declaredLength / 1024)}KB > ${Math.round(limit / 1024)}KB）`, 'failed', now());
+      return;
+    }
+    const urlBytes = new Uint8Array(await imageResponse.arrayBuffer());
+    if (urlBytes.byteLength === 0 || urlBytes.byteLength > limit) {
+      await store.failTask(taskId, urlBytes.byteLength === 0 ? '图片外链内容为空' : `图片外链实际大小超过上限（${Math.round(urlBytes.byteLength / 1024)}KB）`, 'failed', now());
+      return;
+    }
+    bytes = urlBytes;
+    mimeType = contentType;
+  } else {
+    bytes = base64Decode(extracted.base64);
+    mimeType = extracted.mimeType;
+  }
   if (bytes.byteLength === 0) {
     await store.failTask(taskId, '上游返回的图片内容为空', 'failed', now());
     return;
   }
   const bucket = deps.bucket || (env.IMAGE_BUCKET as unknown as ImageBucketLike | undefined);
   const resultMeta: Record<string, unknown> = {
-    content_type: extracted.mimeType,
+    content_type: mimeType,
     byte_size: bytes.byteLength,
     revised_prompt: extracted.revisedPrompt,
   };
@@ -385,7 +438,7 @@ async function executeUpstreamAndStore(taskId: string, userId: string, template:
       await store.failTask(taskId, `结果图片超过 R2 上限 20MB`, 'failed', now());
       return;
     }
-    await bucket.put(r2ObjectKey(userId, taskId), bytes, { httpMetadata: { contentType: extracted.mimeType } });
+    await bucket.put(r2ObjectKey(userId, taskId), bytes, { httpMetadata: { contentType: mimeType } });
     resultMeta.storage = 'r2';
     resultMeta.object_key = r2ObjectKey(userId, taskId);
   } else {
@@ -393,7 +446,7 @@ async function executeUpstreamAndStore(taskId: string, userId: string, template:
       await store.failTask(taskId, `结果图片超过 D1 直存上限 900KB：请给 Worker 绑定 R2（IMAGE_BUCKET）后重试`, 'failed', now());
       return;
     }
-    await store.putD1Blob(taskId, userId, extracted.mimeType, bytes, now());
+    await store.putD1Blob(taskId, userId, mimeType, bytes, now());
     resultMeta.storage = 'd1';
   }
   await store.completeTask(taskId, resultMeta, now());

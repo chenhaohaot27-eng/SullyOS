@@ -348,6 +348,108 @@ describe('S2·状态、取消与清理', () => {
   });
 });
 
+describe('S2·URL 型结果的合规取回（上线资格检查新增）', () => {
+  const urlTemplate = () => ({ ...upstreamTemplate(), bodyJson: { model: 'img-model', prompt: 'a cat', n: 1 } });
+  const relayWithUrl = (resultUrl: string) => vi.fn(async () => new Response(
+    JSON.stringify({ data: [{ url: resultUrl }] }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  ));
+  const cdnImage = (init: ResponseInit = {}, bytes = PNG_BYTES) => vi.fn(async () => new Response(bytes as unknown as BodyInit, {
+    status: 200,
+    headers: { 'Content-Type': 'image/png' },
+    ...init,
+  }));
+
+  const runOne = async (relay: ReturnType<typeof vi.fn>, cdn: ReturnType<typeof vi.fn> | null, store: ReturnType<typeof makeMemStore>, taskId: string) => {
+    __setImageGenStoreOverrideForTests(store);
+    await submit(taskId, await makeEnvelope(urlTemplate()));
+    const fetchImpl = (async (input: unknown) => {
+      const url = String(input);
+      return url.includes('relay.example') ? relay() : cdn ? cdn() : new Response(null, { status: 404 });
+    }) as unknown as typeof fetch;
+    await runImageGenCronPass({ env: { DB: {} as unknown, AMSG_MASTER_KEY: MASTER_KEY }, store, fetchImpl });
+    return store.tasks.get(taskId);
+  };
+
+  it('HTTPS 公网图片外链：正常取回并落库（image/png、字节一致）', async () => {
+    const task = await runOne(relayWithUrl('https://cdn.example/img.png'), cdnImage(), makeMemStore(), 'task-url-ok');
+    expect(task?.status).toBe('completed');
+    expect(task?.result_meta).toContain('"storage":"d1"');
+    expect(JSON.parse(task?.result_meta || '{}').byte_size).toBe(PNG_BYTES.byteLength);
+  });
+
+  it('http / 内网外链：明确失败，不假装生成成功', async () => {
+    for (const badUrl of ['http://cdn.example/img.png', 'https://192.168.0.10/img.png', 'https://localhost/img.png']) {
+      const task = await runOne(relayWithUrl(badUrl), null, makeMemStore(), `task-url-bad-${Math.random()}`);
+      expect(task?.status, badUrl).toBe('failed');
+      expect(task?.error, badUrl).toContain('外链');
+    }
+  });
+
+  it('外链重定向 / 非图片内容类型：拒绝', async () => {
+    const redirectTask = await runOne(relayWithUrl('https://cdn.example/img.png'), cdnImage({ status: 302, headers: { 'Content-Type': 'image/png', Location: 'https://evil.example/x' } }), makeMemStore(), 'task-url-redirect');
+    expect(redirectTask?.status).toBe('failed');
+    expect(redirectTask?.error).toContain('重定向');
+
+    const htmlTask = await runOne(relayWithUrl('https://cdn.example/img.png'), cdnImage({ headers: { 'Content-Type': 'text/html' } }), makeMemStore(), 'task-url-html');
+    expect(htmlTask?.status).toBe('failed');
+    expect(htmlTask?.error).toContain('不是图片');
+  });
+
+  it('外链 Content-Length 超限：预检拒绝（不读 body）', async () => {
+    const big = cdnImage({ headers: { 'Content-Type': 'image/png', 'Content-Length': String(2 * 1024 * 1024) } });
+    const task = await runOne(relayWithUrl('https://cdn.example/big.png'), big, makeMemStore(), 'task-url-big');
+    expect(task?.status).toBe('failed');
+    expect(task?.error).toContain('超过上限');
+  });
+});
+
+describe('S2·大小边界与 R2 私有桶路径（上线资格检查新增）', () => {
+  it('inline 超 900KB 未绑 R2：明确失败并引导绑 R2；绑 R2 入桶且下载走归属校验', async () => {
+    const bigBytes = new Uint8Array(901 * 1024).fill(7);
+    const bigB64Relay = vi.fn(async () => new Response(
+      JSON.stringify({ data: [{ b64_json: bytesToBase64(bigBytes) }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+
+    const storeD1 = makeMemStore();
+    __setImageGenStoreOverrideForTests(storeD1);
+    await submit('task-d1-big', await makeEnvelope(upstreamTemplate()));
+    await runImageGenCronPass({ env: { DB: {} as unknown, AMSG_MASTER_KEY: MASTER_KEY }, store: storeD1, fetchImpl: bigB64Relay as unknown as typeof fetch });
+    expect(storeD1.tasks.get('task-d1-big')?.status).toBe('failed');
+    expect(storeD1.tasks.get('task-d1-big')?.error).toContain('R2');
+
+    const r2Objects = new Map<string, Uint8Array>();
+    const bucket = {
+      put: vi.fn(async (key: string, value: Uint8Array) => { r2Objects.set(key, new Uint8Array(value)); }),
+      get: vi.fn(async (key: string) => (r2Objects.has(key) ? { body: r2Objects.get(key)!.buffer as ArrayBuffer } : null)),
+      delete: vi.fn(async () => {}),
+      list: vi.fn(async () => ({ objects: [...r2Objects.keys()].map(key => ({ key })) })),
+    };
+    const storeR2 = makeMemStore();
+    __setImageGenStoreOverrideForTests(storeR2);
+    await submit('task-r2-big', await makeEnvelope(upstreamTemplate()));
+    await runImageGenCronPass({ env: { DB: {} as unknown, AMSG_MASTER_KEY: MASTER_KEY }, store: storeR2, bucket, fetchImpl: bigB64Relay as unknown as typeof fetch });
+    const r2Task = storeR2.tasks.get('task-r2-big');
+    expect(r2Task?.status).toBe('completed');
+    expect(JSON.parse(r2Task?.result_meta || '{}').storage).toBe('r2');
+    expect(r2Objects.has('img/alice/task-r2-big')).toBe(true);
+
+    // mallory（伪造 X-User-Id，即便换绑后）下载该 R2 结果：行级归属 403；主人正常下载
+    const pinState = { pin: USER };
+    const envMallory = makeEnv({ DB: makePinD1(pinState), IMAGE_BUCKET: bucket });
+    pinState.pin = 'mallory';
+    const stolen = await call('image-gen/task-r2-big/result', { headers: { 'X-User-Id': 'mallory' } }, envMallory);
+    expect(stolen.status).toBe(403);
+
+    const owned = await call('image-gen/task-r2-big/result', {}, makeEnv({ DB: makePinD1({ pin: USER }), IMAGE_BUCKET: bucket }));
+    expect(owned.status).toBe(200);
+    expect(new Uint8Array(await owned.arrayBuffer()).byteLength).toBe(901 * 1024);
+  });
+});
+
+
+
 
 
 

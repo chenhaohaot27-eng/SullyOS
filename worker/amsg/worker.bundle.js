@@ -9107,10 +9107,12 @@ function imageFromValue(value, mimeType = "image/png", revisedPrompt) {
   if (typeof value !== "string" || !value.trim()) return null;
   const trimmed = value.trim();
   const dataMatch = DATA_URI_RE.exec(trimmed);
-  if (dataMatch) return { base64: dataMatch[2].replace(/\s/g, ""), mimeType: dataMatch[1], revisedPrompt };
-  if (/^https?:\/\//i.test(trimmed)) return null;
+  if (dataMatch) return { kind: "inline", base64: dataMatch[2].replace(/\s/g, ""), mimeType: dataMatch[1], revisedPrompt };
+  if (/^https?:\/\//i.test(trimmed)) {
+    return { kind: "url", url: trimmed, mimeType: mimeType.startsWith("image/") ? mimeType : void 0, revisedPrompt };
+  }
   if (trimmed.length < 8) return null;
-  return { base64: trimmed.replace(/\s/g, ""), mimeType, revisedPrompt };
+  return { kind: "inline", base64: trimmed.replace(/\s/g, ""), mimeType, revisedPrompt };
 }
 var r2ObjectKey = (userId, taskId) => `img/${userId}/${taskId}`;
 async function runImageTask(taskId, userId, deps) {
@@ -9173,18 +9175,60 @@ async function executeUpstreamAndStore(taskId, userId, template, deps) {
   }
   const payload = await response.json().catch(() => null);
   const extracted = extractImageFromUpstreamPayload(payload);
-  if (!extracted || !extracted.base64) {
+  if (!extracted) {
     await store.failTask(taskId, "\u4E0A\u6E38\u54CD\u5E94\u91CC\u6CA1\u6709\u89E3\u6790\u5F97\u51FA\u56FE\u7247\uFF08\u534F\u8BAE\u4E0D\u517C\u5BB9\u6216\u7A7A\u7ED3\u679C\uFF09", "failed", now());
     return;
   }
-  const bytes = base64Decode(extracted.base64);
+  let bytes;
+  let mimeType;
+  if (extracted.kind === "url") {
+    const urlCheck = validateUpstreamUrl(extracted.url);
+    if (!urlCheck.ok) {
+      await store.failTask(taskId, `\u4E0A\u6E38\u8FD4\u56DE\u7684\u56FE\u7247\u5916\u94FE\u88AB\u62D2\u7EDD\uFF08${urlCheck.error}\uFF09\uFF1A\u4E0D\u4F1A\u53D6\u56DE\uFF0C\u4E5F\u4E0D\u5047\u88C5\u751F\u6210\u6210\u529F`, "failed", now());
+      return;
+    }
+    const limit = deps.bucket || env.IMAGE_BUCKET ? IMAGE_R2_MAX_BYTES : IMAGE_D1_BLOB_MAX_BYTES;
+    const imageResponse = await fetchImpl(urlCheck.url, {
+      method: "GET",
+      redirect: "manual",
+      signal: AbortSignal.timeout(12e4)
+    });
+    if (imageResponse.status >= 300 && imageResponse.status < 400) {
+      await store.failTask(taskId, `\u56FE\u7247\u5916\u94FE\u8FD4\u56DE\u91CD\u5B9A\u5411\uFF08${imageResponse.status}\uFF09\uFF0C\u5DF2\u62D2\u7EDD\u8DDF\u968F`, "failed", now());
+      return;
+    }
+    if (!imageResponse.ok) {
+      await store.failTask(taskId, `\u56FE\u7247\u5916\u94FE\u53D6\u56DE\u5931\u8D25\uFF08HTTP ${imageResponse.status}\uFF09`, "failed", now());
+      return;
+    }
+    const contentType = (imageResponse.headers.get("Content-Type") || "").split(";")[0].trim().toLowerCase();
+    if (!contentType.startsWith("image/")) {
+      await store.failTask(taskId, `\u56FE\u7247\u5916\u94FE\u7684\u5185\u5BB9\u7C7B\u578B\u4E0D\u662F\u56FE\u7247\uFF08${contentType || "\u672A\u77E5"}\uFF09\uFF0C\u5DF2\u62D2\u7EDD`, "failed", now());
+      return;
+    }
+    const declaredLength = Number(imageResponse.headers.get("Content-Length") || "");
+    if (Number.isFinite(declaredLength) && declaredLength > limit) {
+      await store.failTask(taskId, `\u56FE\u7247\u5916\u94FE\u58F0\u660E\u5927\u5C0F\u8D85\u8FC7\u4E0A\u9650\uFF08${Math.round(declaredLength / 1024)}KB > ${Math.round(limit / 1024)}KB\uFF09`, "failed", now());
+      return;
+    }
+    const urlBytes = new Uint8Array(await imageResponse.arrayBuffer());
+    if (urlBytes.byteLength === 0 || urlBytes.byteLength > limit) {
+      await store.failTask(taskId, urlBytes.byteLength === 0 ? "\u56FE\u7247\u5916\u94FE\u5185\u5BB9\u4E3A\u7A7A" : `\u56FE\u7247\u5916\u94FE\u5B9E\u9645\u5927\u5C0F\u8D85\u8FC7\u4E0A\u9650\uFF08${Math.round(urlBytes.byteLength / 1024)}KB\uFF09`, "failed", now());
+      return;
+    }
+    bytes = urlBytes;
+    mimeType = contentType;
+  } else {
+    bytes = base64Decode(extracted.base64);
+    mimeType = extracted.mimeType;
+  }
   if (bytes.byteLength === 0) {
     await store.failTask(taskId, "\u4E0A\u6E38\u8FD4\u56DE\u7684\u56FE\u7247\u5185\u5BB9\u4E3A\u7A7A", "failed", now());
     return;
   }
   const bucket = deps.bucket || env.IMAGE_BUCKET;
   const resultMeta = {
-    content_type: extracted.mimeType,
+    content_type: mimeType,
     byte_size: bytes.byteLength,
     revised_prompt: extracted.revisedPrompt
   };
@@ -9193,7 +9237,7 @@ async function executeUpstreamAndStore(taskId, userId, template, deps) {
       await store.failTask(taskId, `\u7ED3\u679C\u56FE\u7247\u8D85\u8FC7 R2 \u4E0A\u9650 20MB`, "failed", now());
       return;
     }
-    await bucket.put(r2ObjectKey(userId, taskId), bytes, { httpMetadata: { contentType: extracted.mimeType } });
+    await bucket.put(r2ObjectKey(userId, taskId), bytes, { httpMetadata: { contentType: mimeType } });
     resultMeta.storage = "r2";
     resultMeta.object_key = r2ObjectKey(userId, taskId);
   } else {
@@ -9201,7 +9245,7 @@ async function executeUpstreamAndStore(taskId, userId, template, deps) {
       await store.failTask(taskId, `\u7ED3\u679C\u56FE\u7247\u8D85\u8FC7 D1 \u76F4\u5B58\u4E0A\u9650 900KB\uFF1A\u8BF7\u7ED9 Worker \u7ED1\u5B9A R2\uFF08IMAGE_BUCKET\uFF09\u540E\u91CD\u8BD5`, "failed", now());
       return;
     }
-    await store.putD1Blob(taskId, userId, extracted.mimeType, bytes, now());
+    await store.putD1Blob(taskId, userId, mimeType, bytes, now());
     resultMeta.storage = "d1";
   }
   await store.completeTask(taskId, resultMeta, now());
