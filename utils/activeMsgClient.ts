@@ -2639,9 +2639,8 @@ export const ActiveMsgClient = {
       // 等优先）。⚠️ 依赖上游 amsg-server 认领这个字段（/schedule-message 的
       // fullTaskData 白名单 + buildLlmRequestBody 的展开）；旧版上游会把它剥掉——
       // 那时行为退回「只有 -thinking 模型名后缀生效」，即本次改动前的样子，不会更糟。
-      ...(params.extraBody && Object.keys(params.extraBody).length > 0
-        ? { llmExtraBody: params.extraBody }
-        : {}),
+      // The scheduled Worker consumes one JSON completion. Browser streaming is independent.
+      llmExtraBody: { ...params.extraBody, stream: false },
       metadata: {
         charId: char.id,
         charName: char.name,
@@ -2927,7 +2926,7 @@ export const ActiveMsgClient = {
     const expected = AMSG_BUNDLE_VERSION;
     try {
       const config = await ensureWorkerReady();
-      const { status, body } = await fetchWithAuthRaw('config-check', config, { method: 'GET' }, '后端版本探测');
+      const { status, body } = await fetchWithAuthRaw('config-check', config, { method: 'GET', cache: 'no-store' }, '后端版本探测');
       if (status !== 200 || body?.success !== true) return { state: 'unknown', deployed: null, expected };
       const deployed = typeof body?.data?.workerVersion === 'string' ? body.data.workerVersion : null;
       if (!deployed) return { state: 'outdated', deployed: null, expected };
@@ -3081,11 +3080,23 @@ export const ActiveMsgClient = {
     return response?.success === true;
   },
 
-  /** S2：读 /config-check 的原始 data（能力探测用：imageGen / imageStorage / serverTokenEnforced）。 */
+  /** Read the currently deployed code's capability report. */
   async fetchWorkerConfigCheck(): Promise<Record<string, any> | null> {
     const config = await ensureWorkerReady();
-    const response = await fetchWithAuth('config-check', config, { method: 'GET' }, '能力探测');
-    return (response?.data as Record<string, any>) || null;
+    const { status, body } = await fetchWithAuthRaw('config-check', config, { method: 'GET', cache: 'no-store' }, '能力探测');
+    return status === 200 && body?.success === true && body.data && typeof body.data === 'object' && !Array.isArray(body.data)
+      ? body.data
+      : null;
+  },
+
+  /** GET checks the route and credentials. Older S2 builds return their explicit POST-only response. */
+  async probeImageGenRoute(config: ActiveMsg2GlobalConfig): Promise<'ready' | 'unauthenticated' | 'misconfigured' | 'unreachable'> {
+    const { status, body } = await fetchWithAuthRaw('image-gen', config, { method: 'GET', cache: 'no-store' }, '云端生图鉴权检测');
+    if (status === 200 && body?.success === true && body.data?.imageGen === true) return 'ready';
+    if (status === 405 && body?.error?.code === 'METHOD_NOT_ALLOWED' && body.error.message === '/image-gen 只接受 POST') return 'ready';
+    if (status === 401 || status === 403) return 'unauthenticated';
+    if (status === 503 && body?.error?.code === 'WORKER_CONFIG_MISSING') return 'misconfigured';
+    return 'unreachable';
   },
 
   /**

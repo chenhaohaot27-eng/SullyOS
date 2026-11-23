@@ -190,7 +190,7 @@ class SseAssembler {
         else if (choice.message) {
             if (typeof choice.message.content === 'string') {
                 delta = choice.message.content;
-                this.content += delta;
+                this.content = delta;
             }
             const mr = choice.message.reasoning_content ?? choice.message.reasoning ?? choice.message.thinking;
             if (typeof mr === 'string') {

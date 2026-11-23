@@ -6767,7 +6767,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-08-15";
+var AMSG_BUNDLE_VERSION = "2026-11-23";
 
 // utils/amsgTaskKinds.ts
 var AMSG_TASK_KIND_KEY = "amsgKind";
@@ -8725,7 +8725,7 @@ var handleInstantChat = async (args) => {
 
 // worker/amsg/src/selfUpdate.ts
 var CF_API = "https://api.cloudflare.com/client/v4";
-var BUNDLE_URL = "https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js";
+var BUNDLE_URL = "https://raw.githubusercontent.com/chenhaohaot27-eng/SullyOS/main/worker/amsg/worker.bundle.js";
 var MAIN_MODULE = "worker.bundle.js";
 var FALLBACK_COMPATIBILITY_DATE = "2026-01-01";
 var FALLBACK_COMPATIBILITY_FLAGS = ["global_fetch_strictly_public"];
@@ -8825,7 +8825,7 @@ async function fetchLatestBundle() {
   if (bytes < MIN_BUNDLE_BYTES || bytes > MAX_BUNDLE_BYTES) {
     return { ok: false, message: `\u53D6\u56DE\u6765\u7684\u6587\u4EF6\u5927\u5C0F\u4E0D\u5BF9\uFF08${bytes} \u5B57\u8282\uFF09\uFF0C\u6CA1\u6709\u8986\u76D6\uFF0C\u5F53\u524D\u7248\u672C\u4E0D\u52A8\u3002` };
   }
-  if (!code.includes(BUNDLE_FINGERPRINT)) {
+  if (!code.includes(BUNDLE_FINGERPRINT) || !/^\s+imageGen: true,$/m.test(code)) {
     return { ok: false, message: "\u53D6\u56DE\u6765\u7684\u6587\u4EF6\u4E0D\u50CF amsg \u7684 worker \u4EE3\u7801\uFF0C\u6CA1\u6709\u8986\u76D6\uFF0C\u5F53\u524D\u7248\u672C\u4E0D\u52A8\u3002" };
   }
   return { ok: true, code };
@@ -11788,10 +11788,27 @@ var SSE_DONE_BYTES = SSE_ENCODER.encode("event: done\ndata: {}\n\n");
 // utils/sanitize.ts
 var stripLiteralBackslashN = (t) => t.replace(/\\n/g, "\n");
 var stripSourceTags = (t) => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, "\n");
-var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
-var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
-var stripLeadingDateTag = (t) => t.replace(/^[ \t]*\[\s*\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}[^\]]{0,40}\][ \t]*/gm, "");
+var stripTimestamps = (t) => t.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
+var stripLeadingDateTag = (t) => t.replace(/^[ \t]*(?:\[\s*(?:\d\s*){4}[-/年]\s*(?:\d\s*){1,2}[-/月]\s*(?:\d\s*){1,2}(?:日)?(?:[ \t]*(?:周[一二三四五六日天]|星期[一二三四五六日天]))?(?:\s*(?:\d\s*){2}:\s*(?:\d\s*){2})?\s*\][ \t]*)+/gm, "");
 var spaced = (word) => Array.from(word).join("\\s*");
+var EMOJI_NAME = spaced("SEND_EMOJI");
+var SINGLE_EMOJI_RE = new RegExp(
+  `(?<!\\[)\\[\\s*${EMOJI_NAME}\\s*[:\uFF1A]([^\\[\\]]{1,100})\\](?!\\s*\\])`,
+  "gi"
+);
+var BROKEN_EMOJI_RE = new RegExp(
+  `\\[(?:\\s*\\[)?\\s*${EMOJI_NAME}(?=[\\s:\uFF1A\\]]|$)[^\\[\\]\\r\\n]*\\]{0,2}`,
+  "gi"
+);
+var VALID_EMOJI_RE = /^\[\[SEND_EMOJI[:：][^\[\]\r\n]{1,100}\]\]$/;
+function normalizeEmojiProtocol(text) {
+  const canonical = repairSplitTags(text).replace(SINGLE_EMOJI_RE, (_tag, body) => `[[SEND_EMOJI: ${body.replace(/\s+/g, " ").trim()}]]`);
+  const { guarded, restore } = protectAtomicTags(canonical);
+  return restore(guarded.replace(BROKEN_EMOJI_RE, "").replace(/\[{1,2}[ \t]*SEND_(?:E(?:M(?:O(?:J)?)?)?)?[ \t]*$/gim, "")).replace(
+    /\[\[SEND_EMOJI[:：]([^\[\]]*)\]\]/g,
+    (tag, name) => VALID_EMOJI_RE.test(tag) && name.trim() ? tag : ""
+  );
+}
 var EMOTION_TAG_RE = new RegExp(
   `^[ \\t]*\\[\\s*(?:${["normal", "happy", "angry", "sad", "shy"].map(spaced).join("|")})\\s*\\][ \\t]*`,
   "gim"
@@ -11800,7 +11817,7 @@ var stripLeadingEmotionTag = (t) => t.replace(EMOTION_TAG_RE, "");
 var TAG_ATOM = String.fromCharCode(3);
 var TAG_ATOM_RE = new RegExp(`${TAG_ATOM}(\\d+)${TAG_ATOM}`, "g");
 var PROTECTED_TAG_RE = new RegExp(
-  `\\[\\s*\\[\\s*(${["QUOTE", "QUATE", "\u5F15\u7528", "SEND_EMOJI"].map(spaced).join("|")})\\s*[:\uFF1A]([\\s\\S]{0,300}?)\\]\\s*\\]`,
+  `\\[\\s*\\[\\s*(${["QUOTE", "QUATE", "\u5F15\u7528", "SEND_EMOJI"].map(spaced).join("|")})\\s*[:\uFF1A]((?:(?!\\[\\[)[\\s\\S]){0,300}?)\\]\\s*\\]`,
   "g"
 );
 var CLEAN_TAG_RE = /^\[\[(?:QUOTE|QUATE|引用|SEND_EMOJI)[:：][^\n\r\u2028\u2029]*\]\]$/;
@@ -11976,14 +11993,13 @@ function sanitizeForNotification(text) {
   let result = text;
   result = stripLiteralBackslashN(result);
   result = stripThinkBlocks(result);
-  result = repairSplitTags(result);
+  result = normalizeEmojiProtocol(result);
   result = replaceHtmlBlocks(result);
   result = replaceEmojiReverseTag(result);
   result = replaceSendEmoji(result);
   result = normalizeTranslationTags(result);
   result = extractTranslationOriginal(result);
   result = stripTimestamps(result);
-  result = stripChineseDate(result);
   result = stripLeadingDateTag(result);
   result = stripLeadingEmotionTag(result);
   result = stripRoleNamePrefix(result);
@@ -12005,7 +12021,7 @@ function sanitizeIntoSegments(text) {
   let cleaned = stripLiteralBackslashN(text);
   cleaned = stripThinkBlocks(cleaned);
   cleaned = normalizeVoiceTags(cleaned);
-  cleaned = repairSplitTags(cleaned);
+  cleaned = normalizeEmojiProtocol(cleaned);
   cleaned = normalizeTranslationTags(cleaned);
   const ATOM_MARKER = String.fromCharCode(2);
   const atomBlocks = [];
@@ -12044,7 +12060,6 @@ ${ATOM_MARKER}B${idx}${ATOM_MARKER}
   cleaned = stripInnerState(cleaned);
   cleaned = stripBusinessTagsForNotification(cleaned);
   cleaned = stripTimestamps(cleaned);
-  cleaned = stripChineseDate(cleaned);
   cleaned = stripLeadingDateTag(cleaned);
   cleaned = stripLeadingEmotionTag(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);
@@ -14441,7 +14456,7 @@ var src_default = {
         });
       }
     }
-    const imageGenMatch = pathname.match(/^\/image-gen(?:\/([^/]+)(\/cancel|\/result)?)?$/);
+    const imageGenMatch = pathname.match(/\/image-gen(?:\/([^/]+)(\/cancel|\/result)?)?$/);
     if (imageGenMatch) {
       if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
       if (typeof env.DB?.prepare !== "function" || !env.AMSG_MASTER_KEY?.trim()) {
@@ -14450,8 +14465,11 @@ var src_default = {
       const imageGenCtx = { request, env, json: jsonWithCors };
       const [, taskId, suffix] = imageGenMatch;
       if (!taskId) {
+        if (method === "GET") {
+          return jsonWithCors(200, { success: true, data: { imageGen: true } });
+        }
         if (method !== "POST") {
-          return jsonWithCors(405, { success: false, error: { code: "METHOD_NOT_ALLOWED", message: "/image-gen \u53EA\u63A5\u53D7 POST" } });
+          return jsonWithCors(405, { success: false, error: { code: "METHOD_NOT_ALLOWED", message: "/image-gen \u53EA\u63A5\u53D7 GET \u6216 POST" } });
         }
         return handleImageGenSubmit(imageGenCtx);
       }

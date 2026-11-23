@@ -562,11 +562,23 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const handleSelfUpdateWorker = async () => {
     setLoading(true);
     try {
+      const current = await ActiveMsgClient.fetchWorkerConfigCheck().catch(() => null);
+      if (current?.selfUpdate?.supported === true && current.imageGen !== true) {
+        addToast('当前 Worker 的更新源未提供 Lemuria 后台生图。迁移前需要确认现有数据库与 Lemuria 后端兼容。', 'info');
+        return;
+      }
       const result = await ActiveMsgClient.selfUpdateWorker();
       if (result.ok) {
         setSelfUpdateHash(result.bundleHash || '');
         setAttachOpen(false);
-        addToast(result.message, 'success');
+        const deployed = await ActiveMsgClient.fetchWorkerConfigCheck().catch(() => null);
+        if (deployed?.imageGen !== true) {
+          addToast(deployed
+            ? `更新包已上传，当前 Worker（${deployed.workerVersion || '版本未知'}）未提供 Lemuria 后台生图接口。`
+            : '更新包已上传，当前 Worker 能力暂时无法验证。', 'info');
+        } else {
+          addToast(result.message, 'success');
+        }
         try {
           await ActiveMsgClient.connect();
           await refresh();

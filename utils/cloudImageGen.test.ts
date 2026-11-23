@@ -2,6 +2,7 @@
 // 失败/未知收敛、默认关闭不影响本地生图路径。ActiveMsgClient 网络层整体 mock。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DB } from './db';
+import { ActiveMsgStore } from './activeMsgStore';
 import type { CharacterProfile, Message } from '../types';
 import { IMAGE_GENERATION_CONFIG_STORAGE_KEY } from './imageGenerationConfig';
 import { buildCloudImageGenRequestTemplate } from './imageGenerationService';
@@ -13,6 +14,7 @@ vi.mock('./activeMsgClient', () => ({
     downloadImageGenResult: vi.fn(),
     cancelImageGenTask: vi.fn(),
     fetchWorkerConfigCheck: vi.fn(),
+    probeImageGenRoute: vi.fn(),
   },
 }));
 
@@ -21,6 +23,7 @@ import {
     loadCloudImageGenConfig,
     saveCloudImageGenConfig,
     isCloudImageGenActive,
+    probeCloudImageGenCapability,
     submitCloudPhotoTask,
     settleCloudPhotoMessage,
     recoverCloudPhotoMessages,
@@ -65,6 +68,23 @@ afterEach(() => {
 });
 
 describe('开关与默认行为', () => {
+  it('distinguishes replacement bundles, auth failure and a fresh ready report', async () => {
+    vi.spyOn(ActiveMsgStore, 'getGlobalConfig').mockResolvedValue({
+      workerUrl: 'https://worker.test', userId: 'owner', serverToken: 'configured', masterKey: 'configured',
+    } as Awaited<ReturnType<typeof ActiveMsgStore.getGlobalConfig>>);
+    const configCheck = vi.mocked(ActiveMsgClient.fetchWorkerConfigCheck);
+    const routeCheck = vi.mocked(ActiveMsgClient.probeImageGenRoute);
+    routeCheck.mockClear();
+    configCheck.mockResolvedValueOnce(null).mockResolvedValueOnce({ instantChat: true, workerVersion: '2026-11-19' });
+    await expect(probeCloudImageGenCapability()).resolves.toMatchObject({ ok: false, reason: 'unreachable' });
+    await expect(probeCloudImageGenCapability()).resolves.toMatchObject({ ok: false, reason: 'unsupported', version: '2026-11-19' });
+    expect(routeCheck).not.toHaveBeenCalled();
+    configCheck.mockResolvedValue({ imageGen: true, serverTokenEnforced: true, imageStorage: 'r2' });
+    routeCheck.mockResolvedValueOnce('unauthenticated').mockResolvedValueOnce('ready');
+    await expect(probeCloudImageGenCapability()).resolves.toMatchObject({ ok: false, reason: 'unauthenticated' });
+    await expect(probeCloudImageGenCapability()).resolves.toMatchObject({ ok: true, storage: 'r2' });
+  });
+
   it('默认关闭；isCloudImageGenActive 关着时恒 false（本地生图路径不受影响）', async () => {
     expect(loadCloudImageGenConfig().enabled).toBe(false);
     expect(await isCloudImageGenActive()).toBe(false);

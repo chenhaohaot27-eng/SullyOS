@@ -23,7 +23,7 @@ export const normalizeAssistantActionFormatting = (raw: string): string => {
 
     // 表情：既修单括号机器语法，也修 UI / 通知里的人类可读摘要。
     content = content.replace(
-        /(^|[^\[])\[\s*SEND_EMOJI\s*[:：]\s*([^\]\r\n]+?)\s*\](?!\])/gim,
+        /(^|[^\[])\[\s*SEND_EMOJI\s*[:：]\s*([^\[\]\r\n]+?)\s*\](?!\])/gim,
         (_all, prefix: string, name: string) => `${prefix}[[SEND_EMOJI: ${name.trim()}]]`,
     );
     // 人类可读的单括号摘要只有独立成行时才算表情意图，避免误伤自然语言。

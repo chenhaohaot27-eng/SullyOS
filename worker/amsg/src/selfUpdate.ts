@@ -21,9 +21,9 @@ import { constantTimeEqual } from './instantChat';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
 
-/** 官方成品代码。跟代配脚本、手册附录指的是同一份。 */
+/** Lemuria release bundle, built and committed with the matching frontend. */
 const BUNDLE_URL =
-  'https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js';
+  'https://raw.githubusercontent.com/chenhaohaot27-eng/SullyOS/main/worker/amsg/worker.bundle.js';
 
 /** 上传时用的模块名，同时也是 metadata.main_module，两处必须一致。 */
 const MAIN_MODULE = 'worker.bundle.js';
@@ -207,7 +207,7 @@ async function fetchLatestBundle(): Promise<
   if (bytes < MIN_BUNDLE_BYTES || bytes > MAX_BUNDLE_BYTES) {
     return { ok: false, message: `取回来的文件大小不对（${bytes} 字节），没有覆盖，当前版本不动。` };
   }
-  if (!code.includes(BUNDLE_FINGERPRINT)) {
+  if (!code.includes(BUNDLE_FINGERPRINT) || !/^\s+imageGen: true,$/m.test(code)) {
     return { ok: false, message: '取回来的文件不像 amsg 的 worker 代码，没有覆盖，当前版本不动。' };
   }
   return { ok: true, code };

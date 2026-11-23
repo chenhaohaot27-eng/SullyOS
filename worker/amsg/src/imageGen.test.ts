@@ -150,6 +150,14 @@ const call = (path: string, init: RequestInit = {}, env = makeEnv()) =>
 const submit = (taskId: string, envelope: unknown, init: RequestInit = {}, env = makeEnv()) =>
   call('image-gen', { method: 'POST', body: JSON.stringify({ taskId, envelope }), ...init }, env);
 
+it('checks the image route without submitting a task, including when mounted under a prefix', async () => {
+  const response = await call('proxy/image-gen');
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ success: true, data: { imageGen: true } });
+  expect((await call('proxy/image-gen', { headers: { 'X-Client-Token': 'wrong' } })).status).toBe(401);
+  expect((await call('image-gen', {}, makeEnv({ AMSG_MASTER_KEY: undefined }))).status).toBe(503);
+});
+
 const upstreamTemplate = (url = 'https://relay.example/v1/images/generations') => ({
   url, method: 'POST',
   headers: { 'Content-Type': 'application/json' },

@@ -28,22 +28,37 @@ const stripSourceTags = (t: string): string => t.replace(/\s*\[(?:聊天|通话|
 /** 4 种时间格式: 带括号 ISO / 行首裸 ISO / 中文 12h / 英文 12h */
 const stripTimestamps = (t: string): string =>
   t
-    .replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, '')
     .replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, '')
     .replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, '')
     .replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, '');
-
-/** `[2024年5月20]` / `[2024/5/20...]` 中文或斜杠日期 (兼容 normalizeAiContent 的更宽松匹配) */
-const stripChineseDate = (t: string): string => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, '');
 
 /**
  * 行首的完整日期/时间标签（含跨行断开的形态，如 `[2026-11-18\n10:00]` / `[2026-11-\n18]`）。
  * 只在行首剥，正文中间的方括号不动；不跨过 `]`，所以不会吞掉后面的正文。
  */
-const stripLeadingDateTag = (t: string): string =>
-  t.replace(/^[ \t]*\[\s*\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}[^\]]{0,40}\][ \t]*/gm, '');
+export const stripLeadingDateTag = (t: string): string =>
+  t.replace(/^[ \t]*(?:\[\s*(?:\d\s*){4}[-/年]\s*(?:\d\s*){1,2}[-/月]\s*(?:\d\s*){1,2}(?:日)?(?:[ \t]*(?:周[一二三四五六日天]|星期[一二三四五六日天]))?(?:\s*(?:\d\s*){2}:\s*(?:\d\s*){2})?\s*\][ \t]*)+/gm, '');
 
 const spaced = (word: string): string => Array.from(word).join('\\s*');
+const EMOJI_NAME = spaced('SEND_EMOJI');
+const SINGLE_EMOJI_RE = new RegExp(
+  `(?<!\\[)\\[\\s*${EMOJI_NAME}\\s*[:：]([^\\[\\]]{1,100})\\](?!\\s*\\])`, 'gi',
+);
+const BROKEN_EMOJI_RE = new RegExp(
+  `\\[(?:\\s*\\[)?\\s*${EMOJI_NAME}(?=[\\s:：\\]]|$)[^\\[\\]\\r\\n]*\\]{0,2}`, 'gi',
+);
+const VALID_EMOJI_RE = /^\[\[SEND_EMOJI[:：][^\[\]\r\n]{1,100}\]\]$/;
+
+/** Normalize a completed reply before splitting it into display or delivery segments. */
+export function normalizeEmojiProtocol(text: string): string {
+  const canonical = repairSplitTags(text).replace(SINGLE_EMOJI_RE, (_tag, body: string) =>
+    `[[SEND_EMOJI: ${body.replace(/\s+/g, ' ').trim()}]]`);
+  const { guarded, restore } = protectAtomicTags(canonical);
+  return restore(guarded.replace(BROKEN_EMOJI_RE, '').replace(/\[{1,2}[ \t]*SEND_(?:E(?:M(?:O(?:J)?)?)?)?[ \t]*$/gim, '')).replace(
+    /\[\[SEND_EMOJI[:：]([^\[\]]*)\]\]/g,
+    (tag, name: string) => VALID_EMOJI_RE.test(tag) && name.trim() ? tag : '',
+  );
+}
 
 /**
  * 行首的见面模式情绪标签 `[normal]/[happy]/[angry]/[sad]/[shy]`。聊天气泡里没有这套协议，
@@ -63,7 +78,7 @@ const TAG_ATOM_RE = new RegExp(`${TAG_ATOM}(\\d+)${TAG_ATOM}`, 'g');
 // 引用 / 表情包标签：名称后必须跟分隔符，内容最多 300 字，避免漏闭合时吞掉整段正文。
 // 容忍名称被拆开（`[[QUO\nTE:`）与收尾 `]` `]` 之间折行。
 const PROTECTED_TAG_RE = new RegExp(
-  `\\[\\s*\\[\\s*(${['QUOTE', 'QUATE', '引用', 'SEND_EMOJI'].map(spaced).join('|')})\\s*[:：]([\\s\\S]{0,300}?)\\]\\s*\\]`,
+  `\\[\\s*\\[\\s*(${['QUOTE', 'QUATE', '引用', 'SEND_EMOJI'].map(spaced).join('|')})\\s*[:：]((?:(?!\\[\\[)[\\s\\S]){0,300}?)\\]\\s*\\]`,
   'g',
 );
 const CLEAN_TAG_RE = /^\[\[(?:QUOTE|QUATE|引用|SEND_EMOJI)[:：][^\n\r\u2028\u2029]*\]\]$/;
@@ -473,7 +488,7 @@ export function sanitizeForNotification(text: string): string {
   result = stripLiteralBackslashN(result);
   // 2. think 块最早剥 — 里面可能含其他 tag 影响后续匹配
   result = stripThinkBlocks(result);
-  result = repairSplitTags(result);
+  result = normalizeEmojiProtocol(result);
   // 3. HTML 块替换 — 内部 markdown/tag 不应被处理
   result = replaceHtmlBlocks(result);
   // 4. 反向 emoji tag 先于正向 SEND_EMOJI (反向可能也走 SEND_EMOJI 重写, 但这里直接转最终展示)
@@ -484,7 +499,6 @@ export function sanitizeForNotification(text: string): string {
   result = extractTranslationOriginal(result);
   // 6. LLM mimicking 历史的 leak: 时间戳 / 日期 / 角色名 prefix / 系统日志
   result = stripTimestamps(result);
-  result = stripChineseDate(result);
   result = stripLeadingDateTag(result);
   result = stripLeadingEmotionTag(result);
   result = stripRoleNamePrefix(result);
@@ -529,7 +543,7 @@ export function sanitizeForBubble(
   //      applyAssistantPostProcessing Step 8 双语拆泡都靠严格配对正则)
   result = normalizeVoiceTags(result);
   result = normalizeTranslationTags(result);
-  result = repairSplitTags(result); // 引用/表情标签被换行撕开时修回单行
+  result = normalizeEmojiProtocol(result);
   // 2. 源标签 / 时间戳 / 系统日志 leak / 业务标签
   result = stripSourceTags(result);
   result = stripTimestamps(result);
@@ -608,7 +622,7 @@ export function sanitizeIntoSegments(text: string): Segment[] {
   let cleaned = stripLiteralBackslashN(text);
   cleaned = stripThinkBlocks(cleaned);
   cleaned = normalizeVoiceTags(cleaned); // 语音标签自愈 — Phase 1.5 的配对保护靠它兜底
-  cleaned = repairSplitTags(cleaned); // 引用/表情标签被换行撕开时修回单行
+  cleaned = normalizeEmojiProtocol(cleaned);
   cleaned = normalizeTranslationTags(cleaned); // 翻译标签自愈 — 同上, Phase 1.5 的 <翻译> 原子保护靠它命中
 
   // Phase 1.5: 原子语义块交给 amsg-instant 标准 protected-block splitter 识别,
@@ -652,7 +666,6 @@ export function sanitizeIntoSegments(text: string): Segment[] {
   cleaned = stripInnerState(cleaned);
   cleaned = stripBusinessTagsForNotification(cleaned);
   cleaned = stripTimestamps(cleaned);
-  cleaned = stripChineseDate(cleaned);
   cleaned = stripLeadingDateTag(cleaned);
   cleaned = stripLeadingEmotionTag(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);

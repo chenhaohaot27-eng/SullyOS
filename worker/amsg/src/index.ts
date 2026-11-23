@@ -3196,7 +3196,7 @@ export default {
 
     // S2：云端后台生图端点。位于口令门 + owner_pin 之后（上面的 tokenGate 已返回过），
     // 行级归属（task.user_id === X-User-Id）在 imageGen 各 handler 里再核对一次。
-    const imageGenMatch = pathname.match(/^\/image-gen(?:\/([^/]+)(\/cancel|\/result)?)?$/);
+    const imageGenMatch = pathname.match(/\/image-gen(?:\/([^/]+)(\/cancel|\/result)?)?$/);
     if (imageGenMatch) {
       if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
       if (typeof (env.DB as { prepare?: unknown } | null)?.prepare !== 'function' || !env.AMSG_MASTER_KEY?.trim()) {
@@ -3205,8 +3205,11 @@ export default {
       const imageGenCtx = { request, env, json: jsonWithCors };
       const [, taskId, suffix] = imageGenMatch as unknown as [string, string | undefined, string | undefined];
       if (!taskId) {
+        if (method === 'GET') {
+          return jsonWithCors(200, { success: true, data: { imageGen: true } });
+        }
         if (method !== 'POST') {
-          return jsonWithCors(405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '/image-gen 只接受 POST' } });
+          return jsonWithCors(405, { success: false, error: { code: 'METHOD_NOT_ALLOWED', message: '/image-gen 只接受 GET 或 POST' } });
         }
         return handleImageGenSubmit(imageGenCtx);
       }

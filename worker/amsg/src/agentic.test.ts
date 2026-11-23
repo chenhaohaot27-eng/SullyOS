@@ -729,3 +729,13 @@ describe('processLLMRound — 排程池混入 cancel / renew', () => {
     expect(state.narrations.join('')).not.toContain(`${AMSG_FIRE_SCHEDULE_TOOL}(`);
   });
 });
+it('keeps cloud delivery segments intact before client sticker replay', () => {
+  const decision = processLLMRound(createFireSessionState(),
+    '[2026-1\n1-23 13:0\n6] 第一条。\n[SEND_EMO\nJI: 恼火]\n会议在 [2026-11-23 13:06]。\n[[SEND_EMOJI: 残缺',
+    build);
+  expect(decision.decision).toBe('finish');
+  if (decision.decision !== 'finish') throw new Error('missing payloads');
+  expect(decision.pushPayloads.map(payload => payload.message)).toEqual([
+    '第一条。', '[[SEND_EMOJI: 恼火]]', '会议在 [2026-11-23 13:06]。',
+  ]);
+});

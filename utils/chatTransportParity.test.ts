@@ -54,6 +54,31 @@ const chatBody = { messages: [{ role: 'user', content: 'hi' }] };
 
 const textOf = (data: any): string => data.choices[0].message.content;
 
+describe('relay completion and chat protocol', () => {
+  const prose = '保留会议时间 [2026-11-23 13:06] 和 12,345。';
+  const raw = '[2026-1\n1-2\n3 13:0\n6] [2026-11-23 13:06] 你好。\n'
+    + '[SEND_EM\nOJI: 恼火]\n' + prose + '\n[[SEND_EMOJI: 残缺';
+
+  it.each([true, false])('preserves the complete reply (stream=%s)', async (stream) => {
+    const events: object[] = chars(raw, 2)
+      .map(content => ({ choices: [{ delta: { content } }] }));
+    // Some relays send the complete message after their deltas.
+    events.push({ choices: [{ message: { content: raw } }] });
+    const sse = events.map(event => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n';
+    const fetchImpl = vi.fn(async () => stream
+      ? new Response(body(bytes(sse, 3)), { headers: { 'content-type': 'text/event-stream' } })
+      : new Response(JSON.stringify({ choices: [{ message: { content: raw } }] }), { headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchImpl);
+    const result = await completeChat(openai, { ...chatBody, stream });
+    const text = textOf(result);
+    expect(text).toBe(raw);
+    const parts = ChatParser.splitResponse(ChatParser.sanitize(text));
+    expect(parts.map(p => p.type === 'emoji' ? p.content : ChatParser.chunkText(p.content))).toEqual([
+      ['你好。'], '恼火', [prose],
+    ]);
+  });
+});
+
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('buildGeminiNativeEndpoint', () => {

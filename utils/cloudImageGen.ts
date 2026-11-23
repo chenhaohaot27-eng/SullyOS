@@ -58,10 +58,11 @@ export async function isCloudImageGenActive(): Promise<boolean> {
     }
 }
 
-/** 设置页用：探测 Worker 云端生图能力（config-check 的 imageGen/imageStorage）。 */
-export async function probeCloudImageGenCapability(): Promise<
-    { ok: true; storage: 'r2' | 'd1' } | { ok: false; reason: 'not-connected' | 'unsupported' | 'unauthenticated' | 'unreachable' }
-> {
+export type CloudImageGenCapability =
+    { ok: true; storage: 'r2' | 'd1'; version?: string }
+    | { ok: false; reason: 'not-connected' | 'unsupported' | 'unauthenticated' | 'misconfigured' | 'unreachable'; version?: string };
+
+export async function probeCloudImageGenCapability(): Promise<CloudImageGenCapability> {
     let config;
     try {
         config = await ActiveMsgStore.getGlobalConfig();
@@ -71,11 +72,14 @@ export async function probeCloudImageGenCapability(): Promise<
     if (!config?.workerUrl || !config?.userId) return { ok: false, reason: 'not-connected' };
     try {
         const report = await ActiveMsgClient.fetchWorkerConfigCheck();
-        if (report?.serverTokenEnforced !== true && report?.imageGen !== true) return { ok: false, reason: 'unsupported' };
-        if (report?.serverTokenEnforced !== true) return { ok: false, reason: 'unsupported' };
-        if (!config.serverToken) return { ok: false, reason: 'unauthenticated' };
-        if (report.imageGen !== true) return { ok: false, reason: 'unsupported' };
-        return { ok: true, storage: report.imageStorage === 'r2' ? 'r2' : 'd1' };
+        if (!report) return { ok: false, reason: 'unreachable' };
+        const version = typeof report.workerVersion === 'string' ? report.workerVersion : undefined;
+        if (report.imageGen !== true) return { ok: false, reason: 'unsupported', version };
+        if (report.serverTokenEnforced !== true || !config.masterKey) return { ok: false, reason: 'misconfigured', version };
+        if (!config.serverToken?.trim()) return { ok: false, reason: 'unauthenticated', version };
+        const route = await ActiveMsgClient.probeImageGenRoute(config);
+        if (route !== 'ready') return { ok: false, reason: route, version };
+        return { ok: true, storage: report.imageStorage === 'r2' ? 'r2' : 'd1', version };
     } catch {
         return { ok: false, reason: 'unreachable' };
     }

@@ -10,6 +10,11 @@ import type { Message } from '../types';
 // 只展示控制标记前的安全正文。最终渲染仍由 applyAssistantPostProcessing 负责。
 
 describe('computeStreamPreviewBubbles', () => {
+    it('waits for folded control tags to close without showing their fragments', () => {
+        expect(computeStreamPreviewBubbles('开头\n[2026-11-\n23 13:0')).toEqual(['开头']);
+        expect(computeStreamPreviewBubbles('开头\n[SEND_EMOJI:\n恼火')).toEqual(['开头']);
+        expect(computeStreamPreviewBubbles('开头\n[SEND_EMOJI:\n恼火]\n后面')).toEqual(['开头', '后面']);
+    });
     it('无换行的当前尾句也实时展示', () => {
         expect(computeStreamPreviewBubbles('今天天气真好')).toEqual(['今天天气真好']);
     });

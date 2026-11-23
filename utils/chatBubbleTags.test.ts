@@ -213,10 +213,11 @@ describe('最终落库内容', () => {
 
   it('折行的 [[SEND_EMOJI:]] 落成表情消息而不是裸标签文字', async () => {
     const charId = `c-emoji-${Date.now()}`;
-    await applyAssistantPostProcessing('好呀\n[[SEND_EMOJI:\n求抱抱]]', makeCtx(charId, [], [{ name: '求抱抱', url: 'blob:emoji-hug' }]));
+    const raw = '[2026-1\n1-23 13:0\n6] 好呀\n[SEND_EMO\nJI: 求抱抱]\n见面时间 [2026-11-23 13:06]。\n[[SEND_EMOJI: 残缺';
+    await applyAssistantPostProcessing(raw, makeCtx(charId, [], [{ name: '求抱抱', url: 'blob:emoji-hug' }]));
     const msgs = await DB.getRecentMessagesByCharId(charId, 50);
     expect(msgs.some(m => m.type === 'emoji')).toBe(true);
-    expect(msgs.filter(m => m.type === 'text').every(m => !String(m.content).includes('SEND_EMOJI'))).toBe(true);
+    expect(msgs.filter(m => m.type === 'text').map(m => m.content)).toEqual(['好呀', '见面时间 [2026-11-23 13:06]。']);
   }, 20000);
 
   it('繁体文本原样落库', async () => {

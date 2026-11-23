@@ -22,7 +22,7 @@ export const AMSG_D1_NAME = 'sullyos-amsg';
 /** 上传时的模块名，同时是 metadata.main_module，两处必须一致。 */
 const MAIN_MODULE = 'worker.bundle.js';
 
-const BUNDLE_BASE = 'https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg';
+const BUNDLE_BASE = 'https://raw.githubusercontent.com/chenhaohaot27-eng/SullyOS/main/worker/amsg';
 const BUNDLE_URL = `${BUNDLE_BASE}/${MAIN_MODULE}`;
 const WRANGLER_URL = `${BUNDLE_BASE}/wrangler.toml`;
 

@@ -2326,10 +2326,27 @@ var SSE_DONE_BYTES2 = SSE_ENCODER2.encode("event: done\ndata: {}\n\n");
 // utils/sanitize.ts
 var stripLiteralBackslashN = (t) => t.replace(/\\n/g, "\n");
 var stripSourceTags = (t) => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, "\n");
-var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
-var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
-var stripLeadingDateTag = (t) => t.replace(/^[ \t]*\[\s*\d{4}\s*[-/年]\s*\d{1,2}\s*[-/月]\s*\d{1,2}[^\]]{0,40}\][ \t]*/gm, "");
+var stripTimestamps = (t) => t.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
+var stripLeadingDateTag = (t) => t.replace(/^[ \t]*(?:\[\s*(?:\d\s*){4}[-/年]\s*(?:\d\s*){1,2}[-/月]\s*(?:\d\s*){1,2}(?:日)?(?:[ \t]*(?:周[一二三四五六日天]|星期[一二三四五六日天]))?(?:\s*(?:\d\s*){2}:\s*(?:\d\s*){2})?\s*\][ \t]*)+/gm, "");
 var spaced = (word) => Array.from(word).join("\\s*");
+var EMOJI_NAME = spaced("SEND_EMOJI");
+var SINGLE_EMOJI_RE = new RegExp(
+  `(?<!\\[)\\[\\s*${EMOJI_NAME}\\s*[:\uFF1A]([^\\[\\]]{1,100})\\](?!\\s*\\])`,
+  "gi"
+);
+var BROKEN_EMOJI_RE = new RegExp(
+  `\\[(?:\\s*\\[)?\\s*${EMOJI_NAME}(?=[\\s:\uFF1A\\]]|$)[^\\[\\]\\r\\n]*\\]{0,2}`,
+  "gi"
+);
+var VALID_EMOJI_RE = /^\[\[SEND_EMOJI[:：][^\[\]\r\n]{1,100}\]\]$/;
+function normalizeEmojiProtocol(text) {
+  const canonical = repairSplitTags(text).replace(SINGLE_EMOJI_RE, (_tag, body) => `[[SEND_EMOJI: ${body.replace(/\s+/g, " ").trim()}]]`);
+  const { guarded, restore } = protectAtomicTags(canonical);
+  return restore(guarded.replace(BROKEN_EMOJI_RE, "").replace(/\[{1,2}[ \t]*SEND_(?:E(?:M(?:O(?:J)?)?)?)?[ \t]*$/gim, "")).replace(
+    /\[\[SEND_EMOJI[:：]([^\[\]]*)\]\]/g,
+    (tag, name) => VALID_EMOJI_RE.test(tag) && name.trim() ? tag : ""
+  );
+}
 var EMOTION_TAG_RE = new RegExp(
   `^[ \\t]*\\[\\s*(?:${["normal", "happy", "angry", "sad", "shy"].map(spaced).join("|")})\\s*\\][ \\t]*`,
   "gim"
@@ -2338,7 +2355,7 @@ var stripLeadingEmotionTag = (t) => t.replace(EMOTION_TAG_RE, "");
 var TAG_ATOM = String.fromCharCode(3);
 var TAG_ATOM_RE = new RegExp(`${TAG_ATOM}(\\d+)${TAG_ATOM}`, "g");
 var PROTECTED_TAG_RE = new RegExp(
-  `\\[\\s*\\[\\s*(${["QUOTE", "QUATE", "\u5F15\u7528", "SEND_EMOJI"].map(spaced).join("|")})\\s*[:\uFF1A]([\\s\\S]{0,300}?)\\]\\s*\\]`,
+  `\\[\\s*\\[\\s*(${["QUOTE", "QUATE", "\u5F15\u7528", "SEND_EMOJI"].map(spaced).join("|")})\\s*[:\uFF1A]((?:(?!\\[\\[)[\\s\\S]){0,300}?)\\]\\s*\\]`,
   "g"
 );
 var CLEAN_TAG_RE = /^\[\[(?:QUOTE|QUATE|引用|SEND_EMOJI)[:：][^\n\r\u2028\u2029]*\]\]$/;
@@ -2514,14 +2531,13 @@ function sanitizeForNotification(text) {
   let result = text;
   result = stripLiteralBackslashN(result);
   result = stripThinkBlocks(result);
-  result = repairSplitTags(result);
+  result = normalizeEmojiProtocol(result);
   result = replaceHtmlBlocks(result);
   result = replaceEmojiReverseTag(result);
   result = replaceSendEmoji(result);
   result = normalizeTranslationTags(result);
   result = extractTranslationOriginal(result);
   result = stripTimestamps(result);
-  result = stripChineseDate(result);
   result = stripLeadingDateTag(result);
   result = stripLeadingEmotionTag(result);
   result = stripRoleNamePrefix(result);
@@ -2543,7 +2559,7 @@ function sanitizeIntoSegments(text) {
   let cleaned = stripLiteralBackslashN(text);
   cleaned = stripThinkBlocks(cleaned);
   cleaned = normalizeVoiceTags(cleaned);
-  cleaned = repairSplitTags(cleaned);
+  cleaned = normalizeEmojiProtocol(cleaned);
   cleaned = normalizeTranslationTags(cleaned);
   const ATOM_MARKER = String.fromCharCode(2);
   const atomBlocks = [];
@@ -2582,7 +2598,6 @@ ${ATOM_MARKER}B${idx}${ATOM_MARKER}
   cleaned = stripInnerState(cleaned);
   cleaned = stripBusinessTagsForNotification(cleaned);
   cleaned = stripTimestamps(cleaned);
-  cleaned = stripChineseDate(cleaned);
   cleaned = stripLeadingDateTag(cleaned);
   cleaned = stripLeadingEmotionTag(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);

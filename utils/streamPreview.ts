@@ -15,6 +15,7 @@
  */
 
 import { ChatParser } from './chatParser';
+import { normalizeEmojiProtocol, stripLeadingDateTag } from './sanitize';
 import type { Message } from '../types';
 
 /** 跨行块规则：open 命中进入抑制态，直到 close 命中（含闭合行本身）。 */
@@ -49,6 +50,10 @@ function isLinePreviewable(line: string): boolean {
  */
 export function computeStreamPreviewBubbles(fullText: string): string[] {
     if (!fullText) return [];
+    // Leave a partially received command or timestamp out of the preview until it closes.
+    fullText = fullText.replace(/(?:^[ \t]*\[\s*\d{1,4}(?:[\d\s:/年-]*)|\[{1,2}[ \t]*SEND_[^\[\]]*)$/gim, (tail, offset, text) =>
+        text.indexOf(']', offset) < 0 ? '' : tail);
+    fullText = stripLeadingDateTag(normalizeEmojiProtocol(fullText));
     const lastNl = fullText.lastIndexOf('\n');
     const completed = lastNl < 0 ? '' : fullText.slice(0, lastNl);
     const trailing = lastNl < 0 ? fullText : fullText.slice(lastNl + 1);
