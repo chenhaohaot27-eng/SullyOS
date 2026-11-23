@@ -42,7 +42,7 @@ export const stripLeadingDateTag = (t: string): string =>
 const spaced = (word: string): string => Array.from(word).join('\\s*');
 const EMOJI_NAME = spaced('SEND_EMOJI');
 const SINGLE_EMOJI_RE = new RegExp(
-  `(?<!\\[)\\[\\s*${EMOJI_NAME}\\s*[:：]([^\\[\\]]{1,100})\\](?!\\s*\\])`, 'gi',
+  `\\[\\s*${EMOJI_NAME}\\s*[:：]([^\\[\\]]{1,100})\\](?!\\s*\\])`, 'gi',
 );
 const BROKEN_EMOJI_RE = new RegExp(
   `\\[(?:\\s*\\[)?\\s*${EMOJI_NAME}(?=[\\s:：\\]]|$)[^\\[\\]\\r\\n]*\\]{0,2}`, 'gi',
@@ -51,8 +51,8 @@ const VALID_EMOJI_RE = /^\[\[SEND_EMOJI[:：][^\[\]\r\n]{1,100}\]\]$/;
 
 /** Normalize a completed reply before splitting it into display or delivery segments. */
 export function normalizeEmojiProtocol(text: string): string {
-  const canonical = repairSplitTags(text).replace(SINGLE_EMOJI_RE, (_tag, body: string) =>
-    `[[SEND_EMOJI: ${body.replace(/\s+/g, ' ').trim()}]]`);
+  const canonical = repairSplitTags(text).replace(SINGLE_EMOJI_RE, (tag, body: string, offset: number, source: string) =>
+    source[offset - 1] === '[' ? tag : `[[SEND_EMOJI: ${body.replace(/\s+/g, ' ').trim()}]]`);
   const { guarded, restore } = protectAtomicTags(canonical);
   return restore(guarded.replace(BROKEN_EMOJI_RE, '').replace(/\[{1,2}[ \t]*SEND_(?:E(?:M(?:O(?:J)?)?)?)?[ \t]*$/gim, '')).replace(
     /\[\[SEND_EMOJI[:：]([^\[\]]*)\]\]/g,
