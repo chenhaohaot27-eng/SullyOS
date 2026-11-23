@@ -22,7 +22,7 @@ const splitDeltas = (text: string, size: number): string[] => {
 };
 
 const sse = (deltas: string[], sep = '\n\n') =>
-  deltas.map(d => `data: ${JSON.stringify(geminiEvent(d))}${sep}`).join('');
+  deltas.map((d, index) => `data: ${JSON.stringify(geminiEvent(d, index === deltas.length - 1 ? { finishReason: 'STOP' } : {}))}${sep}`).join('');
 
 /** 在任意字节位置（含 UTF-8 多字节中间）切开。 */
 const byteChunks = (payload: string, size: number): Uint8Array[] => {
@@ -64,7 +64,7 @@ describe('Gemini Native SSE 重组：字节边界 / 事件格式', () => {
   });
 
   it('`data:` 后无空格', async () => {
-    const payload = deltas.map(d => `data:${JSON.stringify(geminiEvent(d))}\n\n`).join('');
+    const payload = sse(deltas).replace(/^data: /gm, 'data:');
     const { text } = await callWith(streamResponse(byteChunks(payload, 4)));
     expect(text).toBe(SAMPLE);
   });
@@ -77,6 +77,7 @@ describe('Gemini Native SSE 重组：字节边界 / 事件格式', () => {
   it('混入 SSE 注释 / event: / id: 字段行', async () => {
     const payload = ': keep-alive\n\n'
       + deltas.map((d, i) => `id: ${i}\nevent: message\ndata: ${JSON.stringify(geminiEvent(d))}\n\n`).join('')
+      + 'data: {"candidates":[{"finishReason":"STOP"}]}\n\n'
       + 'data: [DONE]\n\n';
     const { text } = await callWith(streamResponse(byteChunks(payload, 5)));
     expect(text).toBe(SAMPLE);
@@ -99,7 +100,7 @@ describe('Gemini Native SSE 重组：字节边界 / 事件格式', () => {
   });
 
   it('一个 event 里多个 parts：直接拼接，不插入分隔', async () => {
-    const payload = `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: '今天天' }, { text: '气不错' }] } }] })}\n\n`;
+    const payload = `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: '今天天' }, { text: '气不错' }] }, finishReason: 'STOP' }] })}\n\n`;
     const { text } = await callWith(streamResponse(byteChunks(payload, 9)));
     expect(text).toBe('今天天气不错');
   });
