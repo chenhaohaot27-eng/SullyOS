@@ -28,6 +28,7 @@ import { callMcpTool, getMcpUseNativeTools, hasWorkerUnreachableMcpServer } from
 import { buildMcpOpenAITools, buildMcpRejectedToolsFallbackBody, buildMcpTextFallbackBody, extractTextFakedMcpCalls, formatMcpToolResult, sanitizeMcpLeadInText, shouldRetryMcpWithoutTools, stripTextFakedMcpCalls, type FakedMcpCall } from '../utils/mcpToolBridge';
 import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/toolCallCompat';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
+import { completionOutcome } from '../utils/completionOutcome';
 import {
     isInstantConfigReady,
     sendInstantPushAndAwaitReply,
@@ -1406,15 +1407,16 @@ export const useChatAI = ({
                     // 开思考时把温度删掉了——云端要的就是「本地这一轮会发出去的那份」。
                     api: { baseUrl: effectiveApi.baseUrl, apiKey: effectiveApi.apiKey, model: baseReqBody.model },
                     ...(typeof baseReqBody.temperature === 'number' ? { temperature: baseReqBody.temperature } : {}),
-                    maxTokens: baseReqBody.max_tokens,
+                    maxTokens: baseReqBody.max_completion_tokens == null ? baseReqBody.max_tokens : undefined,
                     // 思考链三件套同理取终值：shouldSendThinkingParams 通过时本地会带
                     // thinking / reasoning_effort / extra_body 三个入口（不同代理认不同的），
                     // 云端不带的话，凡是靠请求体参数激活思考的渠道（Anthropic 原生、
                     // OpenAI 系、LiteLLM 桥——即除了 -thinking 模型名后缀之外的全部）
                     // 一开即时对话思考就静默消失，心象卡片跟着没了。
-                    ...(baseReqBody.thinking || baseReqBody.reasoning_effort || baseReqBody.extra_body
+                    ...(baseReqBody.thinking || baseReqBody.reasoning_effort || baseReqBody.extra_body || baseReqBody.max_completion_tokens != null
                         ? {
                             extraBody: {
+                                ...(baseReqBody.max_completion_tokens != null ? { max_completion_tokens: baseReqBody.max_completion_tokens } : {}),
                                 ...(baseReqBody.thinking ? { thinking: baseReqBody.thinking } : {}),
                                 ...(baseReqBody.reasoning_effort ? { reasoning_effort: baseReqBody.reasoning_effort } : {}),
                                 ...(baseReqBody.extra_body ? { extra_body: baseReqBody.extra_body } : {}),
@@ -1946,17 +1948,14 @@ export const useChatAI = ({
                 setSearchStatus('');
             }
 
-            // DEBUG: Log full API response details for troubleshooting truncation issues
-            console.log('🔍 [API Response Debug]', JSON.stringify({
-                finish_reason: data.choices?.[0]?.finish_reason,
-                usage: data.usage,
-                content_length: data.choices?.[0]?.message?.content?.length,
-                raw_content: data.choices?.[0]?.message?.content,
-                reasoning_content: data.choices?.[0]?.message?.reasoning_content,
-                reasoning_content_length: data.choices?.[0]?.message?.reasoning_content?.length,
-                model: data.model,
-                id: data.id,
-            }, null, 2));
+            const outcome = completionOutcome(data);
+            if (outcome.kind === 'tool') throw new Error('模型停在未完成的工具调用。');
+            if (outcome.kind === 'limit') {
+                if (!data.choices?.[0]?.message?.content?.trim()) {
+                    throw new Error('模型达到输出 Token 上限，未返回可展示内容。');
+                }
+                addToast('模型达到输出 Token 上限，已保留收到的正文。', 'info');
+            }
 
             // ─── 后处理管线 (13 步) ───
             // 详见 utils/applyAssistantPostProcessing.ts。Phase 0 行为字节级不变;
@@ -2040,7 +2039,7 @@ export const useChatAI = ({
                 // 流式预览已把气泡展示过 → 落库免打字延迟，秒回填（未预览时行为不变）
                 instantRender: streamPreviewShown,
                 // Phase 0: 本地 fetch 路径保持原逻辑, 不跳 2nd-pass LLM, 也没有结构化 directives。
-                skipSecondPassLLM: false,
+                skipSecondPassLLM: outcome.kind === 'limit',
                 directives: [],
             });
 

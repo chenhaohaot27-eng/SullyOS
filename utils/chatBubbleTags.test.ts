@@ -233,7 +233,7 @@ describe('逐层对照（繁体 / 乱码来源）', () => {
   const enc = new TextEncoder();
   const sseOf = (text: string, size: number) => {
     const payload = Array.from(text).map(c => `data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: c }] } }] })}\n\n`).join('');
-    const raw = enc.encode(payload);
+    const raw = enc.encode(payload + 'data: {"candidates":[{"finishReason":"STOP"}]}\n\n');
     return new ReadableStream<Uint8Array>({
       start(ctrl) { for (let i = 0; i < raw.length; i += size) ctrl.enqueue(raw.slice(i, i + size)); ctrl.close(); },
     });
@@ -272,7 +272,7 @@ describe('逐层对照（繁体 / 乱码来源）', () => {
     const broken = new ReadableStream<Uint8Array>({
       start(ctrl) {
         const head = enc.encode('data: {"candidates":[{"content":{"role":"model","parts":[{"text":"');
-        const tail = enc.encode('"}]}}]}\n\n');
+        const tail = enc.encode('"}]},"finishReason":"STOP"}]}\n\n');
         ctrl.enqueue(new Uint8Array([...head, ...bytes.slice(0, 2)]));
         ctrl.enqueue(new Uint8Array([...tail]));
         ctrl.close();

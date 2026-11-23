@@ -528,6 +528,7 @@ export const settleInstantChatApiLog = (uuid: string, metadata?: Record<string, 
   settleCloudApiCall({
     id: cloudApiCallLogId(uuid),
     ok: true,
+    finishReason: typeof metadata?.amsgCompletionLimit === 'string' ? metadata.amsgCompletionLimit : undefined,
     promptTokens: num(usage?.promptTokens),
     completionTokens: num(usage?.completionTokens),
     tokensPartial: Array.isArray(toolTrace) && toolTrace.length > 0,

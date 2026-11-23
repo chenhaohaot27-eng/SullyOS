@@ -75,7 +75,9 @@ export async function probeCloudImageGenCapability(): Promise<CloudImageGenCapab
         if (!report) return { ok: false, reason: 'unreachable' };
         const version = typeof report.workerVersion === 'string' ? report.workerVersion : undefined;
         if (report.imageGen !== true) return { ok: false, reason: 'unsupported', version };
-        if (report.serverTokenEnforced !== true || !config.masterKey) return { ok: false, reason: 'misconfigured', version };
+        if ((report.imageAuth !== 'owner-token' && report.serverTokenEnforced !== true) || !config.masterKey) {
+            return { ok: false, reason: 'misconfigured', version };
+        }
         if (!config.serverToken?.trim()) return { ok: false, reason: 'unauthenticated', version };
         const route = await ActiveMsgClient.probeImageGenRoute(config);
         if (route !== 'ready') return { ok: false, reason: route, version };

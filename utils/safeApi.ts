@@ -12,6 +12,7 @@
 // 后者的 meta 通过下面 safeFetchJson 的第 5 个参数挂到 __sullyMeta 上传出去。
 import { appendDevDebugApiLog, makeDebugLogger } from './devDebug';
 import { getApiCallAmbientContext, recordApiCall, type ApiCallMeta } from './apiCallLog';
+import { completionOutcome } from './completionOutcome';
 
 const log = makeDebugLogger('api', 'SafeAPI');
 
@@ -117,6 +118,8 @@ class SseAssembler {
     private firstChunk: any = null;
     private usage: any = undefined;
     private gotAnyChunk = false;
+    private sawDone = false;
+    private brokenEvent = false;
     // tool_calls 流式分片: OpenAI 约定按 index 分组, id/name 在首片, arguments 逐片拼接。
     // 不拼的话开了 stream 的工具模式(瑞幸/MCP)会静默丢掉全部工具调用。
     private toolCalls: any[] = [];
@@ -134,9 +137,15 @@ class SseAssembler {
     feedLine(line: string): SseFeedDelta {
         if (!line.startsWith('data:')) return { content: '', reasoning: '' };
         const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') return { content: '', reasoning: '' };
+        if (payload === '[DONE]') this.sawDone = true;
+        if (!payload || this.sawDone) return { content: '', reasoning: '' };
         let chunk: any;
-        try { chunk = JSON.parse(payload); } catch { return { content: '', reasoning: '' }; }
+        try { chunk = JSON.parse(payload); } catch {
+            this.brokenEvent = true;
+            return { content: '', reasoning: '' };
+        }
+        if (chunk?.error) this.brokenEvent = true;
+        if (!chunk || typeof chunk !== 'object') return { content: '', reasoning: '' };
         return this.feedChunk(chunk);
     }
 
@@ -217,6 +226,7 @@ class SseAssembler {
         }
         // 合成兼容结构
         return {
+            ...(this.brokenEvent || (!this.sawDone && !this.finishReason) ? { stream_incomplete: true } : {}),
             id: this.firstChunk?.id || 'sse-assembled',
             object: 'chat.completion',
             created: this.firstChunk?.created || Math.floor(Date.now() / 1000),
@@ -437,7 +447,7 @@ export async function safeFetchJson(
                     url: urlStr,
                     body: attemptOptions.body,
                     status: response.status,
-                    ok: response.ok,
+                    ok: response.ok && completionOutcome(data).kind !== 'interrupted',
                     response: data,
                     meta: logMeta,
                     durationMs: totalMs,

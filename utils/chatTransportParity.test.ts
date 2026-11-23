@@ -79,6 +79,74 @@ describe('relay completion and chat protocol', () => {
   });
 });
 
+describe('long completion boundaries', () => {
+  const paragraphs = ['第一段🙂'.repeat(1200), '第二段'.repeat(1200), '最后一句。'];
+  const fullText = paragraphs.join('\n');
+
+  it.each([true, false])('keeps every character and the original line boundaries (stream=%s)', async (stream) => {
+    const blocks = [{ type: 'text', text: paragraphs[0] }, { type: 'thinking', text: 'private' },
+      { type: 'text', text: '\n' + paragraphs.slice(1).join('\n') }];
+    const choice = stream ? { delta: { content: blocks }, finish_reason: 'stop' }
+      : { message: { content: blocks }, finish_reason: 'stop' };
+    const json = JSON.stringify({ choices: [choice] });
+    vi.stubGlobal('fetch', vi.fn(async () => stream
+      ? new Response(body(bytes(`data: ${json}\n\n`, 31)), { headers: { 'content-type': 'text/event-stream' } })
+      : Response.json(JSON.parse(json))));
+    const result = await completeChat(openai, { ...chatBody, stream }, stream ? { streamHooks: {} } : {});
+    expect(textOf(result)).toBe(fullText);
+    expect(pipeline(textOf(result))).toEqual(paragraphs);
+  });
+
+  it.each([true, false])('reports missing terminal SSE and keeps the length reason (preview=%s)', async (preview) => {
+    const partial = `data: ${JSON.stringify({ choices: [{ delta: { content: fullText } }] })}\n\n`;
+    const end = 'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n';
+    const response = (value: string) => new Response(body(bytes(value, 101)), { headers: { 'content-type': 'text/event-stream' } });
+    const fetch = vi.fn().mockImplementationOnce(() => response(partial)).mockImplementationOnce(() => response(partial + end));
+    vi.stubGlobal('fetch', fetch);
+    const options = preview ? { streamHooks: {} } : {};
+    await expect(completeChat(openai, { ...chatBody, stream: preview }, options)).rejects.toThrow('stream_incomplete');
+    const result = await completeChat(openai, { ...chatBody, stream: preview }, options);
+    expect(textOf(result)).toBe(fullText);
+    expect(result.choices[0].finish_reason).toBe('length');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('propagates a broken connection and does not resubmit the generation', async () => {
+    const fetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(stream) {
+        stream.enqueue(enc.encode('data: {"choices":[{"delta":{"content":"half"}}]}\n\n'));
+      },
+      pull(stream) { stream.error(new TypeError('connection closed')); },
+    }), { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(completeChat(openai, { ...chatBody, stream: true }, { streamHooks: {} })).rejects.toThrow('connection closed');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('preserves Gemini MAX_TOKENS with the requested cap (nonStream=%s)', async (nonStream) => {
+    const reply = {
+      candidates: [{ content: { role: 'model', parts: [{ text: fullText }] }, finishReason: 'MAX_TOKENS' }],
+    };
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body)).generationConfig.maxOutputTokens).toBe(1234);
+      return nonStream ? Response.json(reply)
+        : new Response(`data: ${JSON.stringify(reply)}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const result = await completeChat({ ...gemini, geminiNonStream: nonStream }, {
+      ...chatBody, max_tokens: 8000, max_completion_tokens: 1234,
+    }, { fetchImpl });
+    expect(textOf(result)).toBe(fullText);
+    expect(result.choices[0].finish_reason).toBe('length');
+  });
+
+  it('requires a Gemini terminal reason instead of promoting an interrupted stream', async () => {
+    const fetchImpl = vi.fn(async () => new Response('data: {"candidates":[{"content":{"parts":[{"text":"半句"}]}}]}\n\n', {
+      headers: { 'content-type': 'text/event-stream' },
+    }));
+    await expect(completeChat(gemini, chatBody, { fetchImpl })).rejects.toThrow('stream_incomplete');
+  });
+});
+
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('buildGeminiNativeEndpoint', () => {

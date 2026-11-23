@@ -83,6 +83,9 @@ describe('开关与默认行为', () => {
     routeCheck.mockResolvedValueOnce('unauthenticated').mockResolvedValueOnce('ready');
     await expect(probeCloudImageGenCapability()).resolves.toMatchObject({ ok: false, reason: 'unauthenticated' });
     await expect(probeCloudImageGenCapability()).resolves.toMatchObject({ ok: true, storage: 'r2' });
+    configCheck.mockResolvedValue({ imageGen: true, imageAuth: 'owner-token', imageStorage: 'r2' });
+    routeCheck.mockResolvedValueOnce('ready');
+    await expect(probeCloudImageGenCapability()).resolves.toMatchObject({ ok: true, storage: 'r2' });
   });
 
   it('默认关闭；isCloudImageGenActive 关着时恒 false（本地生图路径不受影响）', async () => {

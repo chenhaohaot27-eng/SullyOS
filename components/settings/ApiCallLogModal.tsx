@@ -296,6 +296,9 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                                     {e.durationMs != null && (
                                         <Field label="耗时" value={e.durationMs >= 1000 ? `${(e.durationMs / 1000).toFixed(1)}s` : `${e.durationMs}ms`} />
                                     )}
+                                    {e.finishReason && ['length', 'max_tokens', 'max_output_tokens', 'stream_incomplete'].includes(e.finishReason) && (
+                                        <p className="text-amber-600">{e.finishReason === 'stream_incomplete' ? '连接提前结束' : '达到输出 Token 上限'}</p>
+                                    )}
                                     {(e.totalTokens != null || e.promptTokens != null || e.completionTokens != null) && (
                                         <div className="col-span-2 flex items-baseline gap-1.5 min-w-0">
                                             <span className="text-[10px] text-slate-400 shrink-0">Token</span>

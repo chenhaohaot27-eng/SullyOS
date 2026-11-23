@@ -1,8 +1,9 @@
 import type { APIConfig } from '../types';
-import type { ApiCallMeta } from './apiCallLog';
+import { recordApiCall, type ApiCallMeta } from './apiCallLog';
 import { normalizeApiBaseUrl, normalizeChatApiFormat } from './apiConfigNormalize';
 import { getGeminiProviderState, requestGeminiNativeChat } from './geminiNativeChat';
 import { safeFetchJson, type StreamHooks } from './safeApi';
+import { assertCompletionDelivered, completionOutcome } from './completionOutcome';
 
 export interface ChatCompletionOptions {
   signal?: AbortSignal;
@@ -72,11 +73,11 @@ export async function completeChat(
   openAiShapedBody: Record<string, any>,
   options: ChatCompletionOptions = {},
 ): Promise<any> {
-  const body = openAiShapedBody.model
-    ? openAiShapedBody
-    : { ...openAiShapedBody, model: apiConfig.model };
+  const body: Record<string, any> = { ...openAiShapedBody, model: openAiShapedBody.model || apiConfig.model };
+  if (body.max_completion_tokens != null) delete body.max_tokens;
   if (normalizeChatApiFormat(apiConfig.apiFormat) === 'gemini-native') {
-    return requestGeminiNativeChat(
+    const startedAt = Date.now();
+    const data = await requestGeminiNativeChat(
       normalizeApiBaseUrl(apiConfig.baseUrl),
       apiConfig.apiKey,
       String(body.model || apiConfig.model),
@@ -89,9 +90,11 @@ export async function completeChat(
         nonStream: apiConfig.geminiNonStream === true,
       },
     );
+    recordApiCall({ url: apiConfig.baseUrl, body, ok: true, response: data, meta: options.meta, durationMs: Date.now() - startedAt });
+    return data;
   }
 
-  return safeFetchJson(
+  const data = await safeFetchJson(
     `${normalizeApiBaseUrl(apiConfig.baseUrl)}/chat/completions`,
     {
       method: 'POST',
@@ -107,4 +110,13 @@ export async function completeChat(
     options.meta,
     options.streamHooks,
   );
+  assertCompletionDelivered(data);
+  const message = data?.choices?.[0]?.message;
+  if (Array.isArray(message?.content)) {
+    message.content = message.content.map((part: any) =>
+      typeof part === 'string' ? part : (!part?.thought && (!part?.type || part.type === 'text') && typeof part?.text === 'string' ? part.text : ''),
+    ).join('');
+  }
+  if (message && completionOutcome(data).kind === 'limit') delete message.tool_calls;
+  return data;
 }

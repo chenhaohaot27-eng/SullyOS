@@ -1,4 +1,5 @@
 import type { StreamHooks } from './safeApi';
+import { assertCompletionDelivered } from './completionOutcome';
 
 type JsonRecord = Record<string, any>;
 
@@ -331,7 +332,7 @@ export function buildGeminiNativeRequest(body: JsonRecord): GeminiNativeRequest 
 
   const temperature = numberOrUndefined(body.temperature);
   const topP = numberOrUndefined(body.top_p);
-  const maxTokens = numberOrUndefined(body.max_tokens);
+  const maxTokens = numberOrUndefined(body.max_completion_tokens ?? body.max_tokens);
   const generationConfig: NonNullable<GeminiNativeRequest['generationConfig']> = {};
   if (temperature != null) generationConfig.temperature = temperature;
   if (topP != null) generationConfig.topP = topP;
@@ -558,7 +559,11 @@ async function readGeminiResponse(
   }
   if (mode === 'sse') {
     for (const payload of events.finish()) feedJsonPayload(payload, assembler);
-    return assembler.finishResponse(model);
+    const complete = assembler.finishResponse(model);
+    const choice = (complete.choices as Array<{ finish_reason?: string }>)[0];
+    if (!choice.finish_reason) complete.stream_incomplete = true;
+    assertCompletionDelivered(complete);
+    return complete;
   }
 
   feedJsonPayload(raw, assembler);
@@ -641,5 +646,7 @@ export async function requestGeminiNativeChat(
     );
     throw new GeminiNativeApiError(response.status, await extractErrorMessage(response));
   }
-  return readGeminiResponse(response, model, options.streamHooks);
+  const completion = await readGeminiResponse(response, model, options.streamHooks);
+  assertCompletionDelivered(completion);
+  return completion;
 }

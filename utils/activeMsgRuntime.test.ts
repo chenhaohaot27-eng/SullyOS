@@ -1939,8 +1939,15 @@ describe('即时对话的待收记录（走真库）', () => {
     const messageId = 'msg_task_9@1700000000000_hook_0';
     await DB.saveCharacter({ id: charId, name: '即时角色' } as any);
     setInstantChatPending(charId, 'uuid-outbox', Date.now());
+    const paragraphs = ['这是第一段🙂'.repeat(800), '最后一句完整。'];
+    const entries = paragraphs.map((message, index) => {
+      const id = index + 1;
+      const [entry] = outboxEntries(charId, `${messageId}-${id}`, 'uuid-outbox');
+      return { ...entry, id, messageIndex: id, totalMessages: paragraphs.length,
+        push: { ...entry.push, message, messageIndex: id, totalMessages: paragraphs.length } };
+    });
     vi.spyOn(ActiveMsgClient, 'listOutboxEntries')
-      .mockResolvedValue(outboxEntries(charId, messageId, 'uuid-outbox') as any);
+      .mockResolvedValue(entries as any);
     const status = vi.spyOn(ActiveMsgClient, 'getRemoteTaskStatus')
       .mockResolvedValue({ state: 'gone' });
     const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask')
@@ -1949,7 +1956,7 @@ describe('即时对话的待收记录（走真库）', () => {
     await runInstantChatStatusCheck();
 
     const msgs = await DB.getRecentMessagesByCharId(charId, 50);
-    expect(msgs.some((m) => m.role === 'assistant'), '推送丢了的那条该被补回来').toBe(true);
+    expect(msgs.filter(m => m.role === 'assistant').map(m => m.content)).toEqual(paragraphs);
     expect(msgs.some((m) => m.role === 'system'), '补收成功就不该再报失败').toBe(false);
     expect(getInstantChatPending(charId)).toBeNull();
     // 补收就把账销了，这一轮已经有结论，不用再去问云端。

@@ -18,6 +18,8 @@
  */
 
 /** 调用方可补充的语义信息（哪个 App / 角色 / 用途）。能填多少填多少。 */
+import { completionOutcome } from './completionOutcome';
+
 export interface ApiCallMeta {
     /** AppID 字符串，如 'chat' / 'lifesim'，可空 */
     appId?: string;
@@ -81,6 +83,7 @@ export interface ApiCallLogEntry extends ApiCallMeta {
     backendModel?: string;
     /** HTTP 状态码（成功 / 失败均记，失败时可能是最后一次的状态） */
     status?: number;
+    finishReason?: string;
     /** 请求是否成功拿到 JSON */
     ok: boolean;
     /** 输入 token（prompt_tokens），来自响应 usage，拿不到则空 */
@@ -998,6 +1001,7 @@ export function recordApiCall(input: {
             backendModel,
             status: input.status,
             ok: input.ok,
+            finishReason: completionOutcome(input.response).reason ?? undefined,
             promptTokens: usage.prompt,
             completionTokens: usage.completion,
             totalTokens: usage.total,
@@ -1088,6 +1092,7 @@ export function recordCloudApiCall(input: {
 export function settleCloudApiCall(input: {
     id: string;
     ok: boolean;
+    finishReason?: string;
     promptTokens?: number;
     completionTokens?: number;
     /** 见 ApiCallLogEntry.tokensPartial。 */
@@ -1101,6 +1106,7 @@ export function settleCloudApiCall(input: {
             id: input.id,
             pending: false,
             ok: input.ok,
+            finishReason: input.finishReason,
             superseded: input.superseded || undefined,
             promptTokens,
             completionTokens,
