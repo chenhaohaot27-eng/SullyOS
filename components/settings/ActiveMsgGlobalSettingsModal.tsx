@@ -312,7 +312,6 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     setAdvancedOpen(false);
     setDiagnosticsOpen(false);
     setDeployOpen(false);
-    setPasteFallbackOpen(false);
     // 两个明文密钥都要清：留到下次打开面板还挂在页面上，就是白白多摊一次。
     setGeneratedMasterKey('');
     setGeneratedServerToken('');
