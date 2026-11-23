@@ -15,7 +15,7 @@ import {
   UserProfile,
 } from '../types';
 import { getLastRealUserMessageAt } from './amsg2ExpireGuard';
-import { AMSG_BUNDLE_VERSION } from './amsgBundleVersion';
+import { identifyAmsgRelease, loadAmsgRelease } from './amsgRelease';
 import { buildTaskInstruction, resolveSendAtMs } from './amsgFireSchedule';
 import {
   getPendingTasks, isAmsg2EnabledForChar, MAX_ACTIVE_TASKS_PER_CHAR,
@@ -310,7 +310,7 @@ export const fetchWorkerDiagnostics = async (): Promise<AmsgDiagnosticsProbe> =>
     return {
       reachable: false,
       unsupported: true,
-      reason: 'Worker 上跑的代码还没有体检端点。回你 fork 的 sullyos-workers 点一下 Sync fork，或者用上面的「更新 Worker」，之后再来看。',
+      reason: '当前 Worker 没有体检端点。请在主动消息 2.0 设置查看 Lemuria Worker 发行包和升级说明。',
     };
   } catch (error: any) {
     // fetchWithAuthRaw 抛出来的已经是人话了（见 amsgDiagnostics 的 describeAmsgFetchFailure）。
@@ -389,7 +389,7 @@ let backgroundJobProbe: { workerUrl: string; supported: boolean; at: number } | 
  * 存量答案是「不支持」时，最多隔这么久就再问一遍。
  *
  * 下面那个 forget 只盖得住「在设置页点按钮更新 Worker」这一条路，而换 bundle 不止这
- * 一条：文档里那条 GitHub「Sync fork」→ Cloudflare Workers Builds 更新完，地址没变、
+ * 一条：在 Cloudflare 发布新版后，地址没变、
  * 整个过程也不经过前端，缓存里那句「不支持」就会一直活到用户刷新页面为止——这段时间
  * 每一轮消化都在前台跑那一两分钟的整理，页面一关就死。即时对话那条探测对同样的状态
  * 就是「存着 false 就重探」（见 reprobeInstantChatSupport）。
@@ -978,7 +978,7 @@ export const describeInstantChatFailure = (status: number, body: any): string =>
     return '即时对话没发出去：共享密钥和 Worker 上的对不上，去「主动消息 2.0」设置里核对一下。';
   }
   if (status === 405 || status === 404) {
-    return '即时对话没发出去：Worker 上还没有这个端点，去你 fork 的 sullyos-workers 点一下 Sync fork 更新。';
+    return '即时对话没发出去：Worker 缺少该接口。请在主动消息 2.0 设置查看 Lemuria Worker 升级说明。';
   }
   if (status === 503) {
     return '即时对话没发出去：Worker 的环境变量没配齐（设置页点「重新连接并验证」能看到缺什么）。';
@@ -1494,9 +1494,15 @@ export const ActiveMsgClient = {
     return Array.from(buf, (byte) => byte.toString(16).padStart(2, '0')).join('');
   },
 
-  // 复制站点随 build 发布的 public/amsg-worker.bundle.js（Dashboard 粘贴部署用）。
-  copyWorkerBundleToClipboard(): Promise<void> {
-    return copyWorkerBundleToClipboard('amsg-worker.bundle.js');
+  async copyWorkerBundleToClipboard(): Promise<void> {
+    // Safari needs the clipboard call in the click handler's user gesture.
+    if (typeof ClipboardItem === 'function' && navigator.clipboard?.write) {
+      const text = loadAmsgRelease().then((bytes) => new Blob([bytes], { type: 'text/plain' }));
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': text })]);
+      return;
+    }
+    const bytes = await loadAmsgRelease();
+    await navigator.clipboard.writeText(new TextDecoder().decode(bytes));
   },
 
   // 复制 public/amsg-deno-proxy.ts —— 贴进 Deno Playground 当 worker 的门面用。
@@ -2905,35 +2911,9 @@ export const ActiveMsgClient = {
     return Number(response.data?.deleted ?? 0);
   },
 
-  /**
-   * 用户那台 Worker 上跑的后端代码是不是最新的。
-   *
-   * 比的是 `GET /config-check` 报的 workerVersion 和本 App 编译进来的
-   * AMSG_WORKER_VERSION——两者同源（都出自 utils/amsgWorkerVersion.ts），所以只要不相等
-   * 就是「那台 Worker 贴的是旧 bundle」。
-   *
-   * 三种拿不到结论的情况分开表态，因为界面上该说的话不一样：
-   *   - 老 bundle 根本不报这个字段 → outdated（它确实旧，只是旧到还不会自报家门）；
-   *   - 网络不通 / 还没连上 → unknown（别在用户断网时催他更新）。
-   */
-  async probeWorkerVersion(): Promise<{
-    state: 'current' | 'outdated' | 'unknown';
-    /** 那台 Worker 自报的版本；老 bundle 不报就是 null。 */
-    deployed: string | null;
-    /** 本 App 期望的版本，用来在界面上写「更新到 X」。 */
-    expected: string;
-  }> {
-    const expected = AMSG_BUNDLE_VERSION;
-    try {
-      const config = await ensureWorkerReady();
-      const { status, body } = await fetchWithAuthRaw('config-check', config, { method: 'GET', cache: 'no-store' }, '后端版本探测');
-      if (status !== 200 || body?.success !== true) return { state: 'unknown', deployed: null, expected };
-      const deployed = typeof body?.data?.workerVersion === 'string' ? body.data.workerVersion : null;
-      if (!deployed) return { state: 'outdated', deployed: null, expected };
-      return { state: deployed === expected ? 'current' : 'outdated', deployed, expected };
-    } catch {
-      return { state: 'unknown', deployed: null, expected };
-    }
+  /** Compare the live Worker with the installation package bundled with the app. */
+  async probeWorkerVersion() {
+    return identifyAmsgRelease(await ActiveMsgClient.fetchWorkerConfigCheck().catch(() => null));
   },
 
   /**
@@ -2947,6 +2927,15 @@ export const ActiveMsgClient = {
    */
   async selfUpdateWorker(): Promise<AmsgSelfUpdateResult> {
     const config = await ensureWorkerReady();
+    const check = await fetchWithAuthRaw('config-check', config, { method: 'GET', cache: 'no-store' }, '后端版本探测');
+    const release = identifyAmsgRelease(check.status === 200 && check.body?.success === true ? check.body.data : null);
+    if (!release.canSelfUpdate) {
+      return {
+        ok: false,
+        supported: false,
+        message: '当前 Worker 未确认支持 Lemuria 固定来源自更新。请先核对后端发行渠道和 D1 协议。',
+      };
+    }
     const { status, body } = await fetchWithAuthRaw('self-update', config, { method: 'POST' }, '后端自更新');
 
     // 旧 worker 没有这个端点。它可能回 404，也可能被上游当成未知路由回一段自己的 JSON，
@@ -2955,7 +2944,7 @@ export const ActiveMsgClient = {
       return {
         ok: false,
         supported: false,
-        message: '这台 Worker 还是旧版本，没有自更新能力。先按原来的办法更新一次，之后就能在这儿点了。',
+        message: '当前 Worker 未提供 Lemuria 自更新接口。请核对实际部署版本。',
       };
     }
     if (status === 200 && body?.success === true) {

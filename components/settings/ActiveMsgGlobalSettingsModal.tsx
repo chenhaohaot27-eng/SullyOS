@@ -28,6 +28,7 @@ import {
   type ProvisionProgress,
 } from '../../utils/cfProvision';
 import { isAmsgServerVersionAtLeast } from '../../utils/amsgWorkerVersion';
+import { AMSG_RELEASE, loadAmsgRelease, type AmsgReleaseState, type identifyAmsgRelease } from '../../utils/amsgRelease';
 import { trackEvent } from '../../utils/analytics';
 
 // 满血链路吃满这些 worker 特性（amsg-server 2.6.0-next.4+）。探测不到端点（老部署
@@ -106,11 +107,17 @@ const REQUIRED_WORKER_FEATURES = [
 // 不比版本的话，旧粘贴部署会被误判为最新，问题全在 worker 侧静默发生。
 const REQUIRED_WORKER_VERSION = '2.6.0-next.22';
 
-/** 装着打包好的 worker 代码的部署仓库：fork 它 → 在 Cloudflare 连上 → 以后点 Sync fork 更新。 */
-const WORKERS_REPO_URL = 'https://github.com/Tosd0/sullyos-workers';
-const SETUP_WALKTHROUGH_URL = 'https://github.com/qegj567-cloud/SullyOS/blob/master/docs/amsg2-setup-walkthrough.md';
 /** 一键部署要的那枚 API Token 在这里建。 */
 const CF_TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
+
+const WORKER_RELEASE_MESSAGES: Record<AmsgReleaseState, string> = {
+  current: '运行版本与本页发行包相同。',
+  newer: '运行版本比本页发行包更新，请保留当前版本。',
+  outdated: '运行版本较早，请先备份并按手动部署说明升级。',
+  missing: 'Worker 已响应，但未报告发行版本。',
+  unknown: '暂时无法识别运行版本。',
+  incompatible: 'Worker 发行渠道或 D1 协议与 Lemuria 不匹配。',
+};
 
 // 探测结果每次会话只报一次。refresh() 在开面板、连接成功、订阅成功后都会跑一遍，
 // 一个连不上、反复点「连接」的人否则能一个人刷出十几条同样的结果，把分布带歪。
@@ -155,7 +162,6 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
   // 手动粘贴部署：给没有 GitHub 账号的人留的退路，默认收着不干扰主流程。
-  const [pasteFallbackOpen, setPasteFallbackOpen] = useState(false);
   // Deno 门面：workers.dev 在国内连不上时才需要，默认收着。
   const [denoProxyOpen, setDenoProxyOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState<ActiveMsg2PushStatus | null>(null);
@@ -196,13 +202,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   const [workerOutdated, setWorkerOutdated] = useState(false);
-  /**
-   * 用户那台 Worker 上的后端代码是不是最新的（见 ActiveMsgClient.probeWorkerVersion）。
-   * null = 还没探到（没填地址 / 正在探）。界面拿它决定更新按钮是高亮催更新还是弱化。
-   */
-  const [workerVersion, setWorkerVersion] = useState<
-    { state: 'current' | 'outdated' | 'unknown'; deployed: string | null; expected: string } | null
-  >(null);
+  const [workerVersion, setWorkerVersion] = useState<ReturnType<typeof identifyAmsgRelease> | null>(null);
   /** 自更新成功后 worker 报回来的代码指纹，显示出来好让人确认这次真换了。 */
   const [selfUpdateHash, setSelfUpdateHash] = useState('');
   // Instant Push 也开着：聊天会走它，2.0 挂在本地那条路上的几样东西全静默失效——设置页
@@ -657,17 +657,30 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     }
   };
 
-  // 手动粘贴部署用。主流程是 fork sullyos-workers + 在 CF 连 Git，这条是给没有 GitHub
-  // 账号的人留的退路，所以在面板里收在折叠区里。
   const handleCopyWorkerBundle = async () => {
     try {
       await ActiveMsgClient.copyWorkerBundleToClipboard();
-      addToast('Worker 代码已复制，去 CF 后台的 Edit code 里粘贴覆盖。', 'success');
+      addToast(`Lemuria Worker ${AMSG_RELEASE.version} 已校验并复制。`, 'success');
       trackEvent('复制 2.0 Worker 代码', { result: 'ok' });
     } catch (error: any) {
-      addToast(`复制失败（${error?.message || error}）。也可以从仓库 worker/amsg/worker.bundle.js 获取。`, 'error');
-      // 剪贴板 API 在非 HTTPS / 部分 WebView 里会直接抛，这条就是那批人的规模。
+      addToast(`复制失败（${error?.message || error}）。请尝试下载发行包。`, 'error');
       trackEvent('复制 2.0 Worker 代码', { result: 'failed' });
+    }
+  };
+
+  const handleDownloadWorkerBundle = async () => {
+    try {
+      const bytes = await loadAmsgRelease();
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/javascript' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = AMSG_RELEASE.fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      addToast(`下载失败（${error instanceof Error ? error.message : String(error)}）。`, 'error');
     }
   };
 
@@ -922,15 +935,14 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
         {config.workerUrl?.trim() ? null : (
         <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-bold text-slate-700">一键部署（推荐）</span>
+            <span className="font-bold text-slate-700">一键部署新 Worker</span>
             <span className="shrink-0 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
               只要一枚 Token
             </span>
           </div>
 
           <p className="text-xs leading-relaxed text-slate-500">
-            在 Cloudflare 建一枚 API Token 粘进来，建数据库、传后端代码、写密钥、加定时触发
-            全都自动做完。不用 GitHub 账号，手机上也走得完。
+            使用经过 SHA-256 校验的 Lemuria Worker {AMSG_RELEASE.version}，为新实例准备数据库、密钥和定时触发。
           </p>
 
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-1.5">
@@ -1033,71 +1045,38 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
           {deployOpen ? (
             <div className="space-y-3">
               <p className="text-xs leading-relaxed text-slate-500">
-                全程在网页上点，不用装东西也不用敲命令，大约 15 分钟。第一次做建议直接照着
-                <strong>图文教程</strong>走，下面是简版。
+                Lemuria Worker {AMSG_RELEASE.version} · D1 协议 {AMSG_RELEASE.schemaProtocol}
               </p>
-
-              <ol className="text-xs leading-relaxed text-slate-500 space-y-1.5 list-decimal list-outside pl-4">
-                <li>
-                  Fork 后端仓库 <code className="font-mono">sullyos-workers</code>
-                  （页面右上角 Fork → Create fork）。
-                </li>
-                <li>
-                  CF 后台 Storage &amp; databases → <strong>D1 SQLite Database</strong> 建一个库，
-                  把它的 <strong>Database ID</strong> 复制下来。表不用建，下面点「连接」时会自动建好。
-                </li>
-                <li>
-                  CF 后台 Workers &amp; Pages → <strong>Create application</strong> →
-                  <strong> Continue with GitHub</strong>，选中你 fork 的仓库，然后填：
-                  <ul className="mt-1 space-y-0.5 list-disc list-outside pl-4">
-                    <li>Build command：<code className="font-mono">sh ./deploy-prepare.sh</code></li>
-                    <li>Advanced settings → Path：<code className="font-mono">/amsg</code></li>
-                    <li>
-                      Advanced settings 里加一个构建变量
-                      <code className="font-mono"> D1_DATABASE_ID </code>
-                      = 上一步的 Database ID（<strong>别点 Encrypt</strong>，构建时要读它）
-                    </li>
-                  </ul>
-                </li>
-                <li>部署完在 Settings → Variables and secrets 按下面的清单填密钥，再 Deploy 一次。</li>
-              </ol>
-
-              <p className="text-[11px] leading-relaxed text-slate-400">
-                D1 绑定和「每分钟检查一次」的定时触发器都写在仓库里，会自动带上，不用手动加。
-                以后想更新，回你 fork 的仓库点一下 <strong>Sync fork</strong> 就行，CF 会自动重新部署。
-              </p>
-
+              <p className="text-[11px] break-all font-mono text-slate-500">SHA-256 {AMSG_RELEASE.sha256}</p>
               <div className="grid grid-cols-3 gap-2">
-                {/* 三个出口合成一个事件带 target 枚举：它们是部署流程同一步的三条岔路，
-                    拆成三个事件名只是多占清单行数，看漏斗时还得自己加回去。 */}
-                <a
-                  href={WORKERS_REPO_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => trackEvent('打开 2.0 部署外链', { target: 'fork仓库' })}
-                  className="py-2.5 rounded-xl text-xs font-bold bg-violet-500 text-white text-center active:scale-95 transition-transform"
+                <button
+                  type="button"
+                  onClick={() => void handleCopyWorkerBundle()}
+                  className="py-2.5 rounded-xl text-xs font-bold bg-violet-500 text-white"
                 >
-                  ↗ Fork 仓库
-                </a>
-                <a
-                  href={SETUP_WALKTHROUGH_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => trackEvent('打开 2.0 部署外链', { target: '图文教程' })}
-                  className="py-2.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 text-center active:scale-95 transition-transform"
+                  复制代码
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadWorkerBundle()}
+                  className="py-2.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600"
                 >
-                  ↗ 图文教程
-                </a>
+                  下载代码
+                </button>
                 <a
                   href={buildCloudflareDashboardUrl(config.workerUrl.trim() || undefined)}
                   target="_blank"
                   rel="noreferrer"
-                  onClick={() => trackEvent('打开 2.0 部署外链', { target: 'CF面板' })}
-                  className="py-2.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 text-center active:scale-95 transition-transform"
+                  className="py-2.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 text-center"
                 >
-                  ↗ CF 面板
+                  CF 面板
                 </a>
               </div>
+              <p className="text-xs leading-relaxed text-slate-500">
+                新装时绑定 D1 为 <code>DB</code>，用 Wrangler 创建 <code>InstantTickDO</code> 并绑定为
+                <code> INSTANT_TICK</code>，添加每分钟 Cron。升级现有实例前先备份，保留原有绑定和密钥，
+                并确认运行版本后再上传。
+              </p>
 
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2.5 text-xs">
                 <p className="font-bold text-slate-700">环境变量清单</p>
@@ -1145,59 +1124,13 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                 </div>
 
                 <div className="space-y-1">
-                  <code className="font-mono text-[11px] text-slate-600">AMSG_SERVER_TOKEN（可选）</code>
+                  <code className="font-mono text-[11px] text-slate-600">AMSG_SERVER_TOKEN</code>
                   <p className="text-[11px] text-slate-400">
-                    防止别人滥用你的 Worker。值 = 下面「共享密钥」填的那串，两边一致即可；不配则端点全开。
+                    保存为 Secret，值与下方「共享密钥」一致。
                   </p>
                 </div>
               </div>
 
-              <div className="border-t border-slate-100 pt-2.5">
-                <button
-                  type="button"
-                  onClick={() => setPasteFallbackOpen((prev) => {
-                    if (!prev) trackEvent('展开 2.0 部署指引', { mode: '手动粘贴' });
-                    return !prev;
-                  })}
-                  className="w-full flex items-center justify-between text-left text-[11px] font-bold text-slate-400"
-                >
-                  <span>没有 GitHub 账号？手动粘贴部署</span>
-                  <span>{pasteFallbackOpen ? '收起' : '展开'}</span>
-                </button>
-
-                {pasteFallbackOpen ? (
-                  <div className="mt-2 space-y-2">
-                    <ol className="text-[11px] leading-relaxed text-slate-500 space-y-1.5 list-decimal list-outside pl-4">
-                      <li>
-                        点下面「复制 Worker 代码」，CF 后台 Create → Worker 建一个空 Worker，
-                        进 <strong>Edit code</strong> 全选粘贴覆盖，Deploy。
-                      </li>
-                      <li>
-                        Settings → Bindings 加一个 <strong>D1 database</strong>，
-                        变量名必须是 <code className="font-mono">DB</code>。
-                      </li>
-                      <li>
-                        Settings → Trigger Events 加 <strong>Cron Trigger</strong>：
-                        <code className="font-mono"> * * * * * </code>（每分钟检查一次到点任务）。
-                      </li>
-                      <li>Settings → Variables and secrets 按上面的清单填密钥，然后重新 Deploy 一次。</li>
-                    </ol>
-
-                    <button
-                      type="button"
-                      onClick={() => void handleCopyWorkerBundle()}
-                      className="w-full py-2.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 active:scale-95 transition-transform"
-                    >
-                      复制 Worker 代码
-                    </button>
-
-                    <p className="text-[11px] leading-relaxed text-slate-400">
-                      这条路每次 Worker 更新都要重新粘一遍，D1 绑定和定时触发器也得自己加，容易漏。
-                      能用 GitHub 的话还是走上面的 fork 流程。
-                    </p>
-                  </div>
-                ) : null}
-              </div>
             </div>
           ) : null}
         </div>
@@ -1212,10 +1145,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
 
           {workerOutdated ? (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs leading-relaxed text-amber-700">
-              Worker 上跑的还是旧版代码，缺少新特性（大上下文云端存储、服务端工具循环等）。
-              回你 fork 的 <code className="font-mono">sullyos-workers</code> 仓库点一下
-              <strong> Sync fork</strong>，CF 会自动重新部署（当初是手动粘贴部署的话，
-              去下方「部署 Worker」里重新复制一次代码粘贴覆盖）。已有数据和任务不受影响。
+              当前 Worker 缺少部分主动消息能力。请核对下方运行版本，并在升级前备份。
             </div>
           ) : null}
 
@@ -1347,41 +1277,36 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
 
           {isConnected ? (
             <div className="pt-1 space-y-2 border-t border-slate-200">
-              {/*
-                按钮常驻，但有更新时才抢眼：有新版就实心高亮并写明更新到哪一版，
-                没新版时弱化成一行浅色的「重新检查并更新」——想手动重跑一次的人照样点得到，
-                不用为了这个去别处找入口。
-              */}
               <button
-                onClick={handleSelfUpdateWorker}
-                disabled={loading}
-                className={`w-full py-2.5 font-bold rounded-2xl active:scale-95 transition-transform disabled:opacity-50 ${
-                  workerVersion?.state === 'outdated'
-                    ? 'bg-emerald-600 text-white border border-emerald-600'
-                    : 'bg-white border border-slate-300 text-slate-700'
-                }`}
+                type="button"
+                onClick={() => void ActiveMsgClient.probeWorkerVersion().then(setWorkerVersion)}
+                className="w-full py-2.5 font-bold rounded-2xl bg-white border border-slate-300 text-slate-700"
               >
-                {loading
-                  ? '处理中...'
-                  : workerVersion?.state === 'outdated'
-                    ? `更新 Worker 到 ${workerVersion.expected}`
-                    : '重新检查并更新 Worker'}
+                重新检测 Worker 版本
               </button>
-              {workerVersion?.state === 'outdated' ? (
-                <p className="text-xs leading-relaxed text-emerald-700">
-                  你这台 Worker 上跑的是
-                  {workerVersion.deployed ? <code className="font-mono"> {workerVersion.deployed} </code> : '更早的版本'}
-                  ，更新后即时对话才走得上新的生成通道。
-                </p>
-              ) : workerVersion?.state === 'current' ? (
+              {workerVersion ? (
                 <p className="text-xs leading-relaxed text-slate-500">
-                  后端已经是最新版（<code className="font-mono">{workerVersion.expected}</code>）。
+                  {WORKER_RELEASE_MESSAGES[workerVersion.state]}
+                  {workerVersion.deployed ? <> 当前版本 <code>{workerVersion.deployed}</code>。</> : null}
+                  随附发行包 <code>{workerVersion.expected}</code>。
                 </p>
               ) : null}
-              <p className="text-xs leading-relaxed text-slate-500">
-                后端自己去取最新代码覆盖自己，你排好的任务和填过的密钥都不动，更新完会自动验证一次。
-                用一键部署装的可以直接点；老办法装的第一次点会提示补一把钥匙，就在下面补。
-              </p>
+              {workerVersion?.canSelfUpdate ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleSelfUpdateWorker}
+                    disabled={loading}
+                    className="w-full py-2.5 font-bold rounded-2xl bg-white border border-slate-300 text-slate-700 disabled:opacity-50"
+                  >
+                    {loading ? '处理中…' : '应用后端已固定的发行包'}
+                  </button>
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    后端需要同时配置 <code>AMSG_BUNDLE_URL</code>（HTTPS）和 <code>AMSG_BUNDLE_SHA256</code>。
+                    更新时会校验发行包及 D1 协议。
+                  </p>
+                </>
+              ) : null}
               {selfUpdateHash ? (
                 <p className="text-xs leading-relaxed text-emerald-600">
                   当前后端代码指纹：<code className="font-mono">{selfUpdateHash}</code>

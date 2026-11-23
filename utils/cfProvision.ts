@@ -2,7 +2,7 @@
  * 一键部署主动消息后端：用户只提供一枚 Cloudflare API Token，剩下的全在这里做完。
  *
  * 做的事按顺序是：验 token → 找出能用的账号 → 建 D1 → 确认 workers.dev 子域 →
- * 拉最新 bundle → 上传 Worker（密钥和 D1 绑定一次带齐）→ 加 cron → 开 workers.dev。
+ * 校验发行包 → 上传 Worker（密钥和 D1 绑定一次带齐）→ 加 cron → 开 workers.dev。
  * 密钥（Master Key / VAPID / Server Token）在浏览器本地生成，用户全程不用复制粘贴。
  *
  * 为什么要绕一层代理：api.cloudflare.com 一个 CORS 头都不返回，浏览器直接调不通，
@@ -14,6 +14,8 @@
 
 import { getProxyWorkerUrl } from './proxyWorker';
 import { generateVapidKeyPair, generateClientToken } from './vapidGen';
+import { AMSG_RELEASE, loadAmsgRelease } from './amsgRelease';
+import installConfig from '../worker/amsg/wrangler.toml?raw';
 
 /** 部署出来的 Worker / D1 默认叫这个，跟 worker/amsg/wrangler.toml 对齐。 */
 export const AMSG_SCRIPT_NAME = 'sullyos-amsg';
@@ -22,14 +24,8 @@ export const AMSG_D1_NAME = 'sullyos-amsg';
 /** 上传时的模块名，同时是 metadata.main_module，两处必须一致。 */
 const MAIN_MODULE = 'worker.bundle.js';
 
-const BUNDLE_BASE = 'https://raw.githubusercontent.com/chenhaohaot27-eng/SullyOS/main/worker/amsg';
-const BUNDLE_URL = `${BUNDLE_BASE}/${MAIN_MODULE}`;
-const WRANGLER_URL = `${BUNDLE_BASE}/wrangler.toml`;
-
 /**
- * 读不到线上 wrangler.toml 时用的兜底，值抄自 worker/amsg/wrangler.toml。
- * 正常路径是现拉现解析，免得这边的常量和 worker 那边慢慢漂开——
- * compatibility_flags 少一个 global_fetch_strictly_public，角色调自配 MCP 就会 1042。
+ * 读取随前端发布的 wrangler.toml。默认值对应当前 Lemuria 发行包。
  */
 const FALLBACK_CONFIG: WorkerDeployConfig = {
   compatibilityDate: '2026-01-01',
@@ -37,10 +33,6 @@ const FALLBACK_CONFIG: WorkerDeployConfig = {
   crons: ['* * * * *'],
   d1Binding: 'DB',
 };
-
-/** bundle 的合理体积区间。太小多半是拉到了 404 页面，太大是打包出了岔子。 */
-const MIN_BUNDLE_BYTES = 100 * 1024;
-const MAX_BUNDLE_BYTES = 8 * 1024 * 1024;
 
 export interface WorkerDeployConfig {
   compatibilityDate: string;
@@ -383,12 +375,13 @@ function firstCfErrorCode(body: unknown): number | null {
   return (Array.isArray(errors) && errors.length ? errors[0]?.code : null) ?? null;
 }
 
-async function putScript(
+/** 保留首次安装的 DO migration 前置条件，避免并发安装覆盖有租约的实例。 */
+export async function uploadWorkerScript(
   token: string,
   accountId: string,
   scriptName: string,
   metadata: Record<string, unknown>,
-  code: string,
+  code: string | ArrayBuffer,
 ): Promise<CfResponse> {
   const form = new FormData();
   form.set('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
@@ -397,31 +390,6 @@ async function putScript(
     method: 'PUT',
     body: form,
   });
-}
-
-/**
- * 上传 Worker 脚本。metadata 带着建 DO namespace 的 migrations，等于断言「全新部署」；
- * 对着一个已经装过的 Worker 重装（清了地址重跑、换设备对同一个账号再部署）时这个断言
- * 不成立，CF 会回 10079 把整次上传顶回来。
- *
- * 这时 namespace 本来就已经在了，migrations 纯属多余——去掉重传一次即可，binding 原样
- * 保留（与 worker 侧 selfUpdate 的补建路径同一套实测结论：migration_tag 不变、DO 类还在）。
- * 只对 10079 重试：全新部署一次就过，其他错误照旧当场返回。
- */
-export async function uploadWorkerScript(
-  token: string,
-  accountId: string,
-  scriptName: string,
-  metadata: Record<string, unknown>,
-  code: string,
-): Promise<CfResponse & { reusedExistingWorker?: boolean }> {
-  const first = await putScript(token, accountId, scriptName, metadata, code);
-  if (first.ok || firstCfErrorCode(first.body) !== MIGRATION_TAG_CONFLICT) return first;
-
-  const withoutMigrations = { ...metadata };
-  delete withoutMigrations.migrations;
-  const second = await putScript(token, accountId, scriptName, withoutMigrations, code);
-  return second.ok ? { ...second, reusedExistingWorker: true } : second;
 }
 
 /** 当前生效的网络代理 Worker 支不支持一键部署（老版本没有 /cf-api 这条路由）。 */
@@ -601,34 +569,6 @@ export async function ensureSubdomain(
   return { ok: true, subdomain: desired.trim().toLowerCase() };
 }
 
-async function fetchBundle(): Promise<{ ok: true; code: string; config: WorkerDeployConfig } | { ok: false; error: string }> {
-  let code: string;
-  try {
-    const res = await fetch(BUNDLE_URL, { cache: 'no-store' });
-    if (!res.ok) return { ok: false, error: `拉取 Worker 代码失败（HTTP ${res.status}）。` };
-    code = await res.text();
-  } catch (e) {
-    return { ok: false, error: `拉取 Worker 代码失败：${String((e as Error)?.message || e)}` };
-  }
-  const bytes = new TextEncoder().encode(code).length;
-  if (bytes < MIN_BUNDLE_BYTES || bytes > MAX_BUNDLE_BYTES) {
-    return { ok: false, error: `拉到的 Worker 代码大小不对（${bytes} 字节），没敢往上传。` };
-  }
-  if (!code.includes('src_default as default')) {
-    return { ok: false, error: '拉到的文件不像是打包好的 Worker，没敢往上传。' };
-  }
-
-  // 配置跟着 bundle 一起从线上拿，拿不到就用兜底，不因为这个中断部署。
-  let config = FALLBACK_CONFIG;
-  try {
-    const res = await fetch(WRANGLER_URL, { cache: 'no-store' });
-    if (res.ok) config = parseWranglerConfig(await res.text());
-  } catch {
-    /* 用兜底 */
-  }
-  return { ok: true, code, config };
-}
-
 /**
  * 等新部署的 Worker 真的能响应。
  *
@@ -792,8 +732,7 @@ export async function attachUpdateCapability(input: {
 }
 
 /**
- * 全流程。任何一步失败都直接返回，不做回滚——半途失败会留下已经建好的 D1 或 Worker，
- * 但每一步都是「先查后建」，把同样的参数再跑一遍能接着往下走，不会建出第二份。
+ * 半途失败可能已建好 D1 或 Worker。已有脚本需检查其绑定和触发器，再连接现有实例。
  */
 export async function provisionAmsgBackend(input: ProvisionInput): Promise<ProvisionResult> {
   const scriptName = input.scriptName?.trim() || AMSG_SCRIPT_NAME;
@@ -801,6 +740,15 @@ export async function provisionAmsgBackend(input: ProvisionInput): Promise<Provi
   const token = input.token.trim();
   const report = (step: ProvisionStepId, message: string) => input.onProgress?.({ step, message });
   const warnings: string[] = [];
+
+  report('bundle', `下载并校验 Lemuria Worker ${AMSG_RELEASE.version}…`);
+  let code: ArrayBuffer;
+  try {
+    code = await loadAmsgRelease();
+  } catch (error) {
+    return { ok: false, code: 'BUNDLE_INVALID', message: error instanceof Error ? error.message : String(error) };
+  }
+  const config = parseWranglerConfig(installConfig);
 
   report('relay', '检查中转是否可用…');
   if (!(await checkRelayAvailable())) {
@@ -847,6 +795,13 @@ export async function provisionAmsgBackend(input: ProvisionInput): Promise<Provi
     accountId = usable[0].id;
   }
 
+  const scriptSettings = await cfApi(token, `/accounts/${accountId}/workers/scripts/${encodeURIComponent(scriptName)}/settings`);
+  const scriptExistsMessage = `账号里已有 ${scriptName}。请先检查它的绑定和定时触发，再连接现有 Worker，或为新实例选另一套 Worker 和 D1 名称。`;
+  if (scriptSettings.ok) return { ok: false, code: 'SCRIPT_EXISTS', message: scriptExistsMessage };
+  if (scriptSettings.status !== 404 || firstCfErrorCode(scriptSettings.body) !== 10007) {
+    return { ok: false, code: 'CF_ERROR', message: scriptSettings.error || '无法确认 Worker 名称是否可用。' };
+  }
+
   report('database', '准备数据库…');
   const db = await ensureDatabase(token, accountId, databaseName);
   if (!db.ok) return { ok: false, code: 'CF_ERROR', message: db.error };
@@ -858,19 +813,15 @@ export async function provisionAmsgBackend(input: ProvisionInput): Promise<Provi
   const sub = await ensureSubdomain(token, accountId, input.desiredSubdomain);
   if (!sub.ok) return { ok: false, code: sub.code, message: sub.error };
 
-  report('bundle', '下载最新的后端代码…');
-  const bundle = await fetchBundle();
-  if (!bundle.ok) return { ok: false, code: 'BUNDLE_INVALID', message: bundle.error };
-
   report('upload', '上传 Worker…');
   const secrets = await generateAmsgSecrets(input.secrets);
   const metadata = {
     main_module: MAIN_MODULE,
-    compatibility_date: bundle.config.compatibilityDate,
-    compatibility_flags: bundle.config.compatibilityFlags,
+    compatibility_date: config.compatibilityDate,
+    compatibility_flags: config.compatibilityFlags,
     // CF_API_TOKEN / CF_SCRIPT_NAME 是留给「更新后端」用的：worker 以后拿它自己
     // 覆盖自己，就不用再经过浏览器和中转了。
-    bindings: buildBindings(bundle.config.d1Binding, db.id, secrets, {
+    bindings: buildBindings(config.d1Binding, db.id, secrets, {
       CF_API_TOKEN: token,
       CF_SCRIPT_NAME: scriptName,
     }),
@@ -879,16 +830,15 @@ export async function provisionAmsgBackend(input: ProvisionInput): Promise<Provi
     // ——上传 enabled:false 能关掉、true 能开起来、不带就没有，三向都验过。
     observability: { enabled: true, logs: { enabled: true } },
     // 建即时对话起跳器的 Durable Object namespace。不给 old_tag 即断言「还没应用过
-    // 任何 migration」；重装撞上 10079 时由 uploadWorkerScript 去掉它重传。注意它是
-    // 一个对象，不是 wrangler.toml 里那种数组——传数组会被 10021 顶回来。
+    // 任何 migration」。API 这里用对象，与 wrangler.toml 的数组形式不同。
     migrations: INSTANT_TICK_MIGRATIONS,
   };
-  const uploaded = await uploadWorkerScript(token, accountId, scriptName, metadata, bundle.code);
+  const uploaded = await uploadWorkerScript(token, accountId, scriptName, metadata, code);
   if (!uploaded.ok) {
+    if (firstCfErrorCode(uploaded.body) === MIGRATION_TAG_CONFLICT) {
+      return { ok: false, code: 'SCRIPT_EXISTS', message: scriptExistsMessage };
+    }
     return { ok: false, code: 'UPLOAD_FAILED', message: uploaded.error || '上传 Worker 失败。' };
-  }
-  if (uploaded.reusedExistingWorker) {
-    warnings.push(`账号里已经有一套装好的 ${scriptName}，这次是在它上面覆盖更新。`);
   }
 
   report('cron', '设置定时触发…');
@@ -897,7 +847,7 @@ export async function provisionAmsgBackend(input: ProvisionInput): Promise<Provi
     `/accounts/${accountId}/workers/scripts/${encodeURIComponent(scriptName)}/schedules`,
     {
       method: 'PUT',
-      body: JSON.stringify(bundle.config.crons.map((cron) => ({ cron }))),
+      body: JSON.stringify(config.crons.map((cron) => ({ cron }))),
       contentType: 'application/json',
     },
   );

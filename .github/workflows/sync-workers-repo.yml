@@ -44,6 +44,9 @@ env:
 
 jobs:
   sync:
+    # The legacy deployment repository belongs to upstream. Lemuria publishes
+    # its pinned AMSG release through the frontend build.
+    if: github.repository == 'qegj567-cloud/SullyOS'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

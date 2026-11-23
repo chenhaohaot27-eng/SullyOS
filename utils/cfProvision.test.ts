@@ -18,6 +18,7 @@ import {
     verifyToken,
     isAccountScopedToken,
     uploadWorkerScript,
+    provisionAmsgBackend,
     ensureSubdomain,
     type AmsgSecrets,
 } from './cfProvision';
@@ -270,13 +271,7 @@ describe('uploadWorkerScript', () => {
         vi.restoreAllMocks();
     });
 
-    /**
-     * 回归守卫：对着已经装过的 Worker 重装（清了地址重跑、换设备再部署）。
-     *
-     * metadata 里的 migrations 断言「全新部署」，这时 CF 会回 10079 乐观锁冲突把整次
-     * 上传顶回来——修法是去掉 migrations 重传（namespace 本来就在），binding 原样保留。
-     */
-    it('撞上 10079 就去掉 migrations 重传一次，并标记这是覆盖更新', async () => {
+    it('DO migration 冲突时保留首次安装保护，不覆盖已有实例', async () => {
         const metadatas = stubUploadRelay([
             {
                 status: 400,
@@ -285,18 +280,12 @@ describe('uploadWorkerScript', () => {
                     errors: [{ code: 10079, message: "Actor migration tag precondition failed, got tag '' when expected tag is 'amsg-instant-tick-v1'." }],
                 },
             },
-            { status: 200, payload: { success: true, result: {} } },
         ]);
 
         const result = await uploadWorkerScript('tok', 'acct', 'sullyos-amsg', FRESH_METADATA, 'export default {}');
 
-        expect(result.ok).toBe(true);
-        expect(result.reusedExistingWorker).toBe(true);
-        expect(metadatas).toHaveLength(2);
-        expect(metadatas[1].migrations).toBeUndefined();
-        // 只该去掉 migrations，binding 等其余字段原样保留
-        expect(metadatas[1].bindings).toEqual(metadatas[0].bindings);
-        expect(metadatas[1].main_module).toBe(metadatas[0].main_module);
+        expect(result.ok).toBe(false);
+        expect(metadatas).toEqual([FRESH_METADATA]);
     });
 
     it('全新部署一次成功就不重试，也不标记覆盖更新', async () => {
@@ -305,7 +294,6 @@ describe('uploadWorkerScript', () => {
         const result = await uploadWorkerScript('tok', 'acct', 'sullyos-amsg', FRESH_METADATA, 'export default {}');
 
         expect(result.ok).toBe(true);
-        expect(result.reusedExistingWorker).toBeUndefined();
         expect(metadatas).toHaveLength(1);
     });
 
@@ -321,6 +309,53 @@ describe('uploadWorkerScript', () => {
 
         expect(result.ok).toBe(false);
         expect(metadatas).toHaveLength(1);
+    });
+});
+
+describe('Lemuria 一键部署发行包', () => {
+    const bytes = readFileSync(resolve(__dirname, '../public/amsg-worker-2026-11-23.2.bundle.js'));
+    const input = { token: 'test-token', accountId: 'account-id', secrets: FULL_SECRETS };
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('发行包校验失败时，在访问 Cloudflare 之前退出', async () => {
+        const fetch = vi.fn(async () => new Response('wrong artifact'));
+        vi.stubGlobal('fetch', fetch);
+        await expect(provisionAmsgBackend(input)).resolves.toMatchObject({ ok: false, code: 'BUNDLE_INVALID' });
+        expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([true, false])('按候选成品安装新实例，阻止覆盖同名实例（已有=%s）', async (exists) => {
+        const writes: string[] = [];
+        let uploaded: Uint8Array | undefined;
+        vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
+            if (url.endsWith('amsg-worker-2026-11-23.2.bundle.js')) return new Response(new Uint8Array(bytes));
+            const path = new URL(url).searchParams.get('path');
+            if (!path) return Response.json({ relay: 'cf-api' });
+            const method = new Headers(options?.headers).get('X-CF-Method');
+            if (method !== 'GET') writes.push(`${method} ${path}`);
+            if (path.endsWith('/verify')) return Response.json({ success: true, result: { status: 'active' } });
+            if (path.endsWith('/settings')) {
+                return exists ? Response.json({ success: true, result: {} }) :
+                    Response.json({ success: false, errors: [{ code: 10007 }] }, { status: 404 });
+            }
+            if (path.includes('/d1/database?')) return Response.json({ success: true, result: [] });
+            if (path.endsWith('/d1/database')) return Response.json({ success: true, result: { uuid: 'db-id' } });
+            if (path.endsWith('/workers/subdomain')) return Response.json({ success: true, result: { subdomain: 'test-sub' } });
+            if (path.endsWith('/workers/scripts/sullyos-amsg')) {
+                const file = (options?.body as FormData).get('worker.bundle.js') as Blob;
+                uploaded = new Uint8Array(await file.arrayBuffer());
+            }
+            return Response.json({ success: true, result: {} });
+        }));
+        const result = await provisionAmsgBackend(input);
+        if (exists) {
+            expect(result).toMatchObject({ ok: false, code: 'SCRIPT_EXISTS' });
+            expect(writes).toEqual([]);
+        } else {
+            expect(result).toMatchObject({ ok: true, databaseId: 'db-id' });
+            expect(uploaded && Buffer.compare(Buffer.from(uploaded), bytes)).toBe(0);
+        }
     });
 });
 

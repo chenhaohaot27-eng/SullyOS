@@ -1,5 +1,7 @@
 # 主动消息 2.0 · 从零开始的部署手册
 
+> Lemuria 用户请打开系统设置 → 主动消息 2.0。新实例用「一键部署新 Worker」；现有实例先备份并保留原有绑定和密钥，从「手动部署 Worker」复制或下载当页标明版本和 SHA-256 的发行包。以下记录的是早期 SullyOS 流程，供查阅旧部署配置。
+
 「主动消息 2.0」让角色到点自己给你发消息——App 关着、手机锁屏也能收到。
 
 它需要一个只属于你的小后端（一个 Cloudflare Worker + 一个数据库）。**全程只在网页上点，不用装任何东西、不用敲命令**。
@@ -79,9 +81,7 @@ Cloudflare 会替你把仓库、数据库、定时任务一次性建好，你只
 
 ### 点按钮
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Tosd0/sullyos-workers/tree/main/amsg)
-
-<https://deploy.workers.cloudflare.com/?url=https://github.com/Tosd0/sullyos-workers/tree/main/amsg>
+早期 SullyOS 部署按钮入口已从 Lemuria 移除。
 
 跳过去之后：
 
@@ -106,7 +106,7 @@ Cloudflare 会替你把仓库、数据库、定时任务一次性建好，你只
 
 ## 第一步 · 把后端仓库 fork 一份
 
-1. 打开 <https://github.com/Tosd0/sullyos-workers>
+1. 当时从 SullyOS 的旧后端成品仓库开始。
 2. 点页面右上角的 **Fork** → 保持默认 → **Create fork**
 
 完成后你的账号下就多了一个同名仓库。以后上游有更新，你回到这个页面点一下 **Sync fork** 就行，Cloudflare 会自动重新部署。
@@ -375,7 +375,7 @@ env.DB (sullyos-amsg)   D1 Database
 **不想加钥匙的话**，按当初的装法手动更新也行：
 
 - 跟着六步装的：打开你 fork 的那个仓库，点 **Sync fork** → **Update branch**，Cloudflare 检测到新提交会自动重新部署
-- 用部署按钮装的：Cloudflare 给你建的是一个独立仓库（不是 fork，所以没有 Sync fork 可点）。先把 <https://github.com/Tosd0/sullyos-workers/raw/main/amsg/worker.bundle.js> 下载下来，再打开你那个仓库 → **Add file** → **Upload files**，把下载的文件拖进去覆盖同名的那个，提交后会自动重新部署。这文件有四十多万字符，网页编辑器打不开，只能整个文件替换
+- 用旧部署按钮装的：Cloudflare 给你建的是一个独立仓库。若已切换到 Lemuria，请核查并停用该仓库对现有 Worker 的自动部署，升级前先备份。
 - 照附录手动贴代码装的：见附录最后一节
 
 > 头一次用「更新后端」时，如果提示这台 Worker 还是旧版本、没有这个功能，先按上面的办法手动更新一次，之后就能在 SullyOS 里点了。
@@ -405,9 +405,7 @@ env.DB (sullyos-amsg)   D1 Database
 
 ### C · 复制后端代码
 
-浏览器打开（不用登录）：<https://github.com/Tosd0/sullyos-workers/blob/main/amsg/worker.bundle.js>
-
-文件上方那排按钮里，**Raw** 右边那个「两个方块叠在一起」的图标就是复制，点它，整份代码就进剪贴板了。
+在 Lemuria 的「主动消息 2.0 → 手动部署 Worker」复制经过校验的发行包。
 
 ### D · 贴进 Worker
 

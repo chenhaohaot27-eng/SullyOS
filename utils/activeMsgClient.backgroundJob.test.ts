@@ -43,6 +43,13 @@ vi.mock('./activeMsgStore', () => ({
 
 import { ActiveMsgClient, forgetBackgroundJobProbe } from './activeMsgClient';
 import { forgetAllCredIds } from './amsgLlmCredentials';
+import { AMSG_RELEASE } from './amsgRelease';
+
+const lemuriaRelease = {
+  workerVersion: AMSG_RELEASE.version,
+  releaseChannel: AMSG_RELEASE.channel,
+  schemaProtocol: AMSG_RELEASE.schemaProtocol,
+};
 
 const capturedPayloads: any[] = [];
 
@@ -196,6 +203,27 @@ describe('后台任务能力探测的缓存', () => {
   // 回归守卫：作废那个函数的说明写着「部署/更新 worker 的路径上调一次」，实际只有设置页的
   // 「重新连接并验证」调了它。用户点完「更新 Worker」（同一个地址换了 bundle），前端还认着
   // 升级前那句「不支持」——接下来这几分钟每一轮消化都在前台跑那一两分钟的整理，页面一关就死。
+  it.each([{}, { workerVersion: '2026-11-19' }, { ...lemuriaRelease, releaseChannel: 'sullyos' }])(
+    '不向未经确认的 Worker 触发自更新（%j）', async (data) => {
+      configCheck({ success: true, data }, 200);
+      expect(await ActiveMsgClient.selfUpdateWorker()).toMatchObject({ ok: false, supported: false });
+      expect(fetchCalls()).toBe(1);
+    },
+  );
+
+  it('将固定来源校验失败返回给用户，不尝试其他更新入口', async () => {
+    const fetch = vi.fn(async (url: string) => String(url).includes('self-update')
+      ? Response.json({ success: false, error: { message: '请配置 Lemuria 发行包 HTTPS 地址和完整 SHA-256。' } }, { status: 400 })
+      : Response.json({ success: true, data: lemuriaRelease }));
+    vi.stubGlobal('fetch', fetch);
+    expect(await ActiveMsgClient.selfUpdateWorker()).toMatchObject({
+      ok: false,
+      supported: true,
+      message: expect.stringContaining('HTTPS'),
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('点过「更新 Worker」之后探测结论当场作废', async () => {
     let upgraded = false;
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -203,7 +231,7 @@ describe('后台任务能力探测的缓存', () => {
       if (isSelfUpdate) upgraded = true;
       const body = isSelfUpdate
         ? { success: true, data: { message: '已经更新到最新版本。' } }
-        : { success: true, data: upgraded ? { backgroundJobs: true } : {} };
+        : { success: true, data: { ...lemuriaRelease, backgroundJobs: upgraded } };
       return {
         status: 200,
         text: async () => JSON.stringify(body),
@@ -211,7 +239,7 @@ describe('后台任务能力探测的缓存', () => {
       };
     }));
 
-    expect(await ActiveMsgClient.probeBackgroundJobSupport(), '升级前是老 bundle').toBe(false);
+    expect(await ActiveMsgClient.probeBackgroundJobSupport()).toBe(false);
     await ActiveMsgClient.selfUpdateWorker();
 
     expect(await ActiveMsgClient.probeBackgroundJobSupport(), '不作废就得等用户刷新页面').toBe(true);

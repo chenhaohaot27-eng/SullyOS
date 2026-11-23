@@ -17,6 +17,7 @@
 // through this pipeline.
 
 import { build } from 'esbuild';
+import { createHash } from 'node:crypto';
 import { existsSync, statSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -54,11 +55,17 @@ const WORKERS = [
     name: 'post-office',
     skipPublicOut: true,
   },
-  // amsg = 主动消息 2.0 的单用户 worker（amsg-server/cloudflare, D1 + Cron Trigger）。
-  // public/ 副本给设置页「复制 Worker 代码」按钮 fetch。amsg-server 2.6.0-next.2 起
-  // 全 Web Crypto，和 instant 一样免 nodejs_compat flag。
-  { name: 'amsg', outName: 'amsg-worker.bundle.js' },
 ];
+
+// The Lemuria installation package comes from the reviewed Worker release.
+// Fail before building if the pinned file is missing or has changed.
+const amsg = JSON.parse(readFileSync(resolve(root, 'utils/amsgRelease.json'), 'utf8'));
+const amsgFile = resolve(root, 'public', amsg.fileName);
+const amsgHash = createHash('sha256').update(readFileSync(amsgFile)).digest('hex');
+if (amsgHash !== amsg.sha256) throw new Error(`Lemuria Worker SHA-256 mismatch: ${amsg.fileName}`);
+// Old cached frontends may still request this filename.
+copyFileSync(amsgFile, resolve(root, 'public/amsg-worker.bundle.js'));
+console.log(`✓ Lemuria Worker ${amsg.version} SHA-256 verified`);
 
 // amsg-instant 0.3.0+ uses only Web Crypto (globalThis.crypto.subtle); the
 // bundle has zero Node crypto imports, so CF Workers / Vercel Edge / Netlify

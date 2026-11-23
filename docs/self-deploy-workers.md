@@ -1,5 +1,7 @@
 # 自部署 SullyOS 后端 Worker
 
+> Lemuria 的主动消息 2.0 使用应用设置里经过 SHA-256 校验的发行包。Lemuria Worker 的安装和升级见[当前入口说明](./amsg2-setup-walkthrough.md)，以下为 SullyOS 旧部署仓库的说明。
+
 这个仓库放的是 SullyOS 几个后端 Worker 打好的成品代码。你 **fork 一份、在 Cloudflare 连上它**，之后每次上游更新，你只要在 GitHub 点一下「Sync fork」，Cloudflare 就会自动重新部署——不用再复制粘贴几百 KB 的代码，手机上也能操作。
 
 内容物：
