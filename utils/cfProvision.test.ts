@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { AMSG_RELEASE } from './amsgRelease';
 import {
     parseWranglerConfig,
     buildBindings,
@@ -313,7 +314,7 @@ describe('uploadWorkerScript', () => {
 });
 
 describe('Lemuria 一键部署发行包', () => {
-    const bytes = readFileSync(resolve(__dirname, '../public/amsg-worker-2026-11-23.2.bundle.js'));
+    const bytes = readFileSync(resolve(__dirname, '../public', AMSG_RELEASE.fileName));
     const input = { token: 'test-token', accountId: 'account-id', secrets: FULL_SECRETS };
 
     afterEach(() => vi.unstubAllGlobals());
@@ -329,7 +330,7 @@ describe('Lemuria 一键部署发行包', () => {
         const writes: string[] = [];
         let uploaded: Uint8Array | undefined;
         vi.stubGlobal('fetch', vi.fn(async (url: string, options?: RequestInit) => {
-            if (url.endsWith('amsg-worker-2026-11-23.2.bundle.js')) return new Response(new Uint8Array(bytes));
+            if (url.endsWith(AMSG_RELEASE.fileName)) return new Response(new Uint8Array(bytes));
             const path = new URL(url).searchParams.get('path');
             if (!path) return Response.json({ relay: 'cf-api' });
             const method = new Headers(options?.headers).get('X-CF-Method');
