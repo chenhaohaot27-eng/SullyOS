@@ -4,6 +4,10 @@ import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { ChatParser } from './chatParser';
 import { DB } from './db';
 import { IMAGE_GENERATION_CONFIG_STORAGE_KEY } from './imageGenerationConfig';
+import { completeChat } from './chatCompletionClient';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import MessageItem from '../components/chat/MessageItem';
 
 // 本文件覆盖两条链路的端到端行为（DB 走 fake-indexeddb，生图执行 mock，不触发真实付费 API）：
 //  A. 表情包「只有文字不发图」修复：全角冒号 [[SEND_EMOJI：x]] 与自然语言表情指令
@@ -49,6 +53,46 @@ const disablePhoto = () => {
 
 const assistantMsgs = async (charId: string) =>
     (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
+
+it('renders persisted text and inventory emoji after fragmented Tokenmarket Chat SSE', async () => {
+    const text = '2026-11-24 13:06 在 A12 见。' + '长句中的 spaces 和数字 123 保持完整。'.repeat(25);
+    const raw = text + '\n[[SEND_EMOJI: 招手]]\n[[SEND_PHOTO: {\n"prompt":"cup [[blue]]"\n}]]\n到时见。';
+    const events = raw.match(/[\s\S]{1,5}/g)!.map(content => ({ choices: [{ delta: { content } }] }));
+    const wire = [...events, { choices: [{ message: { content: raw }, finish_reason: 'stop' }] }]
+        .map(e => 'data: ' + JSON.stringify(e) + '\n\n').join('') + 'data: [DONE]\n\n';
+    const bytes = new TextEncoder().encode(wire);
+    const transport = vi.fn(async () => new Response(new ReadableStream({ start(controller) {
+        for (let i = 0; i < bytes.length; i += 7) controller.enqueue(bytes.slice(i, i + 7));
+        controller.close();
+    } }), { headers: { 'Content-Type': 'text/event-stream' } }));
+    const charId = 'fixture-chat-sse';
+    enablePhoto();
+    vi.stubGlobal('fetch', transport);
+    try {
+        const result = await completeChat({ baseUrl: 'https://api.tiantoken.com/v1',
+            model: 'gemini-3.6-flash', apiKey: 'fixture' }, {
+            messages: [{ role: 'user', content: 'fixture' }], temperature: 0.85, max_tokens: 8000, stream: true,
+        }, { streamHooks: {} });
+        expect(result.choices[0].message.content).toBe(raw);
+        const url = 'https://fixture.invalid/wave.gif';
+        await applyAssistantPostProcessing(result.choices[0].message.content, makeCtx(charId, [], [{ name: '招手', url }]));
+        const saved = await assistantMsgs(charId);
+        expect(saved.map(m => m.content)).toEqual([text, url, '到时见。']);
+        expect(saved.map(m => m.type)).toEqual(['text', 'emoji', 'text']);
+        const html = saved.map(msg => renderToStaticMarkup(React.createElement(MessageItem, {
+            msg, isFirstInGroup: true, isLastInGroup: true, activeTheme: { id: 'test', name: 'test', user: {}, ai: {} },
+            charAvatar: '', charName: '角色', userAvatar: '', onLongPress: vi.fn(), onReply: vi.fn(),
+            selectionMode: false, isSelected: false, onToggleSelect: vi.fn(),
+        } as React.ComponentProps<typeof MessageItem>)));
+        expect(html[0]).toContain(text);
+        expect(html[1]).toMatch(/<img[^>]*src="https:\/\/fixture\.invalid\/wave\.gif"/);
+        expect(html.join('')).not.toMatch(/SEND_PHOTO|SEND_EMOJI|cup \[\[blue/);
+        expect(executeChatPhotoIntent).toHaveBeenCalledTimes(1);
+        expect(transport).toHaveBeenCalledTimes(1);
+    } finally {
+        vi.unstubAllGlobals();
+    }
+}, 20000);
 
 beforeEach(() => {
     vi.mocked(executeChatPhotoIntent).mockClear();

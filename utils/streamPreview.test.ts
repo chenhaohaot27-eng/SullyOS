@@ -10,6 +10,14 @@ import type { Message } from '../types';
 // 只展示控制标记前的安全正文。最终渲染仍由 applyAssistantPostProcessing 负责。
 
 describe('computeStreamPreviewBubbles', () => {
+    it('keeps multiline photo JSON out of every intermediate preview', () => {
+        const start = '见面时间是 13:06。\n';
+        const command = '[[SEND_PHOTO：{\n"prompt":"cup [[blue]]",\n"caption":"hello"\n}]]';
+        for (let end = 1; end <= command.length; end++) {
+            expect(computeStreamPreviewBubbles(start + command.slice(0, end))).toEqual([start.trim()]);
+        }
+        expect(computeStreamPreviewBubbles(start + command + '\n出发。')).toEqual([start.trim(), '出发。']);
+    });
     it('waits for folded control tags to close without showing their fragments', () => {
         expect(computeStreamPreviewBubbles('开头\n[2026-11-\n23 13:0')).toEqual(['开头']);
         expect(computeStreamPreviewBubbles('开头\n[SEND_EMOJI:\n恼火')).toEqual(['开头']);

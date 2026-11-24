@@ -19,6 +19,7 @@
  */
 
 import { loadImageGenerationConfig } from './imageGenerationConfig';
+import { stripChatPhotoCommands } from './stripChatPhotoCommands';
 
 export interface ChatPhotoIntent {
     /** 视觉 prompt：由模型根据最近对话、角色设定、地点、时间天气与世界观凝练，不照抄聊天原文 */
@@ -40,9 +41,6 @@ export interface ChatPhotoExtraction {
     /** 本轮正文里出现的 SEND_PHOTO 标签总数（诊断用，不含内容） */
     tagCount: number;
 }
-
-/** 容全角冒号（中文输入法高频变体，与 SEND_EMOJI 同一理由） */
-const SEND_PHOTO_TAG_RE = /\[\[SEND_PHOTO[:：]\s*([\s\S]*?)\]\]/g;
 
 const MAX_PROMPT_LENGTH = 1200;
 const MAX_CAPTION_LENGTH = 200;
@@ -97,13 +95,12 @@ function parsePayload(raw: string): ChatPhotoIntent | null {
 export function extractChatPhotoIntent(content: string): ChatPhotoExtraction {
     let tagCount = 0;
     let intent: ChatPhotoIntent | null = null;
-    const cleanedContent = content.replace(SEND_PHOTO_TAG_RE, (_match: string, payload: string) => {
+    const cleanedContent = stripChatPhotoCommands(content, (_raw, payload, complete) => {
         tagCount++;
-        if (!intent) {
-            const parsed = parsePayload(String(payload));
+        if (complete && !intent) {
+            const parsed = parsePayload(payload);
             if (parsed) intent = parsed;
         }
-        return '';
     })
         // 剥掉标签后留下的空行收拢成单个换行（chunkText 本来就会忽略空行，这里只是不把
         // 「标签原来占的那几行」的残影留给下游日志/预览）。

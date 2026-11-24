@@ -25,10 +25,9 @@ const stripLiteralBackslashN = (t: string): string => t.replace(/\\n/g, '\n');
 /** 源标签 `[聊天]/[通话]/[约会]` → 换行 (保留分隔语义) */
 const stripSourceTags = (t: string): string => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n');
 
-/** 4 种时间格式: 带括号 ISO / 行首裸 ISO / 中文 12h / 英文 12h */
+/** 历史上下文里的 ISO 时间有方括号，由 stripLeadingDateTag 处理。裸日期保留在正文。 */
 const stripTimestamps = (t: string): string =>
   t
-    .replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, '')
     .replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, '')
     .replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, '');
 

@@ -15,6 +15,7 @@
  */
 
 import { ChatParser } from './chatParser';
+import { stripChatPhotoCommands } from './stripChatPhotoCommands';
 import { normalizeEmojiProtocol, stripLeadingDateTag } from './sanitize';
 import type { Message } from '../types';
 
@@ -50,6 +51,7 @@ function isLinePreviewable(line: string): boolean {
  */
 export function computeStreamPreviewBubbles(fullText: string): string[] {
     if (!fullText) return [];
+    fullText = stripChatPhotoCommands(fullText);
     // Leave a partially received command or timestamp out of the preview until it closes.
     fullText = fullText.replace(/(?:^[ \t]*\[\s*\d{1,4}(?:[\d\s:/年-]*)|\[{1,2}[ \t]*SEND_[^\[\]]*)$/gim, (tail, offset, text) =>
         text.indexOf(']', offset) < 0 ? '' : tail);

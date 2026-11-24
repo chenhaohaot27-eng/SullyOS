@@ -24,6 +24,12 @@ const streamResponse = (chunks: Uint8Array[]) => new Response(new ReadableStream
 afterEach(() => vi.restoreAllMocks());
 
 describe('Gemini Native URL and request conversion', () => {
+  it('uses the sibling Native root for a saved Tokenmarket Chat preset', () => {
+    expect(buildGeminiNativeEndpoint('https://api.tiantoken.com/v1', 'gemini-3.6-flash', true))
+      .toBe('https://api.tiantoken.com/v1beta/models/gemini-3.6-flash:generateContent');
+    expect(buildGeminiNativeEndpoint('https://api.tiantoken.com/v1/', 'gemini-3.6-flash'))
+      .toBe('https://api.tiantoken.com/v1beta/models/gemini-3.6-flash:streamGenerateContent?alt=sse');
+  });
   it('normalizes root/v1beta base URLs and models/ prefixes', () => {
     expect(buildGeminiNativeEndpoint('https://api.relayrouter.ai/', 'gemini-2.5-pro')).toBe(
       'https://api.relayrouter.ai/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse',

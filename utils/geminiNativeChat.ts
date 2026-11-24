@@ -88,6 +88,8 @@ export function buildGeminiNativeEndpoint(baseUrl: string, model: string, nonStr
   if (!root) {
     throw new GeminiNativeAdapterError('Gemini Native requires a non-empty base URL and model.');
   }
+  // Tokenmarket serves Chat and Native at sibling roots on the same host.
+  if (/^https:\/\/api\.tiantoken\.com\/v1$/i.test(root)) root = 'https://api.tiantoken.com';
   root = root.replace(/\/v1beta\/models$/i, '/v1beta');
   if (!/\/v1beta$/i.test(root)) root += '/v1beta';
 

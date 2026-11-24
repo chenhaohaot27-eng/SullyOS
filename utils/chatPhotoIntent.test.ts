@@ -14,6 +14,16 @@ import { ChatPrompts } from './chatPrompts';
 const TAG = (payload: string) => `[[SEND_PHOTO: ${payload}]]`;
 
 describe('extractChatPhotoIntent', () => {
+    it('preserves quoted brackets and nested arrays, and withholds an unfinished payload', () => {
+        const obj = { prompt: 'cup [[blue]]', ignored: [[0]] };
+        const tag = TAG(JSON.stringify(obj, null, 2));
+        expect(extractChatPhotoIntent('前\n' + tag + '\n后')).toMatchObject({
+            tagCount: 1, cleanedContent: '前\n后', intent: { prompt: obj.prompt },
+        });
+        expect(extractChatPhotoIntent('前\n' + tag.slice(0, -1))).toMatchObject({
+            tagCount: 1, cleanedContent: '前', invalidTagFound: true, intent: null,
+        });
+    });
     it('明确拍照请求的合法标签 → 解析出完整意图并从正文剥掉', () => {
         const out = extractChatPhotoIntent(
             '好呀，等我一下\n' + TAG('{"prompt":"cozy night city street, neon reflections, light rain","caption":"楼下刚下过雨～","includeCharacter":true,"style":"cinematic"}'),

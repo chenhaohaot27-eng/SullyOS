@@ -27,9 +27,13 @@ export const shouldSendThinkingParams = (input: {
   /** 本轮是否注入了主动消息 2.0 的排程工具。 */
   amsg2ToolsInjected: boolean;
   model: string;
+  chatCompletionsBaseUrl?: string;
 }): boolean => {
   if (!input.thinkingActive) return false;
   if (input.legacyToolModeActive) return false;
+  // The verified Tokenmarket Chat preset keeps the character's sampling temperature.
+  if (input.model === 'gemini-3.6-flash' &&
+      /^https:\/\/api\.tiantoken\.com\/v1\/?$/i.test(input.chatCompletionsBaseUrl?.trim() ?? '')) return false;
   if (input.amsg2ToolsInjected && modelRejectsThinkingWithTools(input.model)) return false;
   return true;
 };

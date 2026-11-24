@@ -1201,6 +1201,7 @@ export const useChatAI = ({
             // 关掉的功能会被角色一次工具调用重新打开。
             const amsg2ToolsInjected = isAmsg2EnabledForChar(char) && await isAmsg2GlobalReady();
             if (shouldSendThinkingParams({
+                chatCompletionsBaseUrl: openAiCompatible ? effectiveApi.baseUrl : undefined,
                 thinkingActive: !!payload.flags.thinkingActive,
                 legacyToolModeActive: !!toolModeActive,
                 amsg2ToolsInjected,

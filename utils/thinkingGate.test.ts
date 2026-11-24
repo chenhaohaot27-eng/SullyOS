@@ -62,4 +62,10 @@ describe('shouldSendThinkingParams', () => {
   it('没注入 amsg2 工具时，Gemini 的思考链不受影响', () => {
     expect(shouldSendThinkingParams({ ...base, model: 'gemini-2.5-pro' })).toBe(true);
   });
+  it('keeps the verified Tokenmarket Chat preset free of thinking overrides', () => {
+    const config = { ...base, model: 'gemini-3.6-flash', chatCompletionsBaseUrl: 'https://api.tiantoken.com/v1/' };
+    expect(shouldSendThinkingParams(config)).toBe(false);
+    expect(shouldSendThinkingParams({ ...config, chatCompletionsBaseUrl: 'https://other.example/v1' })).toBe(true);
+    expect(shouldSendThinkingParams({ ...config, chatCompletionsBaseUrl: undefined })).toBe(true);
+  });
 });

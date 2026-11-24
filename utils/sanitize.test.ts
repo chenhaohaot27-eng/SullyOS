@@ -45,11 +45,11 @@ describe('sanitizeForNotification', () => {
     expect(sanitizeForNotification('你好[聊天]在吗')).toBe('你好\n在吗');
   });
 
-  it('A3 时间戳 4 变体一次过', () => {
+  it('A3 去掉协议时间标签，保留正文开头的裸日期时间', () => {
     // 注意: English 12h `\(...\)` 不吃 trailing 空格 (跟原版正则保持一致),
     // 所以 `(1:52 PM) hi4` 剥后是 ' hi4'.
     const input = '[2026-05-20 13:52] hi\n2026-05-20 13:52 hi2\n（下午1:52）hi3\n(1:52 PM) hi4';
-    expect(sanitizeForNotification(input)).toBe('hi\nhi2\nhi3\n hi4');
+    expect(sanitizeForNotification(input)).toBe('hi\n2026-05-20 13:52 hi2\nhi3\n hi4');
   });
 
   it('A4 业务标签 alternation 全剥', () => {
@@ -141,7 +141,7 @@ describe('sanitizeForNotification', () => {
 
   it('B4 字面 \\n 还原在 line-anchored 之前', () => {
     // 字面 `\n` 还原后, ^锚定的 timestamp 才能命中
-    expect(sanitizeForNotification('foo\\n2026-05-20 13:52 hi'))
+    expect(sanitizeForNotification('foo\\n[2026-05-20 13:52] hi'))
       .toBe('foo\nhi');
   });
 
