@@ -110,6 +110,10 @@ export async function completeChat(
     options.meta,
     options.streamHooks,
   );
+  return normalizeOpenAiChatResponse(data);
+}
+
+export function normalizeOpenAiChatResponse(data: any): any {
   assertCompletionDelivered(data);
   const message = data?.choices?.[0]?.message;
   if (Array.isArray(message?.content)) {

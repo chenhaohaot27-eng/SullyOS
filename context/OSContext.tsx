@@ -26,6 +26,7 @@ import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { captureApiRequestOnce, getApiCallAmbientContext, recordApiCall, setApiCallAmbientContext, updateApiRequestCaptureUsage } from '../utils/apiCallLog';
 import { isGlobalStreamEnabled, upgradeChatBodyToStream, assembleUpgradedResponse } from '../utils/streamUpgrade';
+import { matrixRequests } from '../utils/protocolMatrixTransport';
 import { rewriteStaleWorkerUrl } from '../utils/proxyWorker';
 import { buildFetchFailureDetail, classifyFetchFailure, describeReachabilityProbe, parseTargetUrl, probeOriginReachability, shouldProbeReachability } from '../utils/networkFailureDiagnosis';
 import { INSTALLED_APPS, HIDDEN_APP_NAMES } from '../constants';
@@ -1115,6 +1116,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           let sendArgs: [RequestInfo | URL, RequestInit?] = args;
           // 透明流式升级状态（utils/streamUpgrade.ts）：请求侧改写 → 响应侧拼回 JSON
           let streamUpgraded = false;
+          const matrix = config && matrixRequests.get(config);
           if (urlStr.includes('/chat/completions')) {
               const rawBody = (config as RequestInit | undefined)?.body;
               if (typeof rawBody === 'string') {
@@ -1131,7 +1133,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       // （查手机/记忆宫殿/日程/剧场/群聊…40+ 处）升级为流式**传输**，防网关
                       // 空闲超时把长生成掐成半截；响应会在下面攒齐拼回标准 JSON，调用方无感。
                       // 已自带 stream:true 的请求（聊天主路径/见面/情绪评估）不碰。
-                      if (isGlobalStreamEnabled()) {
+                      if (matrix?.uiStream ?? isGlobalStreamEnabled()) {
                           const upgraded = upgradeChatBodyToStream(body);
                           if (upgraded) {
                               body = upgraded;
@@ -1153,6 +1155,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           try {
               let response = await originalFetch(...sendArgs);
+              if (matrix) {
+                  const wireBody = JSON.parse(String(sendArgs[1]?.body || '{}'));
+                  const sampling = wireBody.generationConfig ?? wireBody;
+                  const fields = ['max_tokens', 'max_completion_tokens', 'maxOutputTokens', 'temperature',
+                      'top_p', 'topP', 'reasoning_effort', 'thinkingConfig', 'stream_options'];
+                  matrix.wire(wireBody.stream === true || urlStr.includes(':streamGenerateContent'), response.clone(),
+                      Object.fromEntries(fields.filter(k => k in sampling).map(k => [k, sampling[k]])));
+              }
 
               // /chat/completions 是可能已经开始计费的请求。拿到任何 HTTP 响应后都不在
               // 兼容层静默重发：中转站可能在返回错误前已经把任务交给上游，重发会让用户

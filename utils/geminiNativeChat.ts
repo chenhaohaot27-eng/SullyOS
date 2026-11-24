@@ -507,7 +507,7 @@ function feedJsonPayload(raw: string, assembler: GeminiResponseAssembler): void 
   else assembler.feed(parsed as JsonRecord);
 }
 
-async function readGeminiResponse(
+export async function readGeminiResponse(
   response: Response,
   model: string,
   hooks?: StreamHooks,

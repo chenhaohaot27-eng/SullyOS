@@ -478,6 +478,29 @@ const Settings: React.FC = () => {
   const [selectedVisionPresetId, setSelectedVisionPresetId] = useState<string | null>(null);
   const [visionStatusMsg, setVisionStatusMsg] = useState('');
   const [testingVisionApi, setTestingVisionApi] = useState(false);
+  const [matrixStatus, setMatrixStatus] = useState('');
+  const [matrixSummary, setMatrixSummary] = useState('');
+  const matrixBusy = React.useRef(false);
+  const runMatrix = async () => {
+    if (matrixBusy.current) return;
+    matrixBusy.current = true;
+    setMatrixStatus('正在运行合成样本…');
+    try {
+      const { runProtocolMatrix } = await import('../utils/protocolMatrix');
+      const result = await runProtocolMatrix(apiConfig, apiPresets, await DB.getApiCallLog());
+      const winner = result.rows.find(row => row.long && row.status === '通过');
+      const recommendation = winner
+          ? `本次推荐 ${winner.host} · ${winner.model} · ${winner.probe} · 流式${winner.uiStream ? '开' : '关'}`
+          : '本次未得到同时通过短样本和长样本的配置。';
+      setMatrixSummary([recommendation, ...result.notes,
+          ...result.rows.map(row => `${row.host} ${row.model} ${row.probe}${row.long ? '（长）' : ''} · ${row.status}`)].join('\n'));
+      setMatrixStatus(JSON.stringify(result, null, 2));
+    } catch {
+      setMatrixStatus('矩阵未完成，无法生成结论。');
+    } finally {
+      matrixBusy.current = false;
+    }
+  };
   const [visionTestResult, setVisionTestResult] = useState<string | null>(null);
   const [localMiniMaxKey, setLocalMiniMaxKey] = useState(apiConfig.minimaxApiKey || '');
   const [localMiniMaxGroupId, setLocalMiniMaxGroupId] = useState(apiConfig.minimaxGroupId || '');
@@ -2437,6 +2460,21 @@ const Settings: React.FC = () => {
                 >
                     {testingApi ? '测试中...' : '🧪 测试连接'}
                 </button>
+                <button type="button" onClick={runMatrix} disabled={matrixBusy.current || !!matrixSummary}
+                    className="w-full py-2 text-sm text-primary disabled:opacity-50">
+                    运行全部协议矩阵
+                </button>
+                <p className="px-1 text-xs text-slate-500">使用现有聊天额度。最多 32 次短样本，每次上限 128 token，另做一次 512 token 长样本。图片动作仅解析。</p>
+                {matrixSummary && <>
+                    <pre aria-live="polite" className="max-h-72 overflow-auto whitespace-pre-wrap text-xs">{matrixSummary}</pre>
+                    <button type="button" className="w-full py-2 text-sm text-primary" onClick={async () => {
+                        try { await navigator.clipboard.writeText(matrixSummary); addToast('诊断摘要已复制', 'success'); }
+                        catch { addToast('请长按选择诊断摘要'); }
+                    }}>复制诊断摘要</button>
+                </>}
+                {matrixSummary
+                    ? <details><summary className="text-xs">逐项响应详情</summary><pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs">{matrixStatus}</pre></details>
+                    : matrixStatus && <p aria-live="polite" className="text-xs">{matrixStatus}</p>}
 
                 {testApiResult && (
                     <div className={`mt-2 text-xs px-3 py-2 rounded-xl ${
