@@ -8,6 +8,7 @@ import { completeChat } from './chatCompletionClient';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import MessageItem from '../components/chat/MessageItem';
+import { PRESET_THEMES } from '../components/chat/ChatConstants';
 
 // 本文件覆盖两条链路的端到端行为（DB 走 fake-indexeddb，生图执行 mock，不触发真实付费 API）：
 //  A. 表情包「只有文字不发图」修复：全角冒号 [[SEND_EMOJI：x]] 与自然语言表情指令
@@ -80,10 +81,10 @@ it('renders persisted text and inventory emoji after fragmented Tokenmarket Chat
         expect(saved.map(m => m.content)).toEqual([text, url, '到时见。']);
         expect(saved.map(m => m.type)).toEqual(['text', 'emoji', 'text']);
         const html = saved.map(msg => renderToStaticMarkup(React.createElement(MessageItem, {
-            msg, isFirstInGroup: true, isLastInGroup: true, activeTheme: { id: 'test', name: 'test', user: {}, ai: {} },
+            msg, isFirstInGroup: true, isLastInGroup: true, activeTheme: PRESET_THEMES.default,
             charAvatar: '', charName: '角色', userAvatar: '', onLongPress: vi.fn(), onReply: vi.fn(),
             selectionMode: false, isSelected: false, onToggleSelect: vi.fn(),
-        } as React.ComponentProps<typeof MessageItem>)));
+        })));
         expect(html[0]).toContain(text);
         expect(html[1]).toMatch(/<img[^>]*src="https:\/\/fixture\.invalid\/wave\.gif"/);
         expect(html.join('')).not.toMatch(/SEND_PHOTO|SEND_EMOJI|cup \[\[blue/);
