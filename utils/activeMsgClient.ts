@@ -1374,7 +1374,10 @@ const fetchWithAuthRaw = async (
   if (config.serverToken) headers.set('X-Client-Token', config.serverToken);
   headers.set('X-User-Id', config.userId);
 
-  const { body, gzipped } = await maybeGzipRequestBody(init.body);
+  // The deployed image submission route reads request.json() directly, including for large encrypted references.
+  const { body, gzipped } = path === 'image-gen' && init.method === 'POST'
+    ? { body: init.body, gzipped: false }
+    : await maybeGzipRequestBody(init.body);
   if (gzipped) headers.set('Content-Encoding', 'gzip');
 
   try {

@@ -1852,6 +1852,30 @@ describe('describeInstantChatFailure — 后端那句真话要露出来', () => 
 // 「压缩绝不能变成发不出去的理由」：这条路上唯一该有的结局是「压了」或「原样发」，
 // 任何一种失败都必须落回明文，而不是把整轮聊天卡在发送键上。
 describe('请求体 gzip 上行', () => {
+  it.each([32, 16 * 1024, 256 * 1024])('图片任务保持 Worker 可直接读取的加密 JSON（密文字符数 %i）', async size => {
+    const envelope = { iv: 'fixture-iv', authTag: 'fixture-tag', encryptedData: 'x'.repeat(size) };
+    const taskId = 'fixture-photo-task';
+    storeConfigExtra.value = { serverToken: 'fixture-token' };
+    reiClient._encrypt.mockResolvedValue(envelope);
+    reiClient.init.mockResolvedValue(undefined);
+    const submissions: Request[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (new URL(url).pathname === '/image-gen') submissions.push(new Request(url, init));
+      return Response.json({ success: true, data: { created: true, status: 'queued' } });
+    }));
+    try {
+      await ActiveMsgClient.submitImageGenTask(taskId, { prompt: 'synthetic fixture' });
+      expect(submissions).toHaveLength(1);
+      const [request] = submissions;
+      expect(request.headers.get('Content-Encoding')).toBeNull();
+      expect(request.headers.get('X-User-Id')).toBe(TEST_USER_ID);
+      expect(request.headers.get('X-Client-Token')).toBe('fixture-token');
+      expect(await request.json()).toEqual({ taskId, envelope });
+    } finally {
+      storeConfigExtra.value = {};
+      vi.unstubAllGlobals();
+    }
+  });
   const bigJson = () => JSON.stringify({ v: 'ぷ'.repeat(20_000) });
 
   it('超阈值 → 压，且真能解回原文', async () => {
