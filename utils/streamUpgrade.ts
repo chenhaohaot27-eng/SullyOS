@@ -19,7 +19,7 @@
  * 重发付费生成请求：中转可能已经把第一份交给上游，静默重发会造成重复扣费。
  */
 
-import { isSseResponseText, parseSseToCompletion } from './safeApi';
+import { isSseResponseText, parseSseToCompletion, readBodyWithStreaming } from './safeApi';
 
 const API_CONFIG_KEY = 'os_api_config';
 
@@ -58,6 +58,12 @@ export function upgradeChatBodyToStream(bodyStr: string): string | null {
  * 只在响应 ok 时调用；错误响应由调用方原样透传给业务层的错误处理。
  */
 export async function assembleUpgradedResponse(response: Response): Promise<Response> {
+    if (response.headers.get('content-type')?.includes('text/event-stream')) {
+        const data = await readBodyWithStreaming(response, {});
+        return new Response(JSON.stringify(data), {
+            status: response.status, statusText: response.statusText, headers: { 'Content-Type': 'application/json' },
+        });
+    }
     const text = await response.text();
     if (isSseResponseText(text, response.headers.get('content-type'))) {
         const assembled = parseSseToCompletion(text);

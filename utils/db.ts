@@ -1029,6 +1029,15 @@ export const DB = {
     });
   },
 
+  getMessageById: async (id: number): Promise<Message | undefined> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const request = db.transaction(STORE_MESSAGES, 'readonly').objectStore(STORE_MESSAGES).get(id);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+  },
+
   updateMessage: async (id: number, content: string): Promise<void> => {
     const db = await openDB();
     const transaction = db.transaction(STORE_MESSAGES, 'readwrite');

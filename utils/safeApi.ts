@@ -119,6 +119,7 @@ class SseAssembler {
     private usage: any = undefined;
     private gotAnyChunk = false;
     private sawDone = false;
+    get receivedDone(): boolean { return this.sawDone; }
     private brokenEvent = false;
     // tool_calls 流式分片: OpenAI 约定按 index 分组, id/name 在首片, arguments 逐片拼接。
     // 不拼的话开了 stream 的工具模式(瑞幸/MCP)会静默丢掉全部工具调用。
@@ -267,7 +268,7 @@ export interface StreamHooks {
  * 支持 data 事件前先到达的 SSE 注释/心跳；代理无视 stream:true 返回整包 JSON / HTML
  * 错误页时，自动退化为累积全文后走 parseRawBodyText —— 与非流式路径行为一致。
  */
-async function readBodyWithStreaming(
+export async function readBodyWithStreaming(
     response: Response,
     hooks: StreamHooks,
     timing?: { firstDeltaMs?: number },
@@ -326,7 +327,13 @@ async function readBodyWithStreaming(
         } else if (mode === 'sse') {
             pending += textChunk;
         }
-        if (mode === 'sse') consumeLines();
+        if (mode === 'sse') {
+            consumeLines();
+            if (asm.receivedDone) {
+                void reader.cancel().catch(() => {});
+                break;
+            }
+        }
     }
     const tail = decoder.decode();
     if (tail) {
@@ -385,23 +392,28 @@ export async function safeFetchJson(
         // 调用方自己的 options.signal 仍然有效，两者任一触发就 abort
         let attemptOptions = { ...metaOptions, __sullyApiCallId: requestId } as RequestInit;
         let timeoutHandle: any = null;
+        let timedOut = false;
+        let abortFromCaller: (() => void) | undefined;
         if (timeoutMs > 0) {
             const ac = new AbortController();
-            timeoutHandle = setTimeout(() => ac.abort(new Error(`timeout ${timeoutMs}ms`)), timeoutMs);
+            timeoutHandle = setTimeout(() => {
+                timedOut = true;
+                ac.abort();
+            }, timeoutMs);
             if (options.signal) {
                 // 串联外部 signal：外部 abort 也触发内部
                 if (options.signal.aborted) {
                     clearTimeout(timeoutHandle);
                     throw new Error('aborted');
                 }
-                options.signal.addEventListener('abort', () => ac.abort(), { once: true });
+                abortFromCaller = () => ac.abort();
+                options.signal.addEventListener('abort', abortFromCaller, { once: true });
             }
             attemptOptions = { ...attemptOptions, signal: ac.signal };
         }
         const attemptStartedAt = Date.now();
         try {
             const response = await fetch(url, attemptOptions);
-            if (timeoutHandle) clearTimeout(timeoutHandle);
             lastStatus = response.status;
             const headersMs = Date.now() - attemptStartedAt;
 
@@ -421,8 +433,8 @@ export async function safeFetchJson(
             }
 
             const timing: { firstDeltaMs?: number } = {};
-            const data = streamHooks
-                ? await readBodyWithStreaming(response, streamHooks, timing, attemptStartedAt)
+            const data = streamHooks || (isChatCompletionUrl(urlStr) && response.headers.get('content-type')?.includes('text/event-stream'))
+                ? await readBodyWithStreaming(response, streamHooks ?? {}, timing, attemptStartedAt)
                 : await safeResponseJson(response);
             if (isChatCompletionUrl(urlStr)) {
                 // TTFT 拆分埋点：headers = 首包响应头到达（≈排队+prefill 起点），
@@ -455,7 +467,9 @@ export async function safeFetchJson(
             }
             return data;
         } catch (e: any) {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
+            if (timedOut && isChatCompletionUrl(urlStr)) {
+                throw new Error(`聊天请求等待超过 ${Math.ceil(timeoutMs / 1000)} 秒，未收到完整回复。`);
+            }
             lastError = e;
 
             // AbortError（含 timeout）：是否重试看上层策略，先按可重试处理（网络层面）
@@ -488,6 +502,9 @@ export async function safeFetchJson(
                 });
             }
             throw e;
+        } finally {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            if (abortFromCaller) options.signal?.removeEventListener('abort', abortFromCaller);
         }
     }
 

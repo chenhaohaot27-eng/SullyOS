@@ -35,9 +35,10 @@ import {
     retryChatPhotoMessage,
     runGroupChatPhotoMessage,
     settleStalePendingChatPhotos,
-    CHAT_PHOTO_PENDING_STALE_MS,
+    isStaleLocalPhoto,
 } from '../utils/chatPhotoGeneration';
 import { recoverCloudPhotoMessages } from '../utils/cloudImageGen';
+import { useCloudPhotoUpdates } from '../hooks/useCloudPhotoUpdates';
 import { pruneBrowserTasks, registerBrowserTask, settleBrowserTask } from '../utils/browserTaskRecovery';
 import { useBlobRefUrl } from '../utils/blobRef';
 import ChatPhotoViewer from '../components/chat/ChatPhotoViewer';
@@ -153,7 +154,7 @@ const GroupChatPhotoBubble: React.FC<{
         return () => clearInterval(timer);
     }, [meta?.status]);
     if (!meta) return null;
-    const isStalePending = meta.status === 'pending' && nowTick - (meta.createdAt || 0) > CHAT_PHOTO_PENDING_STALE_MS;
+    const isStalePending = isStaleLocalPhoto(msg.id, meta, msg.metadata?.cloudImageTaskId, nowTick);
 
     if (meta.status === 'ready') {
         return (
@@ -588,6 +589,7 @@ const GroupChat: React.FC = () => {
     const [view, setView] = useState<'list' | 'chat'>('list');
     const [activeGroup, setActiveGroup] = useState<GroupProfile | null>(null);
     const [messages, setMessages] = useState<Message[]>([]);
+    useCloudPhotoUpdates(messages, setMessages);
     const [totalMsgCount, setTotalMsgCount] = useState(0);
     const MESSAGE_PAGE_SIZE = 50;
     const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE);

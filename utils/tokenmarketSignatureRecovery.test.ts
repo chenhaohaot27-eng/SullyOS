@@ -64,13 +64,18 @@ describe('词元签名拒绝的手动恢复', () => {
         expect(messages[3].role).toBe('user');
         expect(parts).toHaveLength(2);
     });
-    it('never converts tool or signed history and ignores other models, protocols, providers and errors', async () => {
+    it.each(['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.8-flash', 'claude-fixture'])('keeps the selected %s for a confirmed signature retry', async model => {
+        const send = vi.fn().mockRejectedValueOnce(signatureError).mockResolvedValueOnce('ok');
+        await expect(recover({ ...config, model }, { ...body, model }, send, () => true)).resolves.toBe('ok');
+        expect(send.mock.calls.map(([request]) => request.model)).toEqual([model, model]);
+    });
+    it('never converts tool or signed history and ignores other protocols, providers and errors', async () => {
         const confirm = vi.fn(() => true);
         for (const [cfg, payload, error] of [
             [config, { ...body, tools: [{}] }, signatureError],
             [config, { ...body, messages: [...body.messages, { role: 'assistant', content: 'a', tool_calls: [] }] }, signatureError],
             [config, { ...body, messages: [{ role: 'assistant', content: [{ type: 'text', text: 'x', thoughtSignature: 'opaque' }] }] }, signatureError],
-            [config, { ...body, model: 'other' }, signatureError],
+            [config, body, new Error('API Error 429: model quota exceeded')],
             [{ ...config, apiFormat: 'gemini-native' }, body, signatureError],
             [{ ...config, baseUrl: 'https://other.invalid/v1' }, body, signatureError],
             [config, body, new Error('API Error 400: invalid model')],

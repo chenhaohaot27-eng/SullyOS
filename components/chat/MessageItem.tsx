@@ -21,7 +21,7 @@ import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
 import EmojiImage from './EmojiImage';
 import { useBlobRefUrl } from '../../utils/blobRef';
-import { CHAT_PHOTO_PENDING_STALE_MS, type ChatPhotoMeta } from '../../utils/chatPhotoGeneration';
+import { isStaleLocalPhoto, type ChatPhotoMeta } from '../../utils/chatPhotoGeneration';
 import ChatPhotoViewer from './ChatPhotoViewer';
 
 // ─── 聊天拍照气泡（Phase 2A）────────────────────────────────────────────────
@@ -32,14 +32,15 @@ import ChatPhotoViewer from './ChatPhotoViewer';
 const ChatPhotoBubble: React.FC<{
     messageId: number;
     meta: ChatPhotoMeta;
+    cloudTaskId?: string;
     content: string;
     isLatestMessage?: boolean;
     onMediaLoad?: (messageId: number) => void;
     onRetry?: () => void;
-}> = ({ messageId, meta, content, isLatestMessage, onMediaLoad, onRetry }) => {
+}> = ({ messageId, meta, cloudTaskId, content, isLatestMessage, onMediaLoad, onRetry }) => {
     const imageUrl = useBlobRefUrl(content || undefined);
     const [viewerOpen, setViewerOpen] = useState(false);
-    const isStalePending = meta.status === 'pending' && Date.now() - (meta.createdAt || 0) > CHAT_PHOTO_PENDING_STALE_MS;
+    const isStalePending = isStaleLocalPhoto(messageId, meta, cloudTaskId);
 
     if (meta.status === 'ready') {
         return (
@@ -77,7 +78,7 @@ const ChatPhotoBubble: React.FC<{
         return (
             <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white/95 border border-white/70 shadow-sm text-xs text-slate-500">
                 <svg className="animate-spin h-3.5 w-3.5 shrink-0 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                <span>正在拍照…</span>
+                <span>{cloudTaskId ? '云端正在拍照…' : '正在拍照…'}</span>
             </div>
         );
     }
@@ -3475,6 +3476,7 @@ const MessageItem = React.memo(({
             <ChatPhotoBubble
                 messageId={m.id}
                 meta={chatPhotoMeta}
+                cloudTaskId={m.metadata?.cloudImageTaskId}
                 content={typeof m.content === 'string' ? m.content : ''}
                 isLatestMessage={isLatestMessage}
                 onMediaLoad={onMediaLoad}

@@ -19,6 +19,7 @@ vi.mock('./activeMsgClient', () => ({
 }));
 
 import { ActiveMsgClient } from './activeMsgClient';
+import { retryChatPhotoMessage, executeChatPhotoIntent, settleStalePendingChatPhotos } from './chatPhotoGeneration';
 import {
     loadCloudImageGenConfig,
     saveCloudImageGenConfig,
@@ -27,6 +28,8 @@ import {
     submitCloudPhotoTask,
     settleCloudPhotoMessage,
     recoverCloudPhotoMessages,
+    CLOUD_PHOTO_SETTLED_EVENT,
+    stopCloudPhotoPoller,
     CLOUD_IMAGE_UNKNOWN_SETTLE_MS,
 } from './cloudImageGen';
 
@@ -68,6 +71,35 @@ afterEach(() => {
 });
 
 describe('开关与默认行为', () => {
+  it('keeps a retry on the cloud route, deduplicates double taps and recovers its result', async () => {
+    const id = await pendingMessage(undefined);
+    await DB.updateMessageMetadata(id, prev => ({ ...prev, chatPhoto: { ...prev.chatPhoto, status: 'failed', reason: '生图请求超过 90 秒' } }));
+    saveCloudImageGenConfig({ enabled: true });
+    vi.spyOn(ActiveMsgStore, 'getGlobalConfig').mockResolvedValue({
+      workerUrl: 'https://worker.test', userId: 'owner', masterKey: 'fixture', serverToken: 'fixture',
+    } as Awaited<ReturnType<typeof ActiveMsgStore.getGlobalConfig>>);
+    mockedSubmit.mockResolvedValue({ created: true, status: 'queued' });
+    await Promise.all([retryChatPhotoMessage(CHAR, id), retryChatPhotoMessage(CHAR, id)]);
+    expect(mockedSubmit).toHaveBeenCalledTimes(1);
+    const message = (await loadMessage(id))!;
+    expect(message.metadata?.cloudImageTaskId).toBe(mockedSubmit.mock.calls[0][0]);
+    mockedQuery.mockResolvedValue({ status: 'running' });
+    expect(await settleStalePendingChatPhotos([message], Date.now() + 16 * 60_000)).toBe(0);
+    expect(await retryChatPhotoMessage(CHAR, id)).toEqual({ status: 'pending' });
+    expect(mockedSubmit).toHaveBeenCalledTimes(1);
+    mockedQuery.mockResolvedValue({ status: 'completed' });
+    mockedDownload.mockResolvedValue(new Blob(['image'], { type: 'image/png' }));
+    expect(await recoverCloudPhotoMessages([message])).toBe(1);
+    expect((await loadMessage(id))?.metadata?.chatPhoto.status).toBe('ready');
+  });
+  it('fails visibly when cloud mode is selected but pairing is unavailable', async () => {
+    saveCloudImageGenConfig({ enabled: true });
+    vi.spyOn(ActiveMsgStore, 'getGlobalConfig').mockRejectedValue(new Error('fixture'));
+    await executeChatPhotoIntent({ char: CHAR, intent: INTENT as never, persistMessage: msg => DB.saveMessage(msg) });
+    const [msg] = await DB.getMessagesByCharId(CHAR_ID, true);
+    expect(msg.metadata?.chatPhoto.reason).toContain('配对');
+    expect(mockedSubmit).not.toHaveBeenCalled();
+  });
   it('distinguishes replacement bundles, auth failure and a fresh ready report', async () => {
     vi.spyOn(ActiveMsgStore, 'getGlobalConfig').mockResolvedValue({
       workerUrl: 'https://worker.test', userId: 'owner', serverToken: 'configured', masterKey: 'configured',
@@ -119,6 +151,29 @@ describe('submitCloudPhotoTask：提交与挂账', () => {
 });
 
 describe('补收与幂等（一条消息、一份相册记录）', () => {
+  it('resumes a running task after reopening and updates the open bubble on completion', async () => {
+    const id = await pendingMessage('task-after-reload', Date.now() - 151_000);
+    const events = new EventTarget();
+    vi.stubGlobal('window', events);
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      mockedQuery.mockResolvedValueOnce({ status: 'running' }).mockResolvedValueOnce({ status: 'completed' });
+      mockedDownload.mockResolvedValue(new Blob(['result'], { type: 'image/png' }));
+      await recoverCloudPhotoMessages([(await loadMessage(id))!]);
+      const settled = new Promise<Message>(resolve => events.addEventListener(CLOUD_PHOTO_SETTLED_EVENT,
+        e => resolve((e as CustomEvent<Message>).detail), { once: true }));
+      vi.advanceTimersByTime(10_000);
+      const updated = await settled;
+      expect(updated.id).toBe(id);
+      expect(updated.metadata?.chatPhoto.status).toBe('ready');
+      expect(updated.content).toMatch(/^blobref:/);
+      expect(mockedSubmit).not.toHaveBeenCalled();
+    } finally {
+      stopCloudPhotoPoller('task-after-reload');
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
   it('completed → 下载 → blobref → ready；重复补收幂等跳过', async () => {
     const messageId = await pendingMessage('task-ok');
     mockedQuery.mockResolvedValue({ status: 'completed', result: { contentType: 'image/png', byteSize: 12 } });

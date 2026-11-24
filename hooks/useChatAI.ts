@@ -55,7 +55,7 @@ import { appendInstantTraceEntry } from '../utils/instantTraceLog';
 import { AMSG2_TOOLS, AMSG2_TOOL_NAMES, createAmsg2ToolSession, executeAmsg2Tool, isAmsg2GlobalReady } from '../utils/amsg2ToolBridge';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { buildClaudeProxyCompatibilityBody, shouldRetryClaudeProxyCompatibility } from '../utils/claudeProxyCompat';
-import { requestWithTokenmarketSignatureRecovery, TokenmarketSignatureError } from '../utils/tokenmarketSignatureRecovery';
+import { isTokenmarketChat, requestWithTokenmarketSignatureRecovery, TokenmarketSignatureError } from '../utils/tokenmarketSignatureRecovery';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
@@ -1524,6 +1524,7 @@ export const useChatAI = ({
                     { ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) },
                     body => completeChat(mainCompletionConfig, body, {
                         maxRetries: 2,
+                        timeoutMs: isTokenmarketChat(mainCompletionConfig) ? 300_000 : undefined,
                         meta: { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' },
                         streamHooks,
                     }),

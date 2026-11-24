@@ -1191,7 +1191,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   let usageClone: Response | null = null;
                   try { usageClone = response.clone(); } catch { usageClone = null; }
                   if (usageClone) {
-                      usageClone.text().then((t) => {
+                      const usageText = ok && usageClone.headers.get('content-type')?.includes('text/event-stream')
+                          ? assembleUpgradedResponse(usageClone).then(result => result.text())
+                          : usageClone.text();
+                      usageText.then((t) => {
                           const durationMs = Date.now() - fetchStartedAt;
                           let parsed: any = undefined;
                           try { parsed = JSON.parse(t); } catch { /* 流式/非 JSON：把原始文本交给 recordApiCall 的 SSE 兜底解析 */ }

@@ -4,6 +4,9 @@ type Body = Record<string, any>;
 
 export class TokenmarketSignatureError extends Error {}
 
+export const isTokenmarketChat = (config: ChatCompletionApiConfig): boolean =>
+    config.apiFormat !== 'gemini-native' && /^https:\/\/api\.tiantoken\.com\/v1\/?$/i.test(config.baseUrl.trim());
+
 /** Only on explicit recovery, present local bubbles as quoted history instead of provider model turns. */
 function recoveryMessages(body: Body): Body[] | undefined {
     const messages = body.messages;
@@ -37,8 +40,7 @@ export async function requestWithTokenmarketSignatureRecovery<T>(
     try {
         return await request(body);
     } catch (error) {
-        if (config.apiFormat === 'gemini-native' || !/^https:\/\/api\.tiantoken\.com\/v1\/?$/i.test(config.baseUrl.trim())
-            || (body.model || config.model) !== 'gemini-3.6-flash'
+        if (!isTokenmarketChat(config)
             || !(error instanceof Error) || !/^API Error 400: Invalid thought signature\.?$/i.test(error.message.trim())) throw error;
         const messages = recoveryMessages(body);
         if (!messages) throw error;

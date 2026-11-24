@@ -22,6 +22,25 @@ const sseResponse = (events: string[]) => new Response(sseBody(events), {
 afterEach(() => vi.restoreAllMocks());
 
 describe('safeFetchJson streaming', () => {
+    it('completes at DONE even if the proxy holds the socket open', async () => {
+        const cancel = vi.fn();
+        const response = new Response(new ReadableStream({
+            start(controller) { controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"完整"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')); },
+            cancel,
+        }), { headers: { 'content-type': 'text/event-stream' } });
+        vi.stubGlobal('fetch', vi.fn(async () => response));
+        const data = await safeFetchJson('https://fixture.invalid/v1/chat/completions', {}, 0, 0, undefined, {});
+        expect(data.choices[0].message.content).toBe('完整');
+        expect(cancel).toHaveBeenCalledOnce();
+    });
+    it('expires while waiting for the response body without sending another chat request', async () => {
+        const fetcher = vi.fn(async (_url, options) => new Response(new ReadableStream({
+            start(controller) { options.signal.addEventListener('abort', () => controller.error(new Error('aborted'))); },
+        }), { headers: { 'content-type': 'text/event-stream' } }));
+        vi.stubGlobal('fetch', fetcher);
+        await expect(safeFetchJson('https://fixture.invalid/v1/chat/completions', {}, 2, 30, undefined, {})).rejects.toThrow(/未收到完整回复/);
+        expect(fetcher).toHaveBeenCalledOnce();
+    });
     it('SSE 增量触发 onDelta 且最终 completion 与整包解析一致', async () => {
         const events = [
             'data: {"id":"x","choices":[{"delta":{"role":"assistant","content":"你好"}}]}\n\n',

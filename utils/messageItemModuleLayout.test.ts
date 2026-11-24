@@ -42,6 +42,13 @@ const htmlCard = (): Message => ({
     metadata: { htmlSource: '<div>hello</div>' },
 });
 
+it('still renders a running cloud photo as pending after the local stale deadline', () => {
+    const msg = { ...htmlCard(), type: 'image', content: '', metadata: { cloudImageTaskId: 'fixture',
+        chatPhoto: { status: 'pending', createdAt: Date.now() - 180_000 } } } as Message;
+    expect(renderMessage(msg)).toContain('正在拍照');
+    expect(renderMessage(msg)).not.toContain('照片没有生成成功');
+});
+
 it('hides a historical timestamp suffix on assistant text only, without modifying the record', () => {
     const content = '见到了吗？ [2026-11-24 16:17]';
     const msg: Message = { ...htmlCard(), type: 'text', content };

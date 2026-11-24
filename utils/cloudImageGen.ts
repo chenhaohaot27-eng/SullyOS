@@ -26,6 +26,7 @@ import { collectCharacterReferenceImages, type ChatPhotoMeta } from './chatPhoto
 
 export const CLOUD_IMAGE_GEN_CONFIG_KEY = 'cloud_image_gen_config_v1';
 export const CLOUD_IMAGE_GEN_CONFIG_EVENT = 'cloud-image-gen-config-changed';
+export const CLOUD_PHOTO_SETTLED_EVENT = 'cloud-photo-settled';
 
 export interface CloudImageGenConfig {
     enabled: boolean;
@@ -125,16 +126,14 @@ export async function submitCloudPhotoTask(args: CloudPhotoSubmitArgs): Promise<
         return null;
     }
     try {
+        // Save the id before POST so a lost acknowledgement can be reconciled without issuing another job.
+        await DB.updateMessageMetadata(messageId, prev => ({ ...prev, cloudImageTaskId: taskId }));
         await ActiveMsgClient.submitImageGenTask(taskId, template);
     } catch (error) {
         await markCloudPhotoFailed(messageId, error instanceof Error ? error.message : String(error));
         onToast?.('云端生图任务提交失败，已回退为可手动重试', 'error');
         return null;
     }
-    await DB.updateMessageMetadata(messageId, prev => ({
-        ...(prev || {}),
-        cloudImageTaskId: taskId,
-    }));
     rememberCloudTaskMessage(taskId, { messageId, charId: char.id, groupId });
     startCloudPhotoPoller(taskId);
     return { taskId };
@@ -159,6 +158,20 @@ export const CLOUD_IMAGE_UNKNOWN_SETTLE_MS = 15 * 60 * 1000;
 
 const inFlightSettles = new Set<number>();
 
+/** Old cards may say failed while their Worker job is running or already completed. */
+export async function resumeCloudPhotoBeforeRetry(message: Message): Promise<boolean> {
+    const taskId = message.metadata?.cloudImageTaskId;
+    if (!taskId) return false;
+    const task = await ActiveMsgClient.queryImageGenTask(taskId);
+    if (!task || task.status === 'failed' || task.status === 'unknown') return false;
+    await DB.updateMessageMetadata(message.id, prev =>
+        prev.cloudImageTaskId === taskId && prev.chatPhoto.status !== 'ready'
+            ? { ...prev, chatPhoto: { ...prev.chatPhoto, status: 'pending' } } : prev);
+    rememberCloudTaskMessage(taskId, { messageId: message.id, charId: message.charId, groupId: message.groupId });
+    startCloudPhotoPoller(taskId);
+    return true;
+}
+
 /**
  * 结算一条云端拍照消息：completed → 下载 → blobref → ready（+相册，按 messageId 幂等）；
  * failed → 原因；unknown 超时 → 结果待确认。消息已非 pending 时直接跳过（幂等）。
@@ -172,6 +185,8 @@ export async function settleCloudPhotoMessage(message: Message): Promise<'settle
     try {
         const task = await ActiveMsgClient.queryImageGenTask(taskId);
         if (task === null) {
+            // A resumed page may see the saved id before the POST is acknowledged.
+            if (Date.now() - meta.createdAt < 60_000) return 'pending';
             // 云端已查无此任务（过期清理/换过 Worker）：按待确认处理，不自动重发。
             await markCloudPhotoFailed(message.id, '云端已没有这条任务（可能已被过期清理）。可点重试重新生成。');
             return 'settled';
@@ -215,7 +230,10 @@ export async function recoverCloudPhotoMessages(messages: Message[]): Promise<nu
         if (!message.metadata?.cloudImageTaskId || !meta || meta.status !== 'pending') continue;
         const outcome = await settleCloudPhotoMessage(message);
         if (outcome === 'settled') settled += 1;
-        else if (outcome === 'pending') startCloudPhotoPoller(message.metadata.cloudImageTaskId as string);
+        else if (outcome === 'pending') {
+            rememberCloudTaskMessage(message.metadata.cloudImageTaskId, { messageId: message.id, charId: message.charId, groupId: message.groupId });
+            startCloudPhotoPoller(message.metadata.cloudImageTaskId);
+        }
     }
     return settled;
 }
@@ -235,21 +253,13 @@ export function rememberCloudTaskMessage(taskId: string, handle: { messageId: nu
 }
 
 async function findIndexedMessage(handle: { messageId: number; charId: string; groupId?: string }): Promise<Message | null> {
-    try {
-        if (handle.groupId) {
-            const groupMessages = await DB.getGroupMessages(handle.groupId);
-            return groupMessages.find(m => m.id === handle.messageId) || null;
-        }
-        const privateMessages = await DB.getMessagesByCharId(handle.charId, true);
-        return privateMessages.find(m => m.id === handle.messageId) || null;
-    } catch {
-        return null;
-    }
+    const message = await DB.getMessageById(handle.messageId);
+    return message && message.charId === handle.charId && message.groupId === handle.groupId ? message : null;
 }
 
 export function startCloudPhotoPoller(taskId: string): void {
-    if (pollers.has(taskId)) return;
     pollStartedAt.set(taskId, Date.now());
+    if (pollers.has(taskId)) return;
     const timer = setInterval(() => {
         void (async () => {
             const started = pollStartedAt.get(taskId) || Date.now();
@@ -265,11 +275,17 @@ export function startCloudPhotoPoller(taskId: string): void {
             }
             try {
                 const message = await findIndexedMessage(handle);
-                if (!message) {
+                if (!message || message.metadata?.cloudImageTaskId !== taskId) {
                     stopCloudPhotoPoller(taskId);
                     return;
                 }
                 const outcome = await settleCloudPhotoMessage(message);
+                if (outcome === 'settled' && typeof window !== 'undefined') {
+                    const updated = await findIndexedMessage(handle);
+                    if (updated?.metadata?.cloudImageTaskId === taskId) {
+                        window.dispatchEvent(new CustomEvent(CLOUD_PHOTO_SETTLED_EVENT, { detail: updated }));
+                    }
+                }
                 if (outcome !== 'pending') stopCloudPhotoPoller(taskId);
             } catch { /* 下一拍再试 */ }
         })();
@@ -282,5 +298,6 @@ export function stopCloudPhotoPoller(taskId: string): void {
     if (timer) clearInterval(timer);
     pollers.delete(taskId);
     pollStartedAt.delete(taskId);
+    taskMessageIndex.delete(taskId);
 }
 

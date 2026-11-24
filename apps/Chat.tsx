@@ -7,6 +7,7 @@ import { processImage } from '../utils/file';
 import { retryChatPhotoMessage } from '../utils/chatPhotoGeneration';
 import { settleStalePendingChatPhotos } from '../utils/chatPhotoGeneration';
 import { recoverCloudPhotoMessages } from '../utils/cloudImageGen';
+import { useCloudPhotoUpdates } from '../hooks/useCloudPhotoUpdates';
 import { listStaleBrowserTasks, pruneBrowserTasks } from '../utils/browserTaskRecovery';
 import { toggleMessageFavorite } from '../utils/messageFavoriteCapture';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
@@ -109,6 +110,7 @@ const Chat: React.FC = () => {
         } catch { return 0; }
     }, []);
     const [messages, setMessages] = useState<Message[]>([]);
+    useCloudPhotoUpdates(messages, setMessages);
     // Instant Push 路径："准备中"三个点 = 消息正在拼接+发送; 消失 = SSE POST 已排进
     // 浏览器网络栈. 页面关闭时会主动 abort SSE, 让 worker 尽量走 Web Push fallback。
     const [instantSendingActive, setInstantSendingActive] = useState(false);
