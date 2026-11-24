@@ -103,6 +103,22 @@ describe('表情包真正发送链路（修复：只有文字不发图）', () =
 });
 
 describe('口头视觉分享承诺落实为真实 SEND_PHOTO（主动发图自然化）', () => {
+    it('云端词元格式样本分两条补收时，表情入库且只执行显式拍照一次', async () => {
+        enablePhoto();
+        const charId = 'tiantoken-photo-replay';
+        const url = 'https://cdn.example/wave.gif';
+        const ctx = { ...makeCtx(charId, [], [{ name: '招手', url }]),
+            skipSecondPassLLM: true, mcdInheritMeta: { amsgExplicitPhoto: true } };
+        await applyAssistantPostProcessing('我拍给你看', ctx);
+        expect(executeChatPhotoIntent).not.toHaveBeenCalled();
+        await applyAssistantPostProcessing('[[SEND_EMOJI: 招手]]\n[[SEND_PHOTO: {\n"prompt":"a green cup"\n}]]', ctx);
+        expect(executeChatPhotoIntent).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(executeChatPhotoIntent).mock.calls[0][0].intent.prompt).toBe('a green cup');
+        const msgs = await assistantMsgs(charId);
+        expect(msgs.filter(m => m.type === 'text').map(m => m.content)).toEqual(['我拍给你看']);
+        expect(msgs.filter(m => m.type === 'emoji').map(m => m.content)).toEqual([url]);
+    }, 20000);
+
     it('正文明确说"拍给你看"且无标签 → 兜底进入真实生图链路', async () => {
         enablePhoto();
         const charId = `c-photo-verb-${Date.now()}`;

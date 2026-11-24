@@ -55,6 +55,27 @@ const chatBody = { messages: [{ role: 'user', content: 'hi' }] };
 const textOf = (data: any): string => data.choices[0].message.content;
 
 describe('relay completion and chat protocol', () => {
+  it.each([true, false])('keeps Gemini Chat-compatible photo and emoji commands intact (stream=%s)', async stream => {
+    const reply = '明天 13:06 在 A12 等我。\n[[SEND_EMOJI: 招手]]\n[[SEND_PHOTO: {\n"prompt":"green cup"\n}]]';
+    const model = 'gemini-3.6-flash';
+    const choice = { message: { content: reply, reasoning_content: '独立思考字段' }, finish_reason: 'stop' };
+    const events = chars(reply, 2).map(content => ({ choices: [{ delta: { content } }] }));
+    const wire = [...events, { choices: [choice] }].map(e => 'data: ' + JSON.stringify(e) + '\n\n').join('');
+    const request = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      expect(url).toBe('https://api.tiantoken.com/v1/chat/completions');
+      expect(JSON.parse(String(init?.body))).toMatchObject({ model, stream, max_tokens: 128 });
+      return stream
+        ? new Response(body(bytes(wire + 'data: [DONE]\n\n', 3)), { headers: { 'content-type': 'text/event-stream' } })
+        : Response.json({ choices: [choice] });
+    });
+    vi.stubGlobal('fetch', request);
+    const result = await completeChat({ ...openai, baseUrl: 'https://api.tiantoken.com/v1', model, apiFormat: 'openai-compatible' },
+      { ...chatBody, stream, max_tokens: 128 }, stream ? { streamHooks: {} } : {});
+    expect(textOf(result)).toBe(reply);
+    expect(result.choices[0].finish_reason).toBe('stop');
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   const prose = '保留会议时间 [2026-11-23 13:06] 和 12,345。';
   const raw = '[2026-1\n1-2\n3 13:0\n6] [2026-11-23 13:06] 你好。\n'
     + '[SEND_EM\nOJI: 恼火]\n' + prose + '\n[[SEND_EMOJI: 残缺';

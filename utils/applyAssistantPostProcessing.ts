@@ -2206,7 +2206,7 @@ export async function applyAssistantPostProcessing(
             onToast: addToast,
             inheritMeta: mcdInheritMeta,
         });
-    } else if (isChatPhotoTagEnabled() && chatPhotoExtraction.tagCount === 0) {
+    } else if (isChatPhotoTagEnabled() && chatPhotoExtraction.tagCount === 0 && !mcdInheritMeta?.amsgExplicitPhoto) {
         // 模型本轮完全没用 SEND_PHOTO 协议、但正文里出现明确的口头视觉分享承诺
         // （「我拍给你看」「拍了张照片给你」「给你看看这个」…）：尽量落实成真实照片，
         // 而不是停留在口头描述。保守门（与提示词侧"承诺必须落实"互补）：
