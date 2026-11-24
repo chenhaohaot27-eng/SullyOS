@@ -38,6 +38,9 @@ const stripTimestamps = (t: string): string =>
 export const stripLeadingDateTag = (t: string): string =>
   t.replace(/^[ \t]*(?:\[\s*(?:\d\s*){4}[-/年]\s*(?:\d\s*){1,2}[-/月]\s*(?:\d\s*){1,2}(?:日)?(?:[ \t]*(?:周[一二三四五六日天]|星期[一二三四五六日天]))?(?:\s*(?:\d\s*){2}:\s*(?:\d\s*){2})?\s*\][ \t]*)+/gm, '');
 
+/** A history timestamp echoed after a complete sentence. Keep dates used in the sentence. */
+export const stripTrailingHistoryTimestamp = (text: string): string =>
+  text.replace(/([。！？!?….])(?:[ \t\u3000]*\[[ \t]*\d{4}-\d{2}-\d{2}[ \t]+\d{2}:\d{2}[ \t]*\])+[ \t]*(?=\r?$)/gm, '$1');
 const spaced = (word: string): string => Array.from(word).join('\\s*');
 const EMOJI_NAME = spaced('SEND_EMOJI');
 const SINGLE_EMOJI_RE = new RegExp(
@@ -498,7 +501,7 @@ export function sanitizeForNotification(text: string): string {
   result = extractTranslationOriginal(result);
   // 6. LLM mimicking 历史的 leak: 时间戳 / 日期 / 角色名 prefix / 系统日志
   result = stripTimestamps(result);
-  result = stripLeadingDateTag(result);
+  result = stripTrailingHistoryTimestamp(stripLeadingDateTag(result));
   result = stripLeadingEmotionTag(result);
   result = stripRoleNamePrefix(result);
   result = stripSystemLogLeak(result);
@@ -546,7 +549,7 @@ export function sanitizeForBubble(
   // 2. 源标签 / 时间戳 / 系统日志 leak / 业务标签
   result = stripSourceTags(result);
   result = stripTimestamps(result);
-  result = stripLeadingDateTag(result);
+  result = stripTrailingHistoryTimestamp(stripLeadingDateTag(result));
   result = stripLeadingEmotionTag(result);
   result = stripSystemLogLeak(result);
   result = stripMarkdownHeaders(result);
@@ -665,7 +668,7 @@ export function sanitizeIntoSegments(text: string): Segment[] {
   cleaned = stripInnerState(cleaned);
   cleaned = stripBusinessTagsForNotification(cleaned);
   cleaned = stripTimestamps(cleaned);
-  cleaned = stripLeadingDateTag(cleaned);
+  cleaned = stripTrailingHistoryTimestamp(stripLeadingDateTag(cleaned));
   cleaned = stripLeadingEmotionTag(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);
   cleaned = stripSourceTags(cleaned);

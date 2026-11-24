@@ -42,6 +42,15 @@ const htmlCard = (): Message => ({
     metadata: { htmlSource: '<div>hello</div>' },
 });
 
+it('hides a historical timestamp suffix on assistant text only, without modifying the record', () => {
+    const content = '见到了吗？ [2026-11-24 16:17]';
+    const msg: Message = { ...htmlCard(), type: 'text', content };
+    expect(renderMessage(msg)).toContain('见到了吗？');
+    expect(renderMessage(msg)).not.toContain('[2026-11-24 16:17]');
+    expect(renderMessage({ ...msg, role: 'user' })).toContain(content);
+    expect(msg.content).toBe(content);
+});
+
 const musicCard = (): Message => ({
     id: 2,
     charId: 'char-1',

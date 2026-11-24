@@ -14,6 +14,16 @@ import { cleanApiMessages } from './chatRequestPayload';
 const char = { id: 'c1', name: '小角色' } as any;
 const userProfile = { name: '我' } as any;
 
+it('keeps the actual history time and excludes only the echoed suffix of an assistant bubble', () => {
+    const content = '几点？ [2026-11-24 16:17]';
+    const messages = ['assistant', 'user'].map((role, id) =>
+        ({ id, charId: 'c1', role, type: 'text', content, timestamp: 1000 + id }));
+    const { apiMessages } = ChatPrompts.buildMessageHistory(messages as any, 10, char, userProfile, [], undefined, { includeTimeGapHint: false });
+    expect(apiMessages[0].content).toMatch(/^\[.*?\].*几点？$/);
+    expect(apiMessages[1].content).toContain(content);
+    expect(messages[0].content).toBe(content);
+});
+
 const BI_CONTENT = 'こんにちは、元気？\n%%BILINGUAL%%\n你好，最近好吗？';
 const USER_REPLY = '我的实际回复内容，不能被吞掉';
 

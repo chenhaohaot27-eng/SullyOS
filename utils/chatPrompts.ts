@@ -22,6 +22,7 @@ import { getLocalDateKey } from './localDate';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { formatLegacyVoiceHistoryForPrompt } from './chatVoiceHistory';
+import { stripTrailingHistoryTimestamp } from './sanitize';
 import { buildChatPhotoAutonomyPrompt, buildChatPhotoTagGuide, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { buildGiftSendTagGuide, isGiftSendTagEnabled } from './giftIntent';
 import { buildMeetInviteGuide, buildPlayerInviteReplyGuide } from './meetingInvite';
@@ -1143,6 +1144,9 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         return {
             apiMessages: historySlice.map((m, index) => {
                 let content: any = formatLegacyVoiceHistoryForPrompt(m) ?? m.content;
+                if (m.role === 'assistant' && m.type === 'text' && typeof content === 'string') {
+                    content = stripTrailingHistoryTimestamp(content);
+                }
                 const timeStr = `[${ChatPrompts.formatDate(m.timestamp, charTz)}]`;
                 const sourceTag = (() => {
                     const source = m.metadata?.source;

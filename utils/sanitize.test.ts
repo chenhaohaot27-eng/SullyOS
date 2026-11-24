@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { sanitizeForBubble, sanitizeForNotification, sanitizeIntoSegments } from './sanitize';
 
+it('removes repeated end-of-sentence history stamps and keeps ordinary dates', () => {
+  const stamp = '[2026-11-24 16:17]';
+  for (const sanitize of [sanitizeForBubble, sanitizeForNotification]) {
+    expect(sanitize('好吗？ ' + stamp + stamp + '\r\n到了。 ' + stamp)).toMatch(/^好吗？\s+到了。$/);
+    for (const text of ['约在 ' + stamp, '记录 ' + stamp + ' 后离开。', '收到。 [2026-11-24]', '收到。 2026-11-24 16:17']) {
+      expect(sanitize(text)).toBe(text);
+    }
+  }
+});
+
 // ─── Oracle: 原版 chatParser.sanitize (来自 commit e97f9ed) ─────────────────
 // 用来跟 sanitizeForBubble 字节对齐校验. refactor 后改 sanitize.ts 就立刻能
 // 看到行为漂移.

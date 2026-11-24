@@ -8,6 +8,7 @@ import MeetingInviteCard from './MeetingInviteCard';
 import ListenInviteCard from './ListenInviteCard';
 import FoodOrderCard from './FoodOrderCard';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
+import { stripTrailingHistoryTimestamp } from '../../utils/sanitize';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
@@ -3650,7 +3651,7 @@ const MessageItem = React.memo(({
         .replace(/\n{3,}/g, '\n\n')                  // collapse excess newlines
         .trim());   // ⚠️ 末尾再洗一遍鱼声情绪 cue（[excited]/[pause]/(laughs) 等），避免漏到气泡/翻译里
 
-    const rawContent = m.content;
+    const rawContent = m.role === 'assistant' && m.type === 'text' ? stripTrailingHistoryTimestamp(m.content) : m.content;
 
     // 语音文字（转文字面板 / 语音条预览）显示前：先洗 MiniMax 标记，再洗鱼声情绪 cue，
     // 两家服务商的演出标记都不会漏给用户看。

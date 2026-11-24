@@ -57,7 +57,7 @@ const assistantMsgs = async (charId: string) =>
 
 it('renders persisted text and inventory emoji after fragmented Tokenmarket Chat SSE', async () => {
     const text = '2026-11-24 13:06 在 A12 见。' + '长句中的 spaces 和数字 123 保持完整。'.repeat(25);
-    const raw = text + '\n[[SEND_EMOJI: 招手]]\n[[SEND_PHOTO: {\n"prompt":"cup [[blue]]"\n}]]\n到时见。';
+    const raw = text + ' [2026-11-24 16:17]\n[[SEND_EMOJI: 招手]]\n[[SEND_PHOTO: {\n"prompt":"cup [[blue]]"\n}]]\n到时见。 [2026-11-24 16:17]';
     const events = raw.match(/[\s\S]{1,5}/g)!.map(content => ({ choices: [{ delta: { content } }] }));
     const wire = [...events, { choices: [{ message: { content: raw }, finish_reason: 'stop' }] }]
         .map(e => 'data: ' + JSON.stringify(e) + '\n\n').join('') + 'data: [DONE]\n\n';

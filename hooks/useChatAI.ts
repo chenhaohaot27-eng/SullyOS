@@ -55,6 +55,7 @@ import { appendInstantTraceEntry } from '../utils/instantTraceLog';
 import { AMSG2_TOOLS, AMSG2_TOOL_NAMES, createAmsg2ToolSession, executeAmsg2Tool, isAmsg2GlobalReady } from '../utils/amsg2ToolBridge';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { buildClaudeProxyCompatibilityBody, shouldRetryClaudeProxyCompatibility } from '../utils/claudeProxyCompat';
+import { requestWithTokenmarketSignatureRecovery, TokenmarketSignatureError } from '../utils/tokenmarketSignatureRecovery';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
@@ -1518,14 +1519,16 @@ export const useChatAI = ({
 
             let data: any;
             try {
-                data = await completeChat(
+                data = await requestWithTokenmarketSignatureRecovery(
                     mainCompletionConfig,
                     { ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) },
-                    {
+                    body => completeChat(mainCompletionConfig, body, {
                         maxRetries: 2,
                         meta: { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' },
                         streamHooks,
-                    },
+                    }),
+                    () => document.visibilityState === 'visible' && charRef.current?.id === char.id
+                        && window.confirm('词元拒绝了这轮聊天（400 Invalid thought signature）。是否再发一次？这次会把旧角色回复作为引用发送，保留原对话与图片。会产生一次正常的模型请求。'),
                 );
             } catch (e) {
                 let requestError: unknown = e;
@@ -2065,7 +2068,9 @@ export const useChatAI = ({
             const errMsg = e?.message || String(e);
             // 瑞一杯模式下报错: 大概率是聊天模型/中转不支持 function calling(tools) → 带 tools 一发就 400。
             // 在 APK 里看不到控制台, 这里把完整原因 + 解法存成可读消息, 方便排查。
-            if (luckinChatRef?.current?.active && /\b400\b|tool|function[_\s-]?call/i.test(errMsg)) {
+            if (e instanceof TokenmarketSignatureError) {
+                addToast(errMsg, 'error');
+            } else if (luckinChatRef?.current?.active && /\b400\b|tool|function[_\s-]?call/i.test(errMsg)) {
                 await DB.saveMessage({
                     charId: char.id, role: 'system', type: 'text',
                     content: `[瑞一杯失败] ${errMsg}\n\n大概率是你当前聊天用的「模型/中转」不支持函数调用(function calling / tools)——瑞一杯靠角色自己调工具点单, 模型不支持就会直接报 400。\n解决: 换一个支持 tools 的模型/中转 (如官方 OpenAI / Claude / 多数主流中转)。\n另外确认: APK 是全新存储, 你的聊天 API 配置(密钥/地址/模型)在 APK 里填好了吗?`,
