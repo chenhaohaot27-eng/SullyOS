@@ -981,7 +981,7 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
     const thinkingChainOf = async (charId: string) =>
       (await assistantMsgs(charId)).map((m: any) => m.metadata?.thinkingChain).filter(Boolean);
 
-    it('随第一条 push 回来 → 挂到第一条气泡的 thinkingChain 上', async () => {
+    it('旧推送携带思考时只保存正文', async () => {
       const charId = 'char-reasoning-inline';
       await DB.saveCharacter({ id: charId, name: '会思考的角色', showThinkingChain: true } as any);
       await ActiveMsgStore.saveInboxMessage(inboxMsg({
@@ -994,10 +994,11 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       await flushInboxToChat();
 
-      expect(await thinkingChainOf(charId)).toEqual(['他这句问得很轻，先接住。']);
+      expect(await thinkingChainOf(charId)).toEqual([]);
+      expect(JSON.stringify(await assistantMsgs(charId))).not.toContain('他这句问得很轻');
     }, 20000);
 
-    it('太长挪进了 client_state → 按 amsgReasoningRef 取回来，用完就删', async () => {
+    it('旧推送引用的思考既不读取也不删除', async () => {
       const charId = 'char-reasoning-ref';
       await DB.saveCharacter({ id: charId, name: '想很多的角色', showThinkingChain: true } as any);
       const ref = 'reasoning:client-task-reasoning';
@@ -1015,9 +1016,9 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
 
       await flushInboxToChat();
 
-      expect(readSpy).toHaveBeenCalledWith(amsgStateNamespace(charId), ref);
-      expect(await thinkingChainOf(charId)).toEqual(['想了很久才决定这么说。']);
-      expect(clearSpy).toHaveBeenCalledWith(amsgStateNamespace(charId), ref);
+      expect(readSpy).not.toHaveBeenCalledWith(amsgStateNamespace(charId), ref);
+      expect(await thinkingChainOf(charId)).toEqual([]);
+      expect(clearSpy).not.toHaveBeenCalledWith(amsgStateNamespace(charId), ref);
       readSpy.mockRestore();
       clearSpy.mockRestore();
     }, 20000);
@@ -1839,9 +1840,24 @@ describe('即时对话的待收记录（走真库）', () => {
       totalMessages: 1,
       taskUuid,
       timestamp: new Date().toISOString(),
-      metadata: { charId, charName: '即时角色', amsgInstantChat: true },
+      metadata: { lemuriaReplyVerified: true, charId, charName: '即时角色', amsgInstantChat: true },
     },
   }];
+
+  it('旧 Worker 未检查的推送不执行动作，结束待收并提示重新生成', async () => {
+    const charId = 'unverified-inbox';
+    await DB.saveCharacter({ id: charId, name: '测试角色' } as any);
+    setInstantChatPending(charId, 'unverified-uuid');
+    await ActiveMsgStore.saveInboxMessage({ messageId: 'old-unverified', receivedAt: Date.now(), charName: '测试角色',
+        charId, taskUuid: 'unverified-uuid', messageType: 'instant', body: '库存草案 [[ACTION:POKE]]',
+        metadata: { charId, directives: [{ type: 'poke' }] } });
+    await flushInboxToChat();
+    const rows = await DB.getRecentMessagesByCharId(charId, 30);
+    expect(rows.filter(m => m.role === 'assistant')).toHaveLength(0);
+    expect(JSON.stringify(rows)).not.toContain('库存草案');
+    expect(rows.some(m => m.role === 'system' && m.content.includes('重新生成'))).toBe(true);
+    expect(getInstantChatPending(charId)).toBeNull();
+  });
 
   it('欠着的那一轮回复到了 → 待收记录销账（灯灭）', async () => {
     const charId = 'char-instant-clear';
@@ -1857,7 +1873,7 @@ describe('即时对话的待收记录（走真库）', () => {
       taskUuid: 'uuid-clear',
       receivedAt: Date.now(),
       sentAt: Date.now(),
-      metadata: { charId },
+      metadata: { lemuriaReplyVerified: true, charId },
     } as any);
     await flushInboxToChat();
 
@@ -1884,7 +1900,7 @@ describe('即时对话的待收记录（走真库）', () => {
       taskUuid: 'uuid-notices',
       receivedAt: Date.now(),
       sentAt: Date.now(),
-      metadata: { charId },
+      metadata: { lemuriaReplyVerified: true, charId },
     } as any);
     await flushInboxToChat();
 
@@ -2372,7 +2388,7 @@ describe('云端旁路副本等这条消息处理成功了再删（走真库）'
     return { restore: () => spy.mockRestore() };
   };
 
-  it('后处理半路挂了 → 云端那几份一个都不删，重试那趟心象卡片还在', async () => {
+  it('收件重试不读取或清理历史思考副本，正常回收已使用的笔记', async () => {
     const charId = 'char-offload-defer';
     await DB.saveCharacter({ id: charId, name: '心象角色', showThinkingChain: true } as any);
     const reasoningRef = 'reasoning:client-task-defer';
@@ -2430,9 +2446,9 @@ describe('云端旁路副本等这条消息处理成功了再删（走真库）'
       .filter((m) => m.role === 'assistant')
       .map((m: any) => m.metadata?.thinkingChain)
       .filter(Boolean);
-    expect(chains, '重试那趟还得读得到思考链').toEqual(['这句话我想了很久才说出口。']);
+    expect(chains).toEqual([]);
     // 落定了才轮到收尾：两份都删掉，D1 不留垃圾。
-    expect(clearSpy).toHaveBeenCalledWith(amsgStateNamespace(charId), reasoningRef);
+    expect(clearSpy).not.toHaveBeenCalledWith(amsgStateNamespace(charId), reasoningRef);
     expect(clearSpy).toHaveBeenCalledWith(amsgStateNamespace(charId), xhsRef);
   }, 20000);
 });

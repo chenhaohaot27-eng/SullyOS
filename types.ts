@@ -541,6 +541,7 @@ export interface InstantPushOutboundSession {
 
 // Phase 2 Round 2 — SW will populate these stores; Round 1 just defines schema (empty).
 export interface InstantPushPendingToolCall {
+  lemuriaReplyVerified?: boolean;
   sessionId: string;
   charId: string;
   /** OpenAI-shape tool_calls from worker LLM emit, ready to dispatch via agenticTools. */

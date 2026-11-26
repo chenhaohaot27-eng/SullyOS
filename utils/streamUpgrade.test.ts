@@ -68,3 +68,15 @@ describe('assembleUpgradedResponse', () => {
         expect((await out.json()).choices[0].message.content).toBe('整包');
     });
 });
+
+it.each(['text/plain', 'application/json'])('isolates reasoning even when a relay labels SSE or JSON as %s', async mime => {
+    for (const wire of [
+        JSON.stringify({choices: [{message: {content: '正式台词', reasoning: 'private-draft'}}]}),
+        'data: {"choices":[{"delta":{"reasoning_content":"private-draft","content":"正式台词"}}]}\n\ndata: [DONE]\n\n',
+    ]) {
+        const normalized = await assembleUpgradedResponse(new Response(wire, {headers: {'Content-Type': mime}}));
+        const json = await normalized.json();
+        expect(json.choices[0].message.content).toBe('正式台词');
+        expect(JSON.stringify(json)).not.toContain('private-draft');
+    }
+});

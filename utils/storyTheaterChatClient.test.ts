@@ -209,7 +209,7 @@ describe('Story Theater · assistant prefill 兼容', () => {
 
   it('组件接线：统一走 completeChat，Native 强制 user-last，且保留本地前缀补齐', () => {
     expect(storySessionSource).toContain("from '../../../utils/chatCompletionClient'");
-    expect(storySessionSource).toMatch(/completeChat\(apiConfig,/);
+    expect(storySessionSource).toMatch(/completeCharacterChat\(apiConfig,/);
     expect(storySessionSource).toMatch(/normalizeChatApiFormat\(apiConfig\.apiFormat\) === 'gemini-native'/);
     expect(storySessionSource).toMatch(/promptEntry\.forceUserLastMessage === true/);
     expect(storySessionSource).toMatch(/generated\.startsWith\(prefill\)/);

@@ -4,7 +4,7 @@ import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProf
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { safeFetchJson, safeResponseJson } from '../utils/safeApi';
-import { buildAssistantToolFollowUpMessage, completeChat, ensureGeminiNativeTailUserTurn } from '../utils/chatCompletionClient';
+import { buildAssistantToolFollowUpMessage, completeCharacterChat, ensureGeminiNativeTailUserTurn } from '../utils/chatCompletionClient';
 import { KeepAlive } from '../utils/keepAlive';
 import { ProactiveChat } from '../utils/proactiveChat';
 import { ContextBuilder } from '../utils/context';
@@ -1522,7 +1522,7 @@ export const useChatAI = ({
                 data = await requestWithTokenmarketSignatureRecovery(
                     mainCompletionConfig,
                     { ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) },
-                    body => completeChat(mainCompletionConfig, body, {
+                    body => completeCharacterChat(mainCompletionConfig, body, {
                         maxRetries: 2,
                         timeoutMs: isTokenmarketChat(mainCompletionConfig) ? 300_000 : undefined,
                         meta: { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' },
@@ -1545,7 +1545,7 @@ export const useChatAI = ({
                 if (openAiCompatible && shouldRetryClaudeProxyCompatibility(requestError, attemptedBody)) {
                     console.warn('🧩 [Claude compat] 中转拒绝 thinking + tools 组合，使用兼容请求体重试一次');
                     try {
-                        data = await completeChat(
+                        data = await completeCharacterChat(
                             mainCompletionConfig,
                             buildClaudeProxyCompatibilityBody(attemptedBody),
                             {
@@ -1576,7 +1576,7 @@ export const useChatAI = ({
                     ...baseReqBody,
                     messages: withAmsg2TaskContext(baseReqBody.messages),
                 });
-                data = await completeChat(mainCompletionConfig, fallbackBody, {
+                data = await completeCharacterChat(mainCompletionConfig, fallbackBody, {
                     maxRetries: 0,
                     meta: { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' },
                 });
@@ -1705,7 +1705,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await completeChat(mainCompletionConfig, followBody);
+                    data = await completeCharacterChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `mcd-propose-${it + 1}`);
                     // 第二轮跳过 (我们已经禁用了 tools)
                     if (!data.choices?.[0]?.message?.tool_calls?.length) break;
@@ -1800,7 +1800,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await completeChat(mainCompletionConfig, followBody);
+                    data = await completeCharacterChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `luckin-propose-${it + 1}`);
                     if (!data.choices?.[0]?.message?.tool_calls?.length) break;
                 }
@@ -1905,7 +1905,7 @@ export const useChatAI = ({
                     // 排程现状现算一次贴上：本轮刚排的任务这时才进得了清单，角色下一轮
                     // 看到的是自己名下真实的排程，不会对着排程前的空清单再排一条。
                     const followBody = { ...baseReqBody, messages: withAmsg2TaskContext(loopMessages) };
-                    data = await completeChat(mainCompletionConfig, followBody);
+                    data = await completeCharacterChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : 'mcp-chat'}-${it + 1}`);
                 }
                 if (mcpToolResolve) setSearchStatus('');
@@ -1947,7 +1947,7 @@ export const useChatAI = ({
                     });
                     setSearchStatus('正在整理 MCP 工具结果...');
                     const followBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
-                    data = await completeChat(mainCompletionConfig, followBody);
+                    data = await completeCharacterChat(mainCompletionConfig, followBody);
                     updateTokenUsage(data, historyMsgCount, `mcp-text-${it + 1}`);
                 }
                 setSearchStatus('');

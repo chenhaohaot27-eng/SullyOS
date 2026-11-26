@@ -1,3 +1,4 @@
+import { ReplyBoundaryError, readReply } from './replyBoundary';
 import { ActiveMsg2InboxMessage, ActiveMsg2TaskRecord, APIConfig, Emoji, RealtimeConfig, UserProfile } from '../types';
 import { DB } from './db';
 import { ChatParser } from './chatParser';
@@ -274,13 +275,6 @@ const fetchOffloadedEmotionUpdate = (
   cleanups: OffloadedCleanup[],
 ) => fetchOffloadedExtra(message, 'amsgEmotionRef', {
   what: '情绪评估', whenMissing: '这一轮情绪不更新，回复照常',
-}, cleanups);
-
-const fetchOffloadedReasoning = (
-  message: ActiveMsg2InboxMessage,
-  cleanups: OffloadedCleanup[],
-) => fetchOffloadedExtra(message, 'amsgReasoningRef', {
-  what: '思考链', whenMissing: '这条没有心象卡片，回复照常',
 }, cleanups);
 
 /**
@@ -582,42 +576,8 @@ const processInboxMessageWithPostProcessing = async (
     }));
   };
 
-  // Phase 2 Round 2: 如果 worker 自动发的 ReasoningPush 已经被 SW 写到 reasoning_buffer,
-  // 在处理"这个 sessionId 的第一条 content"时把 reasoning_content 反取出来挂到 ctx, 让 thinking
-  // chain 卡片渲染到第一条 assistant message 的 metadata.thinkingChain.
-  // Round 1 worker 在 0.6 one-shot 时不发 reasoning push, claimReasoning 始终返回 null — 无副作用.
-  // messageIndex 来源: SW 在 saveContentToInbox 把 payload.messageIndex 写到 metadata. Round 2
-  // worker 用 1-based (buildContentPush 第 1 条 → messageIndex=1); 老 worker 没这个字段, ?? 0 fallback.
-  // 只对 first content claim (避免 N 条 push 同 session 时重复读 / 第 2 条挂错 metadata).
   const sessionId: string | undefined = (message as any).sessionId
     || (message.metadata && (message.metadata as any).sessionId);
-  const messageIndex: number = (message as any).messageIndex
-    ?? (message.metadata && (message.metadata as any).messageIndex)
-    ?? 0;
-  // amsg2 的即时对话走的是另一条：worker 不单发 reasoning push，而是把这次生成的思考链
-  // 挂在第一条 content push 的 metadata.amsgReasoning 上（太长时挪进 client_state、
-  // 只留 amsgReasoningRef，见 worker/amsg/src/index.ts 的 offloadOversizedPush）。
-  // 有它就用它，没有再回到上面那条 IP 的 buffer 路。
-  // 定时任务那条路 worker 刻意不带思考（prompt 里没有「心象」提示词，原始推理腔当卡片
-  // 是穿帮），所以这里也不会有值——收侧不用另设门。
-  let reasoningContent: string | undefined;
-  if (messageIndex <= 1) {
-    const inlineReasoning = (message.metadata as any)?.amsgReasoning;
-    const metaReasoning = typeof inlineReasoning === 'string' && inlineReasoning
-      ? inlineReasoning
-      : await fetchOffloadedReasoning(message, offloadedCleanups);
-    if (typeof metaReasoning === 'string' && metaReasoning.trim()) {
-      reasoningContent = metaReasoning;
-    } else if (sessionId) {
-      try {
-        const buffered = await ActiveMsgStore.claimReasoning(sessionId);
-        reasoningContent = buffered?.reasoningContent;
-      } catch (e) {
-        console.warn('[ActiveMsg] claimReasoning failed', sessionId, e);
-      }
-    }
-  }
-
   // amsg2 满血 v2: round 1 的 XHS 工具在 worker 里跑, 客户端没有 instantToolRunner 那次
   // saveXhsSessionNotes 落库. worker 把 directive 引用到的笔记/xsecToken 随最后一条 push 的
   // metadata.xhsSession 带回来 (稀疏 {idx, note}, idx 1-based, 见 worker/amsg/src/agentic.ts
@@ -736,7 +696,6 @@ const processInboxMessageWithPostProcessing = async (
     // 老 worker (无 messageIndex/totalMessages 字段) ?? 0 fallback, 0===0 也算 last.
     // replayDirectives=false = 这是重试、且上次已经把副作用跑完了（见 prepareInboxRetry）。
     directives: directivesForReplay,
-    reasoningContent,
     // 这条 push 拆出的每条气泡共用一个时间戳 (跟降级存原稿路径同口径), 见
     // resolveInboxPersistTimestampForMessage。
     messageTimestamp: persistTimestamp,
@@ -1549,7 +1508,7 @@ const flushInboxToChatImpl = async () => {
   // 行为对齐 — emoji / 翻译 / HTML / 引用 / chunking 全部复用同一管线); 如果走管线失败,
   // 降级回原来的 "原文一次性 saveMessage" 防止消息丢失。dispatchEvent 始终 fire 一次,
   // 保证 toast / 未读 / 通知 / sendInstantPush resolver 语义不变。
-  for (const message of pendingMessages) {
+  for (let message of pendingMessages) {
     // 这一层是**整批消息的最后一道防线**：消息在 consumeInboxMessages 那一刻就已经从
     // 收件箱里没了，下面任何一步抛出去的异常都会穿过整个 for 循环，剩下的消息既没落进
     // 聊天记录、也没回到收件箱——用户那边只看到「正在输入…」一直亮到 60s 点名判失败，
@@ -1572,6 +1531,21 @@ const flushInboxToChatImpl = async () => {
         && await isAlreadyPersisted(message.charId, message.messageId)) {
         log.warn('这条消息已在聊天记录里（补收先到/重试重跑的第二份），丢弃', { messageId: message.messageId, charId: message.charId });
         activeMsgTrace('runtime-inbox-duplicate-dropped', { messageId: message.messageId, charId: message.charId });
+        continue;
+      }
+
+      if (['instant', 'prompted', 'auto'].includes(message.messageType || '') && message.metadata?.lemuriaReplyVerified !== true) {
+        const detail = { charId: message.charId, message: '云端回复缺少正文校验，请更新 Worker 后重新生成。' };
+        if (message.taskUuid) await failInstantChatPending(message.charId, message.taskUuid, detail.message);
+        window.dispatchEvent(new CustomEvent('active-msg-process-failed', { detail: { ...detail, kind: 'reply-boundary' } }));
+        continue;
+      }
+      try {
+        const { amsgReasoning, amsgReasoningRef, thinkingChain, reasoning_content, ...metadata } = message.metadata || {};
+        message = { ...message, body: readReply(message.body || ''), metadata };
+      } catch (error) {
+        if (!(error instanceof ReplyBoundaryError)) throw error;
+        window.dispatchEvent(new CustomEvent('active-msg-process-failed', { detail: { kind: 'reply-boundary', charId: message.charId } }));
         continue;
       }
 
@@ -1955,41 +1929,6 @@ const runPendingToolCallsSafely = async () => {
     await runPendingToolCalls();
   } catch (e) {
     console.warn('[instant-push] runPendingToolCalls failed', e);
-  }
-};
-
-/**
- * 思维链(心象)回填: SW 收到 reasoning push 写完 buffer 后会 fire 'active-msg-reasoning'.
- *
- * 正常情况 worker 先发 reasoning 再发 content, reasoning 先落 buffer, content flush 时
- * claimReasoning 取到并挂上 thinkingChain. 但 reasoning / content 是两条独立 Web Push,
- * 弱网/移动端到达或处理顺序可能反转: content 抢先 flush 时 claimReasoning 拿到 null, 首条
- * 回复落库时没有 thinkingChain, 之后到的 reasoning 永远不再被 claim → 思维链丢失.
- *
- * 这里在 reasoning 到达后补一刀: 若该 session 的首条 assistant 回复已落库且还没挂 thinkingChain,
- * 就 claim 出 reasoning 回填到那条消息的 metadata, 再 fire progress 让 Chat 重渲染.
- * 若首条回复还没落库 (reasoning 先到的正常情形), 不 claim、留 buffer 给正常路径, 这里是 no-op.
- */
-const backfillReasoningSafely = async (sessionId?: string, charId?: string): Promise<void> => {
-  if (!sessionId || !charId) return;
-  try {
-    const msgs = await DB.getRecentMessagesByCharId(charId, 200);
-    const sessionMsgs = msgs
-      .filter((m) => m.role === 'assistant' && (m.metadata as any)?.sessionId === sessionId)
-      .sort((a, b) => ((a as any).id ?? 0) - ((b as any).id ?? 0));
-    if (sessionMsgs.length === 0) return; // content 还没落库, 留给正常 claim 路径
-    const first = sessionMsgs[0] as any;
-    if (first.metadata?.thinkingChain) return; // 正常 claim 已挂上, 不重复
-    if (typeof first.id !== 'number') return;
-
-    const buffered = await ActiveMsgStore.claimReasoning(sessionId);
-    const reasoning = buffered?.reasoningContent;
-    if (!reasoning) return;
-
-    await DB.updateMessageMetadata(first.id, (prev: any) => ({ ...(prev || {}), thinkingChain: reasoning }));
-    window.dispatchEvent(new CustomEvent('active-msg-progress', { detail: { charId } }));
-  } catch (e) {
-    console.warn('[ActiveMsg] backfill reasoning failed', sessionId, e);
   }
 };
 
@@ -2428,14 +2367,6 @@ export const ActiveMsgRuntime = {
           return;
         }
 
-        if (type === 'active-msg-reasoning') {
-          // 先确保已到的 content 落库 (flush 链串行), 再尝试把思维链回填到首条回复上.
-          void flushInboxToChat().then(() =>
-            backfillReasoningSafely(event.data?.sessionId, event.data?.charId),
-          );
-          return;
-        }
-
         // SW 的 pushsubscriptionchange 写完标记后会通知一声：页面开着就立刻消费，
         // 不用等下次启动。真正的判定/清理都在 refreshPushSubscriptionIfMarked 里，
         // 通知丢了也没关系（启动兜底会再查一遍标记）。
@@ -2447,6 +2378,9 @@ export const ActiveMsgRuntime = {
         // 即时对话终态失败的直发告知（worker 判死那一刻推的 error push）：当场收尾，
         // 不用等 60s 点名。metadata 对不上号的（IP 诊断 push）在里面被静默略过。
         if (type === 'active-msg-error') {
+          if (event.data?.code === 'LLM_REPLY_BOUNDARY') {
+            window.dispatchEvent(new CustomEvent('active-msg-process-failed', { detail: { kind: 'reply-boundary', charId: event.data.charId } }));
+          }
           void handleInstantErrorPushMessage(event.data);
           return;
         }

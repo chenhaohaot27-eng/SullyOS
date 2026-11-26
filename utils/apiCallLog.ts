@@ -197,7 +197,10 @@ function stripTrailingSlash(s: string): string {
 
 /** 把 `https://host/v1/chat/completions` 还原成 `https://host/v1`（预设里存的 baseUrl 形态）。 */
 function deriveBaseUrl(url: string): string {
-    return stripTrailingSlash(url.replace(/\/chat\/completions\/?$/i, ''));
+    try {
+        const endpoint = new URL(url);
+        return endpoint.origin + stripTrailingSlash(endpoint.pathname.replace(/\/chat\/completions\/?$/i, ''));
+    } catch { return ''; }
 }
 
 function hostOf(url: string): string {
@@ -676,6 +679,17 @@ export function buildApiRequestCapture(input: {
     let parsed: unknown = input.body;
     if (typeof input.body === 'string') {
         try { parsed = JSON.parse(input.body); } catch { parsed = { rawBody: input.body }; }
+    }
+    // A one-shot capture of a character request retains role/size information only.
+    const request = parsed as any;
+    const framingRule = (value: unknown) => typeof value === 'string' && value.includes('本轮传输格式：');
+    if (framingRule(request?.messages?.[0]?.content) || request?.systemInstruction?.parts?.some((p: any) => framingRule(p.text))) {
+        parsed = {
+            model: request.model,
+            messages: (request.messages ?? request.contents ?? []).map((m: any) => ({
+                role: m.role, content: '[已隐藏，' + jsonLength(m.content ?? m.parts) + ' 字符]',
+            })),
+        };
     }
     const stats = { binaryPlaceholders: 0 };
     const payload = sanitizeCapturePayload(parsed ?? null, stats);

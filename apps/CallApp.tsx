@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Microphone, SpeakerHigh, SpeakerSlash, PhoneDisconnect, Translate, Gear, Clock, CaretLeft, CaretRight, Phone, VideoCamera, VideoCameraSlash, Cube, FolderOpen, FileZip, Moon, Sun, Check } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { extractContent } from '../utils/safeApi';
-import { completeChat } from '../utils/chatCompletionClient';
+import { completeCharacterChat } from '../utils/chatCompletionClient';
 import { minimaxFetch } from '../utils/minimaxEndpoint';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { hashTtsParams, getCachedTts, saveCachedTts } from '../utils/ttsCache';
@@ -1863,7 +1863,7 @@ const CallApp: React.FC = () => {
         });
         // 协议分发交给 completeChat（副 API 无 apiFormat → OpenAI 兼容；回退主 API 时
         // 已带 apiFormat，gemini-native 用户不再被发到 /chat/completions）。
-        const data = await completeChat(
+        const data = await completeCharacterChat(
           directorApi,
           {
             model: directorApi.model,
@@ -1942,7 +1942,7 @@ const CallApp: React.FC = () => {
 
 ${sentencePlan}`;
     // 协议分发同上：completeChat（视频动作排练）。
-    const data = await completeChat(
+    const data = await completeCharacterChat(
       directorApi,
       {
         model: directorApi.model,
@@ -2048,7 +2048,7 @@ ${sentencePlan}`;
       nextSystemPrompt: string,
       maxRetries: number,
       purpose: string,
-    ) => completeChat(
+    ) => completeCharacterChat(
       {
         baseUrl: apiConfig.baseUrl,
         apiKey: apiConfig.apiKey,

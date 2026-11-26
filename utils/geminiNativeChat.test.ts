@@ -306,7 +306,7 @@ describe('Gemini Native response normalization', () => {
         }],
       },
     });
-    expect(deltas).toEqual(['你', '好', '！']);
+    expect(deltas).toEqual(['你好！']);
     expect(result.model).toBe('gemini-2.5-pro');
     expect(result.usage).toEqual({ prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 });
     expect(JSON.stringify(result)).not.toContain('sig-secret');

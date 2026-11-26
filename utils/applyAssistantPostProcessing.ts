@@ -1,3 +1,4 @@
+import { readReply, ReplyBoundaryError } from './replyBoundary';
 /**
  * applyAssistantPostProcessing — 抽自 hooks/useChatAI.ts 的 sendMessage 后处理管线
  *
@@ -34,7 +35,7 @@ import { enqueuePendingDiary, removePendingDiary } from './pendingDiary';
 import { parseXhsCount, XhsMcpClient } from './xhsMcpClient';
 import { extractPublishedNoteId, ownedPostToNote } from './xhsFreeRoamOwnership';
 import { selectOwnedPostsForReference } from './xhsOwnedPostReference';
-import { completeChat, type ChatCompletionApiConfig } from './chatCompletionClient';
+import { completeCharacterChat, type ChatCompletionApiConfig } from './chatCompletionClient';
 import { extractHtmlBlocks } from './htmlPrompt';
 import {
     AgenticToolCtx,
@@ -476,9 +477,9 @@ export async function applyAssistantPostProcessing(
         instantRender,
         skipSecondPassLLM,
         directives,
-        reasoningContent: pushReasoningContent,
         messageTimestamp,
     } = ctx;
+    rawAiContent = readReply(rawAiContent);
     const { effectiveApi } = api;
     // 拟人打字延迟：流式预览已实时展示过气泡时（instantRender）跳过，避免二次慢放
     const typingPause = (ms: number): Promise<void> =>
@@ -673,56 +674,23 @@ export async function applyAssistantPostProcessing(
     const REPLY_CLEAN_CN = /\[回复\s*[""“][^""”]*?[""”](?:\.{0,3})\]\s*[：:]?\s*/g;
     const QUOTE_CLEAN_NL = /\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g;
 
-    // 抽取思考链 (showThinkingChain 开启时): reasoning_content + 内联 <think> 块。
-    const extractThinkingChain = (dataObj: any, reasoningOverride?: string): string | null => {
-        if (!(char as any).showThinkingChain) return null;
-        const lastRaw = dataObj?.choices?.[0]?.message?.content || '';
-        const lastReasoning = (
-            (reasoningOverride && reasoningOverride.trim())
-            || dataObj?.choices?.[0]?.message?.reasoning_content
-            || ''
-        ).trim();
-        const thinkBlocks: string[] = [];
-        const thinkPat = /<(think|thinking|thought)>([\s\S]*?)<\/\1>/gi;
-        let tm: RegExpExecArray | null;
-        while ((tm = thinkPat.exec(lastRaw)) !== null) {
-            const t = tm[2].trim();
-            if (t) thinkBlocks.push(t);
-        }
-        if (!/<\/(?:think|thinking|thought)>/i.test(lastRaw)) {
-            const openOnly = lastRaw.match(/<(?:think|thinking|thought)>([\s\S]*$)/i);
-            if (openOnly && openOnly[1].trim()) thinkBlocks.push(openOnly[1].trim());
-        }
-        const chain = [lastReasoning, ...thinkBlocks].filter(s => !!s).join('\n\n').trim();
-        return chain || null;
-    };
-
     // 把一段文本 (parseAndExecuteActions / HTML 之外的部分) 渲染成气泡并落库 —— 双语 / 表情 / 引用 / 分段
     // 与原 inline 末尾逻辑一致。抽出来是为了让"执行功能前的本轮正文 A"能在二轮前先展示, 二轮结果 B 复用同一套。
-    const renderAndPersist = async (rawContent: string, firstThinkingChain: string | null): Promise<void> => {
-        let firstMeta: any = firstThinkingChain ? { thinkingChain: firstThinkingChain } : null;
-        const takeMeta = (base: any): any => {
-            const merged = firstMeta ? { ...(base || {}), ...firstMeta } : base;
-            firstMeta = null;
-            return merged;
-        };
-
+    const renderAndPersist = async (rawContent: string): Promise<void> => {
         // 表情按模型写的位置原地插发；无法安全解析时跳过，不伪装成文本气泡。
         const sendEmojiBubble = async (rawName: string): Promise<void> => {
             const resolution = resolveEmojiByModelReference(rawName, emojis);
             if (!resolution.emoji?.url) {
                 console.warn('[emoji] 无法安全匹配模型表情引用，已跳过', {
-                    rawName,
                     reason: resolution.emoji ? 'missing-url' : resolution.reason,
                     charId: char.id,
                     // 可诊断性：给出库存规模与候选名样本，方便排查「名称多了修饰词/库存过期」
                     inventorySize: emojis.length,
-                    inventoryNameSample: emojis.slice(0, 12).map(e => e.name),
                 });
                 return;
             }
             await typingPause(Math.random() * 500 + 300);
-            await persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: resolution.emoji.url, metadata: takeMeta(mcdInheritMeta) } as any);
+            await persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: resolution.emoji.url, metadata: mcdInheritMeta } as any);
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         };
 
@@ -792,7 +760,7 @@ export async function applyAssistantPostProcessing(
                         if (isDuplicateVoiceTranscriptChunk(chunk, voiceTexts)) continue;
                         const replyData = globalMsgIndex === 0 ? aiReplyTarget : undefined;
                         await typingPause(Math.min(Math.max(chunk.length * 50, 500), 2000));
-                        await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: chunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                        await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: chunk, replyTo: replyData, metadata: mcdInheritMeta } as any);
                         setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                         globalMsgIndex++;
                     }
@@ -818,7 +786,7 @@ export async function applyAssistantPostProcessing(
                         : (originalText || translatedText);
                     const replyData = globalMsgIndex === 0 ? aiReplyTarget : undefined;
                     await typingPause(Math.min(Math.max(biContent.length * 30, 400), 2000));
-                    await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: biContent, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                    await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: biContent, replyTo: replyData, metadata: mcdInheritMeta } as any);
                     setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                     globalMsgIndex++;
                 }
@@ -868,7 +836,7 @@ export async function applyAssistantPostProcessing(
                         if (ChatParser.hasDisplayContent(chunk)) {
                             const cleanChunk = ChatParser.sanitize(chunk);
                             if (cleanChunk) {
-                                await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: cleanChunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                                await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: cleanChunk, replyTo: replyData, metadata: mcdInheritMeta } as any);
                                 setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                                 globalMsgIndex++;
                                 chunkSaved = true;
@@ -885,14 +853,12 @@ export async function applyAssistantPostProcessing(
     // A 气泡 → "正在搜索/调阅…" 状态 → 二轮结果 B 气泡 (而不是等 B 回来才一起冒出来)。
     // XHS_*/READ_NOTE 标签 sanitize 不剥, 这里先剥掉; 其余 RECALL/SEARCH/DIARY... 由 renderAndPersist
     // 内 sanitize 统一清。A 的思考链取一轮 reasoning。
-    const round1ThinkingChain = extractThinkingChain(initialData, pushReasoningContent);
     let leadInRendered = false;
     const renderLeadIn = async (raw: string): Promise<void> => {
         if (leadInRendered) return;
         leadInRendered = true;
         await renderAndPersist(
             raw.replace(/\[\[READ_NOTE:[\s\S]*?\]\]/g, '').replace(/\[\[XHS_[A-Z_]+(?::[\s\S]*?)?\]\]/g, ''),
-            round1ThinkingChain,
         );
     };
 
@@ -934,7 +900,7 @@ export async function applyAssistantPostProcessing(
             setRecallStatus(`正在调阅 ${year}年${month}月 的详细档案...`);
             const recallMessages = [...fullMessages, ...(recallLeadIn ? [{ role: 'assistant', content: recallLeadIn }] : []), { role: 'user', content: `[系统: 已成功调取 ${year}-${month} 的详细日志]\n${rr.logsText}\n[系统: 现在请结合这些细节回答用户。保持对话自然。]` }];
             try {
-                data = await completeChat(effectiveApi, {
+                data = await completeCharacterChat(effectiveApi, {
                     model: effectiveApi.model, messages: recallMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                 }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '调阅记忆' } });
                 updateTokenUsage(data, historyMsgCount, 'recall');
@@ -942,6 +908,7 @@ export async function applyAssistantPostProcessing(
                 aiContent = normalizeAiContent(aiContent);
                 addToast(`已调用 ${year}-${month} 详细记忆`, 'info');
             } catch (recallErr: any) {
+                if (recallErr instanceof ReplyBoundaryError) throw recallErr;
                 console.error('Recall API failed:', recallErr.message);
             }
         } else {
@@ -972,12 +939,12 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 搜索完成！以下是关于"${searchQuery}"的搜索结果]\n\n${sr.resultsText}\n\n[系统: 现在请根据这些真实信息回复用户。用自然的语气分享，比如"我刚搜了一下发现..."、"诶我看到说..."。不要再输出[[SEARCH:...]]了。]` }
                 ];
 
-                data = await completeChat(effectiveApi, {
+                data = await completeCharacterChat(effectiveApi, {
                     model: effectiveApi.model, messages: searchMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                 }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '联网搜索' } });
                 updateTokenUsage(data, historyMsgCount, 'search');
                 aiContent = data.choices?.[0]?.message?.content || '';
-                console.log('🔍 [Search] AI基于搜索结果生成的新回复:', aiContent.slice(0, 100) + '...');
+                console.log('🔍 [Search] AI基于搜索结果生成的新回复:', { chars: aiContent.length });
                 aiContent = normalizeAiContent(aiContent);
                 addToast(`🔍 搜索完成: ${searchQuery}`, 'success');
             } else if (sr.reason === 'no_api_key') {
@@ -990,6 +957,7 @@ export async function applyAssistantPostProcessing(
                 aiContent = aiContent.replace(searchMatch[0], '').trim();
             }
         } catch (e) {
+            if (e instanceof ReplyBoundaryError) throw e;
             console.error('Search execution failed:', e);
             aiContent = aiContent.replace(searchMatch[0], '').trim();
         }
@@ -1106,13 +1074,14 @@ export async function applyAssistantPostProcessing(
             { role: 'user', content: `[系统: ${reason}。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 可以自然地提一下，比如"日记好像打不开诶"、"嗯...好像没找到"\n3. 继续正常聊天，用多条消息回复\n4. 严禁再输出[[READ_DIARY:...]]或[[FS_READ_DIARY:...]]标记]` }
         ];
         try {
-            data = await completeChat(effectiveApi, {
+            data = await completeCharacterChat(effectiveApi, {
                 model: effectiveApi.model, messages: msgs, temperature: 0.8, max_tokens: 8000, stream: false,
             }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '写日记' } });
             updateTokenUsage(data, historyMsgCount, 'diary-fallback');
             aiContent = data.choices?.[0]?.message?.content || '';
             aiContent = normalizeAiContent(aiContent);
         } catch (fallbackErr) {
+            if (fallbackErr instanceof ReplyBoundaryError) throw fallbackErr;
             console.error('📖 [Diary Fallback] 也失败了:', fallbackErr);
             aiContent = aiContent.replace(tagPattern, '').trim();
         }
@@ -1158,7 +1127,7 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻开了自己 ${targetDate} 的日记，以下是你当时写的内容]\n\n${rdr.diaryText}\n\n[系统: 你已经看完了日记。现在请你：\n1. 先正常回应用户刚才说的话（这是最重要的！用户还在等你回复）\n2. 自然地把日记中的回忆融入你的回复中，比如"我想起来了那天..."、"看了日记才发现..."等\n3. 可以分享日记中有趣的细节，表达当时的情绪\n4. 用多条消息回复，别只说一句话就结束\n5. 严禁再输出[[READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await completeChat(effectiveApi, {
+                        data = await completeCharacterChat(effectiveApi, {
                             model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                         }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'read-diary-notion');
@@ -1189,7 +1158,7 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻了翻日记本，发现 ${targetDate} 那天没有写日记。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 自然地提到没找到那天的日记，比如"嗯...那天好像没写日记"、"翻了翻没找到诶"\n3. 用多条消息回复，保持对话自然\n4. 严禁再输出[[READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await completeChat(effectiveApi, {
+                        data = await completeCharacterChat(effectiveApi, {
                             model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                         }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'no-diary-notion');
@@ -1197,6 +1166,7 @@ export async function applyAssistantPostProcessing(
                         aiContent = normalizeAiContent(aiContent);
                     }
                 } catch (e) {
+                    if (e instanceof ReplyBoundaryError) throw e;
                     console.error('📖 [ReadDiary] 读取异常:', e);
                     setDiaryStatus('日记读取失败，继续对话...');
                     await diaryFallbackCall('你想翻阅日记但读取出了问题（可能是网络问题）', /\[\[READ_DIARY:.*?\]\]/g);
@@ -1280,6 +1250,7 @@ export async function applyAssistantPostProcessing(
                     addToast(`飞书日记写入失败: ${result.message}`, 'error');
                 }
             } catch (e) {
+                if (e instanceof ReplyBoundaryError) throw e;
                 // 网络异常: 保留待写队列, 回前台 drainPendingDiaries 补打.
                 console.error('📒 [Feishu] 写入异常, 留待回前台重试:', e);
             }
@@ -1330,7 +1301,7 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻开了自己 ${targetDate} 的日记（飞书），以下是你当时写的内容]\n\n${fsrdr.diaryText}\n\n[系统: 你已经看完了日记。现在请你：\n1. 先正常回应用户刚才说的话（这是最重要的！用户还在等你回复）\n2. 自然地把日记中的回忆融入你的回复中，比如"我想起来了那天..."、"看了日记才发现..."等\n3. 可以分享日记中有趣的细节，表达当时的情绪\n4. 用多条消息回复，别只说一句话就结束\n5. 严禁再输出[[FS_READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await completeChat(effectiveApi, {
+                        data = await completeCharacterChat(effectiveApi, {
                             model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                         }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'read-diary-feishu');
@@ -1355,7 +1326,7 @@ export async function applyAssistantPostProcessing(
                             { role: 'user', content: `[系统: 你翻了翻飞书日记本，发现 ${targetDate} 那天没有写日记。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 自然地提到没找到那天的日记，比如"嗯...那天好像没写日记"、"翻了翻没找到诶"\n3. 用多条消息回复，保持对话自然\n4. 严禁再输出[[FS_READ_DIARY:...]]标记]` }
                         ];
 
-                        data = await completeChat(effectiveApi, {
+                        data = await completeCharacterChat(effectiveApi, {
                             model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                         }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅日记' } });
                         updateTokenUsage(data, historyMsgCount, 'no-diary-feishu');
@@ -1363,6 +1334,7 @@ export async function applyAssistantPostProcessing(
                         aiContent = normalizeAiContent(aiContent);
                     }
                 } catch (e) {
+                    if (e instanceof ReplyBoundaryError) throw e;
                     console.error('📖 [Feishu ReadDiary] 读取异常:', e);
                     setDiaryStatus('飞书日记读取失败，继续对话...');
                     await diaryFallbackCall('你想翻阅飞书日记但读取出了问题（可能是网络问题）', /\[\[FS_READ_DIARY:.*?\]\]/g);
@@ -1404,7 +1376,7 @@ export async function applyAssistantPostProcessing(
                         { role: 'user', content: `[系统: 你翻阅了${userProfile.name}的笔记，以下是内容:\n\n${rnr.noteText}\n\n请你：\n1. 先正常回应用户刚才说的话\n2. 自然地提到你看到的笔记内容，语气温馨，像不经意间看到的\n3. 可以对内容表示好奇、关心或共鸣\n4. 用多条消息回复，保持对话自然\n5. 严禁再输出[[READ_NOTE:...]]标记]` }
                     ];
 
-                    data = await completeChat(effectiveApi, {
+                    data = await completeCharacterChat(effectiveApi, {
                         model: effectiveApi.model, messages: noteMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                     }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅笔记' } });
                     updateTokenUsage(data, historyMsgCount, 'read-note');
@@ -1433,7 +1405,7 @@ export async function applyAssistantPostProcessing(
                         { role: 'user', content: `[系统: 你想看${userProfile.name}关于"${keyword}"的笔记，但没有找到。请你：\n1. 先正常回应用户刚才说的话\n2. 可以自然地提一下，比如"嗯，好像没找到那篇笔记"\n3. 继续正常聊天\n4. 严禁再输出[[READ_NOTE:...]]标记]` }
                     ];
 
-                    data = await completeChat(effectiveApi, {
+                    data = await completeCharacterChat(effectiveApi, {
                         model: effectiveApi.model, messages: nonoteMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                     }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '翻阅笔记' } });
                     updateTokenUsage(data, historyMsgCount, 'read-note-empty');
@@ -1441,6 +1413,7 @@ export async function applyAssistantPostProcessing(
                     aiContent = normalizeAiContent(aiContent);
                 }
             } catch (e) {
+                if (e instanceof ReplyBoundaryError) throw e;
                 console.error('📝 [ReadNote] 读取异常:', e);
                 setDiaryStatus('笔记读取失败，继续对话...');
                 await diaryFallbackCall('你想翻阅笔记但读取出了问题（可能是网络问题）', /\[\[READ_NOTE:.*?\]\]/g);
@@ -1474,7 +1447,7 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 你在小红书搜索了"${keyword}"，以下是搜索结果]\n\n${xsr.notesText}\n\n[系统: 你已经看完了搜索结果（注意：以上只是摘要，想看某条笔记的完整正文可以用 [[XHS_DETAIL: noteId]]）。现在请你：\n1. 自然地分享你看到的内容，比如"我刚在小红书搜了一下..."、"诶小红书上有人说..."\n2. 可以评价、吐槽、分享感兴趣的内容\n3. 如果觉得某条笔记特别值得分享，可以用 [[XHS_SHARE: 序号]] 把它作为卡片分享给用户（序号从1开始），可以分享多条；不要手写“[你分享了小红书笔记]”及标题/作者/互动/简介，分享卡片必须使用该标记\n4. 如果想评论某条笔记，可以用 [[XHS_COMMENT: noteId | 评论内容]]\n5. 如果喜欢某条笔记，可以用 [[XHS_LIKE: noteId]] 点赞，[[XHS_FAV: noteId]] 收藏\n6. 如果想看某条笔记的完整内容和评论区，可以用 [[XHS_DETAIL: noteId]]\n7. 严禁再输出[[XHS_SEARCH:...]]标记]` }
                 ];
 
-                data = await completeChat(effectiveApi, {
+                data = await completeCharacterChat(effectiveApi, {
                     model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                 }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书搜索' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-search');
@@ -1493,6 +1466,7 @@ export async function applyAssistantPostProcessing(
                 aiContent = aiContent.replace(xhsSearchMatch[0], '').trim();
             }
         } catch (e) {
+            if (e instanceof ReplyBoundaryError) throw e;
             console.error('📕 [XHS] 搜索异常:', e);
             aiContent = aiContent.replace(xhsSearchMatch[0], '').trim();
         }
@@ -1519,7 +1493,7 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 你刷了一会儿小红书首页，以下是你看到的内容]\n\n${xbr.notesText}\n\n[系统: 你已经看完了（注意：以上只是摘要，想看某条笔记的完整正文可以用 [[XHS_DETAIL: noteId]]）。现在请你：\n1. 像在跟朋友分享一样，随意聊聊你看到了什么有趣的\n2. 不用全部都提，挑你感兴趣的1-3条聊就行\n3. 可以吐槽、感叹、分享想法\n4. 如果觉得某条笔记特别值得分享，可以用 [[XHS_SHARE: 序号]] 把它作为卡片分享给用户（序号从1开始），可以分享多条；不要手写“[你分享了小红书笔记]”及标题/作者/互动/简介，分享卡片必须使用该标记\n5. 如果想发一条自己的笔记，可以用 [[XHS_POST: 标题 | 内容 | #标签1 #标签2]]\n6. 如果喜欢某条笔记，可以用 [[XHS_LIKE: noteId]] 点赞，[[XHS_FAV: noteId]] 收藏\n7. 如果想看某条笔记的完整内容和评论区，可以用 [[XHS_DETAIL: noteId]]\n8. 严禁再输出[[XHS_BROWSE]]标记]` }
                 ];
 
-                data = await completeChat(effectiveApi, {
+                data = await completeCharacterChat(effectiveApi, {
                     model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                 }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书浏览' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-browse');
@@ -1531,6 +1505,7 @@ export async function applyAssistantPostProcessing(
                 aiContent = aiContent.replace(xhsBrowseMatch[0], '').trim();
             }
         } catch (e) {
+            if (e instanceof ReplyBoundaryError) throw e;
             console.error('📕 [XHS] 浏览异常:', e);
             aiContent = aiContent.replace(xhsBrowseMatch[0], '').trim();
         }
@@ -1663,7 +1638,7 @@ export async function applyAssistantPostProcessing(
             const noteId = commentRaw.slice(0, sepIdx).trim();
             const commentContent = commentRaw.slice(sepIdx + 1).trim();
             const xsecToken = findXsecToken(noteId, lastXhsNotesRef.current);
-            console.log(`📕 [XHS] AI要评论笔记:`, noteId, commentContent.slice(0, 30), xsecToken ? '(有xsecToken)' : '(无xsecToken)');
+            console.log(`📕 [XHS] AI要评论笔记:`, noteId, { chars: commentContent.length }, xsecToken ? '(有xsecToken)' : '(无xsecToken)');
             setXhsStatus('正在评论...');
 
             try {
@@ -1702,7 +1677,7 @@ export async function applyAssistantPostProcessing(
             const commentAuthorName = commentAuthorNameCacheRef.get(commentId);
             const parentCommentId = commentParentIdCacheRef.get(commentId);
             if (replyContent) {
-                console.log(`📕 [XHS] AI要回复评论:`, noteId, commentId, replyContent.slice(0, 30),
+                console.log(`📕 [XHS] AI要回复评论:`, noteId, commentId, { chars: replyContent.length },
                     xsecToken ? '(有xsecToken)' : '(bridge自动获取)',
                     commentUserId ? `(userId=${commentUserId})` : '(无userId)',
                     commentAuthorName ? `(author=${commentAuthorName})` : '',
@@ -1847,7 +1822,7 @@ export async function applyAssistantPostProcessing(
                     { role: 'user', content: `[系统: 你打开了自己的小红书]\n\n你的小红书账号昵称: ${nickname || '未知'}${userId ? ` (userId: ${userId})` : ''}${profileSection}\n\n${gotProfile ? '你的笔记' : `搜索「${nickname}」找到的相关笔记`}:\n${feedsStr}\n\n[系统: ${gotProfile ? '以上是按角色归属保存的主页数据，序号已根据用户刚才的说法按相关性和时间排序。' : '注意，搜索结果可能包含别人的帖子，你需要辨别哪些是你自己发的（看作者名字）。'}现在请你：\n1. 如果用户说“刚才那个帖子”“之前那篇”或要求查看自己帖子的评论区，选择最符合时间/标题的候选并输出 [[XHS_DETAIL: noteId]]；不要只口头说去看。\n2. 如果多个候选同样符合、无法判断是哪条，就自然地向用户确认，不能猜。\n3. 普通查看主页时，可以自然地聊聊看到的内容。\n4. 如果想发新笔记，可以用 [[XHS_POST: 标题 | 内容 | #标签1 #标签2]]。\n5. 严禁再输出[[XHS_MY_PROFILE]]标记。]` }
                 ];
 
-                data = await completeChat(effectiveApi, {
+                data = await completeCharacterChat(effectiveApi, {
                     model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                 }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书主页' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile');
@@ -1864,7 +1839,7 @@ export async function applyAssistantPostProcessing(
                     { role: 'assistant', content: cleanedForXhs },
                     { role: 'user', content: `[系统: 你打开了自己的小红书]\n\n你的小红书账号昵称: 未知${profileSection}\n\n搜索「」找到的相关笔记:\n（无法获取主页：请在设置-小红书中填写你的昵称或用户ID）\n\n[系统: 注意，搜索结果可能包含别人的帖子，你需要辨别哪些是你自己发的（看作者名字）。现在请你：\n1. 自然地聊聊你看到了什么，"我看了看我的小红书..."、"我之前发的那个帖子..."\n2. 如果想发新笔记，可以用 [[XHS_POST: 标题 | 内容 | #标签1 #标签2]]\n3. 如果想看某条笔记的详细内容，可以用 [[XHS_DETAIL: noteId]]\n4. 严禁再输出[[XHS_MY_PROFILE]]标记]` }
                 ];
-                data = await completeChat(effectiveApi, {
+                data = await completeCharacterChat(effectiveApi, {
                     model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                 }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书主页' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile');
@@ -1882,7 +1857,7 @@ export async function applyAssistantPostProcessing(
                     { role: 'assistant', content: cleanedForXhs },
                     { role: 'user', content: `[系统: 你想打开自己的小红书，但这次连不上，什么都没加载出来]\n\n[系统: 现在请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 自然地提一句"小红书打不开/刷不出来"就好\n3. 你这次什么都没看到，不要描述任何笔记、数据或评论\n4. 严禁再输出[[XHS_MY_PROFILE]]标记]` }
                 ];
-                data = await completeChat(effectiveApi, {
+                data = await completeCharacterChat(effectiveApi, {
                     model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
                 }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书主页' } });
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile-unreachable');
@@ -1890,6 +1865,7 @@ export async function applyAssistantPostProcessing(
                 aiContent = normalizeAiContent(aiContent);
             }
         } catch (e) {
+            if (e instanceof ReplyBoundaryError) throw e;
             console.error('📕 [XHS] 查看主页异常:', e);
             aiContent = aiContent.replace(xhsProfileMatch[0], '').trim();
         }
@@ -1932,7 +1908,7 @@ export async function applyAssistantPostProcessing(
                         : `[系统: 你点开了一条小红书笔记的详情页（noteId=${noteId}）]\n\n${detailStr}\n\n[系统: 你已经看完了这条笔记的完整内容和真实评论区。现在请你：\n1. 自然地分享你看到的内容和感受\n2. 如果想评论这条笔记，可以用 [[XHS_COMMENT: ${noteId} | 评论内容]]\n3. 如果想回复某条评论，可以用 [[XHS_REPLY: ${noteId} | commentId | 回复内容]]（commentId 在上面的评论区数据里）\n4. 如果想点赞，可以用 [[XHS_LIKE: ${noteId}]]；想收藏可以用 [[XHS_FAV: ${noteId}]]\n5. 严禁再输出[[XHS_DETAIL:...]]标记]` }
             ];
 
-            data = await completeChat(effectiveApi, {
+            data = await completeCharacterChat(effectiveApi, {
                 model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false,
             }, { maxRetries: 2, meta: { ...apiLogMeta, purpose: '小红书详情' } });
             updateTokenUsage(data, historyMsgCount, 'xhs-detail');
@@ -1941,6 +1917,7 @@ export async function applyAssistantPostProcessing(
             addToast(`📕 ${char.name}${detailFailed ? '尝试查看一条笔记（加载失败）' : '看了一条笔记的详情'}`, 'info');
             }  // end of else (xdr.ok)
         } catch (e) {
+            if (e instanceof ReplyBoundaryError) throw e;
             console.error('📕 [XHS] 查看详情异常:', e);
             aiContent = aiContent.replace(xhsDetailMatch[0], '').trim();
         }
@@ -1960,7 +1937,7 @@ export async function applyAssistantPostProcessing(
             const noteId = commentRaw.slice(0, sepIdx).trim();
             const commentContent = commentRaw.slice(sepIdx + 1).trim();
             const xsecToken = findXsecToken(noteId, lastXhsNotesRef.current);
-            console.log(`📕 [XHS] AI要评论笔记(detail后):`, noteId, commentContent.slice(0, 30), xsecToken ? '(有xsecToken)' : '(无xsecToken)');
+            console.log(`📕 [XHS] AI要评论笔记(detail后):`, noteId, { chars: commentContent.length }, xsecToken ? '(有xsecToken)' : '(无xsecToken)');
             setXhsStatus('正在评论...');
             try {
                 const result = await xhsComment(xhsConf, noteId, commentContent, xsecToken);
@@ -1995,7 +1972,7 @@ export async function applyAssistantPostProcessing(
             const commentAuthorName = commentAuthorNameCacheRef.get(commentId);
             const parentCommentId = commentParentIdCacheRef.get(commentId);
             if (replyContent) {
-                console.log(`📕 [XHS] AI要回复评论(detail后):`, noteId, commentId, replyContent.slice(0, 30),
+                console.log(`📕 [XHS] AI要回复评论(detail后):`, noteId, commentId, { chars: replyContent.length },
                     commentUserId ? `(userId=${commentUserId})` : '(无userId)',
                     commentAuthorName ? `(author=${commentAuthorName})` : '',
                     parentCommentId ? `(parentId=${parentCommentId})` : '(顶级评论)',
@@ -2130,17 +2107,6 @@ export async function applyAssistantPostProcessing(
     )?.song;
     aiContent = await ChatParser.parseAndExecuteActions(aiContent, char.id, char.name, addToast, musicHooks, resolveCharTimeZone(char), messageTimestamp, mcdInheritMeta, frozenMusicSong);
 
-    // ─── Step 4: thinking chain 抽取 (本轮末尾展示用) ───
-    // 跑过二轮 (data !== initialData) → 取二轮 data 的 reasoning; 没跑二轮 → 取一轮 (round1ThinkingChain,
-    // 已含 push 路径 reasoning)。一轮正文 A 的思考链在 Step 2 开头展示时已单独带上。
-    let pendingThinkingChain: string | null = data !== initialData ? extractThinkingChain(data) : round1ThinkingChain;
-    const mergeAssistantMeta = (base: any): any => {
-        if (!pendingThinkingChain) return base;
-        const merged = { ...(base || {}), thinkingChain: pendingThinkingChain };
-        pendingThinkingChain = null;
-        return merged;
-    };
-
     // ─── Step 5: HTML 卡片 ───
     if ((char as any).htmlModeEnabled && /\[html\]/i.test(aiContent)) {
         const { blocks, cleanedContent } = extractHtmlBlocks(aiContent);
@@ -2151,11 +2117,11 @@ export async function applyAssistantPostProcessing(
                     role: 'assistant',
                     type: 'html_card',
                     content: blk.textPreview ? `[HTML卡片] ${blk.textPreview}` : '[HTML卡片]',
-                    metadata: mergeAssistantMeta({
+                    metadata: {
                         htmlSource: blk.html,
                         htmlTextPreview: blk.textPreview,
                         ...(mcdInheritMeta || {}),
-                    }),
+                    },
                 } as any);
                 setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                 await new Promise(r => setTimeout(r, 300));
@@ -2183,10 +2149,10 @@ export async function applyAssistantPostProcessing(
             .replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, '')
             .trim();
         if (sanitizedBody) {
-            await renderAndPersist(aiContent, pendingThinkingChain);
+            await renderAndPersist(aiContent);
         } else if (!leadInRendered && (data !== initialData || recallMatch || searchMatch || readDiaryMatch || fsReadDiaryMatch)) {
             // 跑过二轮却吐空, 且本轮还没展示过任何内容 → 至少补一句, 避免整轮静默。
-            await renderAndPersist('嗯...', pendingThinkingChain);
+            await renderAndPersist('嗯...');
         } else {
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         }

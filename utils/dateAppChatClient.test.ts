@@ -109,7 +109,7 @@ describe('Date / 见面 · Gemini Native', () => {
 
   it('组件接线：callLLM 统一走 completeChat，不再硬编码 chat/completions，也没有第二套 Gemini 实现', () => {
     expect(dateAppSource).toContain("from '../utils/chatCompletionClient'");
-    expect(dateAppSource).toMatch(/completeChat\(apiConfig,/);
+    expect(dateAppSource).toMatch(/completeCharacterChat\(apiConfig,/);
     expect(dateAppSource).toContain('maxRetries: 0');
     expect(dateAppSource).not.toContain('/chat/completions');
     expect(dateAppSource).not.toContain('v1beta');

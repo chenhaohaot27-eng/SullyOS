@@ -1,3 +1,4 @@
+import { characterTransport } from '../../../utils/characterTransport';
 /**
  * SullyOS Instant Push — Cloudflare Worker entry.
  *
@@ -411,6 +412,8 @@ const cfWorker = createCloudflareWorker((env: Env) => {
     ...buildAmsgOptions(env),
     clientToken: env.AMSG_CLIENT_TOKEN,
     maxLoopIterations: 10,
+    fetch: characterTransport(globalThis.fetch, false),
+    autoEmitReasoning: false,
     sse: {
       backupPush: 'on',
       keepaliveMs: 1_000,
@@ -615,7 +618,7 @@ async function onLLMOutput(ctx: any) {
     contactName: ctx.contactName ?? '',
     avatarUrl: ctx.avatarUrl ?? null,
     // metadata 透传: 客户端 sendInstantPush 时塞了 charId; SW 路由要它分发到具体角色
-    callerMetadata: (ctx.metadata && typeof ctx.metadata === 'object') ? ctx.metadata : {},
+    callerMetadata: { ...ctx.metadata, lemuriaReplyVerified: true },
   });
   return decision;
 }

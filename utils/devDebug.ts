@@ -313,16 +313,6 @@ function safeJsonValue(value: unknown): unknown {
     }
 }
 
-function parseRequestBody(body: unknown): unknown {
-    if (body === undefined || body === null) return undefined;
-    if (typeof body !== 'string') return body;
-    try {
-        return JSON.parse(body);
-    } catch {
-        return body;
-    }
-}
-
 // 折叠 messages（聊天历史）数组：整组替换成单句 metadata，一条都不留。
 function collapseMessagesArray(arr: unknown[]): unknown[] {
     if (arr.length === 0) return arr;
@@ -467,23 +457,14 @@ function appendDevDebugHttpLog(category: DevDebugCaptureCategory, input: DevDebu
     // label 前缀加分类——activeMsgRuntime 的 instant-push 交换 url 跟 safeApi 的 api 直发一字不差
     // （两边都是 baseUrl + /chat/completions），不带前缀的话导出 JSON 里两类条目肉眼分不清。
     appendDevDebugLog(category, {
-        label: `[${category}] ${input.method ?? 'POST'} ${input.url}`,
+        label: '[' + category + '] ' + (input.method ?? 'POST'),
         data: {
-            url: input.url,
-            method: input.method,
             status: input.status,
             durationMs: input.durationMs,
             headersMs: input.headersMs,
             firstDeltaMs: input.firstDeltaMs,
             requestChars: measureRequestChars(input.requestBody),
-            request: parseRequestBody(input.requestBody),
-            response: input.response,
-            error: input.error
-                ? {
-                    name: (input.error as any)?.name,
-                    message: (input.error as any)?.message || String(input.error),
-                }
-                : undefined,
+            failed: Boolean(input.error),
         },
     });
 }

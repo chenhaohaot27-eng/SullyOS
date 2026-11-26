@@ -1,3 +1,4 @@
+import { publicMessageText, readReply } from './replyBoundary';
 import { DB } from './db';
 import type { CharacterProfile, CharacterBuff } from '../types';
 import { landAmbientEventFromEval } from './roomAmbient';
@@ -319,26 +320,8 @@ export function parseEmotionEvalOutput(rawText: string): EmotionEvalResult | nul
     return salvageFields(repairedForSalvage || repairInnerQuotes(repairControlChars(raw)));
 }
 
-/**
- * 从 chat-completion 响应的 message 对象里尽量抠出文本.
- * content 可能是字符串, 也可能是分块数组 (部分 Claude 兼容代理); content 为空时回退
- * reasoning_content (个别代理开思考后把全部输出塞进 reasoning, content 留空 —— 后续
- * parseEmotionEvalOutput 会从里面正则定位 JSON, 喂进去无害).
- */
 export function extractAssistantText(message: any): string {
-    if (!message) return '';
-    const c = message.content;
-    if (typeof c === 'string' && c.trim()) return c;
-    if (Array.isArray(c)) {
-        const joined = c
-            .map((p: any) => (typeof p === 'string' ? p : (p?.text || '')))
-            .filter(Boolean)
-            .join('\n');
-        if (joined.trim()) return joined;
-    }
-    const r = message.reasoning_content;
-    if (typeof r === 'string' && r.trim()) return r;
-    return '';
+    return readReply(publicMessageText(message));
 }
 
 /**
@@ -356,7 +339,7 @@ export async function applyEmotionEvalRaw(
     try {
         const result = parseEmotionEvalOutput(rawText || '');
         if (!result) {
-            console.warn('🎭 [Emotion] Could not parse eval output (all repairs + salvage failed):', (rawText || '').slice(0, 300));
+            console.warn('🎭 [Emotion] Could not parse eval output (all repairs + salvage failed):', { chars: rawText.length });
             announceEmotionFailed(charData, '评估模型的输出不是可解析的 JSON（模型掉格式，可换个评估模型试试）');
             return null;
         }

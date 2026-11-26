@@ -66,6 +66,10 @@ function emitToolStatus(
 
 /** 跑一轮 ToolRequest → POST /continue. 失败时返回 false (上层决定要不要 toast). */
 async function runOnePendingToolCall(item: InstantPushPendingToolCall): Promise<boolean> {
+  if (!item.lemuriaReplyVerified) {
+    emitToolStatus(item.charId, 'failed', '旧推送缺少正文校验，请更新 Worker 后重新生成。', item.sessionId);
+    return false;
+  }
   const toolLabel = getToolStatusLabel(item.toolCalls);
   emitToolStatus(
     item.charId,

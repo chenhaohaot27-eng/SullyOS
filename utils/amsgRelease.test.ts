@@ -6,11 +6,11 @@ const compatible = { releaseChannel: 'lemuria-amsg', schemaProtocol: '3.2.0-leas
 
 describe('Lemuria Worker release detection', () => {
   it.each([
-    ['2026-11-24', 'current', true],
+    ['2026-11-26', 'current', true],
     ['2026-11-23.3', 'outdated', false],
     ['2026-11-23.2', 'outdated', false],
-    ['2026-11-24.10', 'newer', true],
-    ['2026-11-25', 'newer', true],
+    ['2026-11-26.10', 'newer', true],
+    ['2026-11-27', 'newer', true],
     ['2026-11-23', 'outdated', false],
     ['2026-11-23.1', 'outdated', false],
     ['2026-11-19', 'outdated', false],
@@ -41,7 +41,7 @@ describe('Lemuria pinned Worker download', () => {
     const result = await loadAmsgRelease();
     expect(Buffer.compare(Buffer.from(result), bytes)).toBe(0);
     expect(fetch).toHaveBeenCalledWith(
-      expect.stringMatching(/\/amsg-worker-2026-11-24\.bundle\.js$/),
+      expect.stringMatching(/\/amsg-worker-2026-11-26\.bundle\.js$/),
       { cache: 'no-store', redirect: 'error' },
     );
   });

@@ -7,7 +7,7 @@ import type { CharacterProfile, Message, StoryTheaterEntry, StoryTheaterMask, St
 import { DB } from '../../../utils/db';
 import { ContextBuilder } from '../../../utils/context';
 import { extractContent } from '../../../utils/safeApi';
-import { completeChat } from '../../../utils/chatCompletionClient';
+import { completeCharacterChat } from '../../../utils/chatCompletionClient';
 import { normalizeChatApiFormat } from '../../../utils/apiConfigNormalize';
 import {
     appendStoryAffinityInputs,
@@ -490,7 +490,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
         // 原 OpenAI 兼容端点，body 与原 fetch 完全一致（同样零重试）；apiFormat 为
         // gemini-native 时自动改走 Gemini 原生流式端点，429/上游错误保留原始 message
         // 单次抛出，不自动重发，也不把 thought / signature 混进正文。
-        const data = await completeChat(apiConfig, {
+        const data = await completeCharacterChat(apiConfig, {
             model: apiConfig.model,
             messages: payload,
             stream: false,

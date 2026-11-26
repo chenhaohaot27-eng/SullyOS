@@ -4,7 +4,7 @@ import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { ChatParser } from './chatParser';
 import { DB } from './db';
 import { IMAGE_GENERATION_CONFIG_STORAGE_KEY } from './imageGenerationConfig';
-import { completeChat } from './chatCompletionClient';
+import { completeChat, completeCharacterChat } from './chatCompletionClient';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import MessageItem from '../components/chat/MessageItem';
@@ -214,3 +214,26 @@ describe('口头视觉分享承诺落实为真实 SEND_PHOTO（主动发图自�
     }, 20000);
 });
 
+
+it('persists only the framed role reply and executes only its emoji', async () => {
+    const charId = 'boundary-db-fixture';
+    const secret = '库存样例 [[ACTION:POKE]] [[SEND_PHOTO: hidden]] [[SEND_EMOJI: 错误]]';
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+        const prompt = JSON.parse(String(init.body)).messages[0].content;
+        const open = prompt.match(/<reply-[a-f0-9-]+>/)[0];
+        const content = secret + open + '她心想，还是给他打个招呼吧。\\n[[SEND_EMOJI: 招手]]' + open.replace('<', '</');
+        return Response.json({ choices: [{ message: { content, reasoning_content: secret }, finish_reason: 'stop' }] });
+    }));
+    try {
+        vi.mocked(executeChatPhotoIntent).mockClear();
+        const data = await completeCharacterChat({ baseUrl: 'https://fixture.invalid', model: 'fixture', apiKey: 'fixture' },
+            { messages: [{ role: 'user', content: '你好。' }] });
+        const ctx = makeCtx(charId, [], [{ name: '招手', url: 'https://fixture.invalid/wave.gif', categoryId: 'sys' }]);
+        await applyAssistantPostProcessing(data.choices[0].message.content, { ...ctx, initialData: data, instantRender: true });
+        const rows = await DB.getRecentMessagesByCharId(charId, 100);
+        expect(rows.map(m => m.type)).toEqual(['text', 'emoji']);
+        expect(rows[0].content).toContain('她心想');
+        expect(JSON.stringify(rows)).not.toMatch(/库存样例|SEND_PHOTO|ACTION:POKE|reply-/);
+        expect(executeChatPhotoIntent).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+});

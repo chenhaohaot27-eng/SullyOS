@@ -153,7 +153,7 @@ describe('safeFetchJson streaming', () => {
 });
 
 describe('SSE 拼装保留思考通道 (reasoning_content)', () => {
-    it('delta.reasoning_content 累积进 message.reasoning_content（思维链显示依赖它）', async () => {
+    it('思考增量只在独立回调中可见', async () => {
         const events = [
             'data: {"choices":[{"delta":{"reasoning_content":"她这句是在"}}]}\n\n',
             'data: {"choices":[{"delta":{"reasoning_content":"逗我玩…"}}]}\n\n',
@@ -167,7 +167,7 @@ describe('SSE 拼装保留思考通道 (reasoning_content)', () => {
             onDelta: () => {},
             onReasoningDelta: (delta, full) => { reasoningDeltas.push(delta); fullReasoning = full; },
         });
-        expect(data.choices[0].message.reasoning_content).toBe('她这句是在逗我玩…');
+        expect(data.choices[0].message.reasoning_content).toBeUndefined();
         expect(data.choices[0].message.content).toBe('哼，看穿你了');
         expect(reasoningDeltas.join('')).toBe('她这句是在逗我玩…');
         expect(fullReasoning).toBe('她这句是在逗我玩…');
@@ -187,7 +187,7 @@ describe('SSE 拼装保留思考通道 (reasoning_content)', () => {
             onDelta: (d) => { deltas.push(d); },
             onReasoningDelta: (d, full) => { reasoningDeltas.push(d); fullReasoning = full; },
         });
-        expect(data.choices[0].message.reasoning_content).toBe('thinking...');
+        expect(data.choices[0].message.reasoning_content).toBeUndefined();
         expect(deltas.join('')).toBe('回复正文');
         expect(reasoningDeltas.join('')).toBe('thinking...');
         expect(fullReasoning).toBe('thinking...');
@@ -210,7 +210,7 @@ describe('SSE 思考通道的更多字段形状（Claude 官转/CC 渠道）', (
         ];
         vi.stubGlobal('fetch', vi.fn(async () => sseResponse(events)));
         const data = await safeFetchJson('https://api.test/v1/chat/completions', { method: 'POST', body: '{}' }, 0, 0, undefined, { onDelta: () => {} });
-        expect(data.choices[0].message.reasoning_content).toBe('内心 os…');
+        expect(data.choices[0].message.reasoning_content).toBeUndefined();
         expect(data.choices[0].message.content).toBe('正文');
     });
 
@@ -228,7 +228,7 @@ describe('SSE 思考通道的更多字段形状（Claude 官转/CC 渠道）', (
             onReasoningDelta: (d) => { reasoningDeltas.push(d); },
         });
         expect(data.choices[0].message.content).toBe('你好呀');
-        expect(data.choices[0].message.reasoning_content).toBe('想一下…');
+        expect(data.choices[0].message.reasoning_content).toBeUndefined();
         expect(deltas.join('')).toBe('你好呀');
         expect(reasoningDeltas.join('')).toBe('想一下…');
     });

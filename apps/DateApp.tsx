@@ -12,7 +12,7 @@ import type { PipelineResult } from '../utils/memoryPalace/pipeline';
 import { incrementDigestRound, runCognitiveDigestion } from '../utils/memoryPalace';
 import { getRoomLabel } from '../utils/memoryPalace/types';
 import { extractContent } from '../utils/safeApi';
-import { completeChat } from '../utils/chatCompletionClient';
+import { completeCharacterChat } from '../utils/chatCompletionClient';
 import Modal from '../components/os/Modal';
 import DateSession from '../components/date/DateSession';
 import DateSettings from '../components/date/DateSettings';
@@ -250,7 +250,7 @@ const DateApp: React.FC = () => {
         // 原 OpenAI 兼容端点，body 与原 fetch 一致（同样零重试）；apiFormat 为
         // gemini-native 时自动改走 Gemini 原生流式端点，429/上游错误保留原始 message
         // 单次抛出，不自动重发。
-        const data = await completeChat(apiConfig, {
+        const data = await completeCharacterChat(apiConfig, {
             model: apiConfig.model,
             messages,
             temperature,

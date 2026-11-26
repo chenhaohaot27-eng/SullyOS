@@ -385,6 +385,7 @@ export const describeInstantChatFailure = (
   retryCount?: number,
 ): string | null => {
   if (!lastError) return null;
+  if (lastError.errorCode === 'LLM_REPLY_BOUNDARY') return '无法可靠分离思考与正式回复，本轮已拦截。请重新生成。';
   const retried = retryCount && retryCount > 0 ? `（重试 ${retryCount} 次后放弃）` : '';
   // 'stale' 是「排队太久没轮到就被跳过」，没有底层报错可以引。
   if (lastError.reason === 'stale') return `云端排队太久没轮到这一轮${retried}`;

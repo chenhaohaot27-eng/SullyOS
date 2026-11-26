@@ -1,3 +1,4 @@
+import { finalizeReply, frameReplyMessages } from './replyBoundary';
 import type { APIConfig } from '../types';
 import { recordApiCall, type ApiCallMeta } from './apiCallLog';
 import { normalizeApiBaseUrl, normalizeChatApiFormat } from './apiConfigNormalize';
@@ -116,11 +117,20 @@ export async function completeChat(
 export function normalizeOpenAiChatResponse(data: any): any {
   assertCompletionDelivered(data);
   const message = data?.choices?.[0]?.message;
-  if (Array.isArray(message?.content)) {
-    message.content = message.content.map((part: any) =>
-      typeof part === 'string' ? part : (!part?.thought && (!part?.type || part.type === 'text') && typeof part?.text === 'string' ? part.text : ''),
-    ).join('');
-  }
+  finalizeReply(data);
   if (message && completionOutcome(data).kind === 'limit') delete message.tool_calls;
+  return data;
+}
+
+/** A role reply may reach action parsers and durable history. Release it atomically. */
+export async function completeCharacterChat(
+  apiConfig: ChatCompletionApiConfig, body: Record<string, any>, options: ChatCompletionOptions = {},
+): Promise<any> {
+  const nonce = crypto.randomUUID();
+  const { streamHooks, ...transport } = options;
+  const data = await completeChat(apiConfig, { ...body, messages: frameReplyMessages(body.messages, nonce) }, transport);
+  finalizeReply(data, nonce);
+  const content = data.choices[0].message.content;
+  if (body.stream && content) streamHooks?.onDelta?.(content, content);
   return data;
 }

@@ -3,25 +3,25 @@ import { extractAvatarPerformance, inferAvatarPerformanceFromText, resolveAvatar
 import { parseCallAssistantMessage, stripCallTextFormatting } from './callReplyFormat';
 
 describe('视频通话回复分流', () => {
-  it('把原生 reasoning_content 存为思维链，不混进台词', () => {
+  it('原生 reasoning_content 不进入通话台词或历史', () => {
     expect(parseCallAssistantMessage({ content: '喂，听得到吗？', reasoning_content: '刚接起来，先确认信号。' }, true)).toEqual({
       text: '喂，听得到吗？',
-      thinkingChain: '刚接起来，先确认信号。',
     });
   });
 
-  it('剥掉闭合和未闭合 think 标签，且只在开关开启时返回思维链', () => {
+  it('隔离完整思考块，拒绝未闭合的思考块', () => {
     const raw = '<think>先别笑得太明显。</think>\n[[AVATAR: emotion=happy; gesture=wave; camera=push-in; gaze=viewer; intensity=0.85]]\n(chuckle) 你来啦。';
     const parsed = parseCallAssistantMessage({ content: raw }, true);
     expect(parsed.text).toBe('(chuckle) 你来啦。');
-    expect(parsed.thinkingChain).toBe('先别笑得太明显。');
+    expect(parsed.thinkingChain).toBeUndefined();
+    expect(() => parseCallAssistantMessage({ content: '正文<think>动作' })).toThrow('重新生成');
     expect(parsed.performance).toMatchObject({ emotion: 'happy', gesture: 'wave', camera: 'push-in', gaze: 'viewer', intensity: 0.85 });
     expect(parseCallAssistantMessage({ content: '<think>秘密</think>正文' }, false)).toEqual({ text: '正文' });
   });
 
   it('兼容 content 分块与 reasoning-only 中转', () => {
     expect(parseCallAssistantMessage({ content: [{ type: 'text', text: '分块正文' }] }, true).text).toBe('分块正文');
-    expect(parseCallAssistantMessage({ content: '', reasoning_content: '代理塞错位置的最终台词' }, true)).toEqual({ text: '代理塞错位置的最终台词' });
+    expect(parseCallAssistantMessage({ content: '', reasoning_content: '代理塞错位置的最终台词' }, true)).toEqual({ text: '' });
   });
 
   it('演出参数做枚举归一与强度限幅', () => {

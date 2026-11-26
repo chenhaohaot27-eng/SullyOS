@@ -451,50 +451,6 @@ async function saveContentToInbox(payload: any) {
   });
 }
 
-// ─── reasoning_buffer (kind=reasoning, 主线程 claim) ─────────────────────────
-
-async function saveReasoningToBuffer(payload: any) {
-  const sessionId: string | undefined = payload?.sessionId;
-  const charId: string | undefined = payload?.metadata?.charId;
-  const reasoningContent: string = String(payload?.reasoningContent ?? '');
-  if (!sessionId || !charId || !reasoningContent) {
-    traceSw('reasoning-drop-incomplete', payload, {
-      hasSessionId: !!sessionId,
-      hasCharId: !!charId,
-      chars: reasoningContent.length,
-    });
-    return;
-  }
-
-  await withInboxTx(ACTIVE_MSG_REASONING_BUFFER_STORE, 'readwrite', (store) => {
-    store.put({
-      sessionId,
-      charId,
-      reasoningContent,
-      receivedAt: Date.now(),
-    });
-  });
-  traceSw('reasoning-buffer-saved', payload, { chars: reasoningContent.length });
-
-  // reasoning push 与 content push 是两条独立 Web Push, 到达/处理顺序不保证. 主线程只在处理
-  // "首条 content" 时 claimReasoning, 若 content 抢先落库, reasoning 会变孤儿、思维链丢失.
-  // 这里写完 buffer 立刻通知主线程: 若该 session 首条回复已落库就把思维链回填上去 (见
-  // activeMsgRuntime 'active-msg-reasoning' 处理); 若 content 还没到则是 no-op, 等正常 claim.
-  await notifyClients({ type: 'active-msg-reasoning', sessionId, charId });
-}
-
-/**
- * 清空同 sessionId 的 reasoning_buffer.
- * 镜像主应用 `applyAssistantPostProcessing` 跨 LLM round 的 `data = newResponse` 覆盖语义:
- * 早期 round 的 reasoning (工具规划阶段的内心戏) 不应混入最终一轮的 thinking chain.
- */
-async function clearReasoningBuffer(sessionId: string) {
-  if (!sessionId) return;
-  await withInboxTx(ACTIVE_MSG_REASONING_BUFFER_STORE, 'readwrite', (store) => {
-    store.delete(sessionId);
-  });
-}
-
 // ─── pending_tool_calls (kind=tool_request, 主线程 runner 跑) ────────────────
 
 async function savePendingToolCall(payload: any) {
@@ -502,12 +458,6 @@ async function savePendingToolCall(payload: any) {
   const charId: string | undefined = payload?.metadata?.charId;
   const toolCalls = Array.isArray(payload?.toolCalls) ? payload.toolCalls : [];
   if (!sessionId || !charId || toolCalls.length === 0) return;
-
-  // 进入新 LLM round 前清空老 reasoning — 这一轮的 reasoning 是"工具规划"性质,
-  // 不属于最终给用户看的 thinking chain. claimReasoning 永远只读到最后一轮的 chunks.
-  await clearReasoningBuffer(sessionId).catch((e) => {
-    console.warn('[amsg] clearReasoningBuffer before tool_request failed', e);
-  });
 
   // iteration 来自 worker hook metadata.iteration (Round 2 worker 一定带), 兜底 0 防老 worker.
   // 客户端 /continue 时取它 + 1; 多轮 tool 链路里 iteration 单调递增, worker 也按它做 fail-fast 400.
@@ -518,6 +468,7 @@ async function savePendingToolCall(payload: any) {
       sessionId,
       charId,
       toolCalls,
+      lemuriaReplyVerified: payload.metadata?.lemuriaReplyVerified === true,
       llmOutputText: String(payload?.message || ''),
       iteration,
       createdAt: Date.now(),
@@ -629,13 +580,20 @@ async function saveIncomingActiveMessage(payload: any) {
   const messageKind: string = payload?.messageKind ?? 'content';
   traceSw('route-payload', payload, { route: messageKind });
 
+  if ((messageKind === 'tool_request' || (messageKind === 'content' &&
+      ['instant', 'prompted', 'auto'].includes(payload?.messageType))) && payload?.metadata?.lemuriaReplyVerified !== true) {
+    await notifyClients({ type: 'active-msg-error', code: 'LLM_REPLY_BOUNDARY', charId: payload?.metadata?.charId,
+      message: '云端回复缺少正文校验，请更新 Worker 后重新生成。' });
+    return;
+  }
+
   switch (messageKind) {
     case 'content':
       await saveContentToInbox(payload);
       return;
 
     case 'reasoning':
-      await saveReasoningToBuffer(payload);
+      // Never persist provider reasoning.
       return;
 
     case 'emotion_update':

@@ -1,3 +1,4 @@
+import { readReply } from './replyBoundary';
 import type { StreamHooks } from './safeApi';
 import { assertCompletionDelivered } from './completionOutcome';
 
@@ -386,8 +387,13 @@ class GeminiResponseAssembler {
     for (const partValue of parts) {
       if (!partValue || typeof partValue !== 'object') continue;
       const part = clonePart(partValue as JsonRecord);
+      if (part.thought === true) {
+        // Signed parts are opaque provider state, used only for the current tool continuation.
+        if (part.thoughtSignature && !part.functionCall) this.rawParts.push(part);
+        continue;
+      }
       this.rawParts.push(part);
-      if (typeof part.text === 'string' && part.thought !== true) {
+      if (typeof part.text === 'string') {
         const delta = part.text;
         if (delta) {
           this.visibleText += delta;
@@ -395,7 +401,7 @@ class GeminiResponseAssembler {
             this.firstDeltaSent = true;
             try { this.hooks?.onFirstDelta?.(); } catch { /* display callback must not break parsing */ }
           }
-          try { this.hooks?.onDelta?.(delta, this.visibleText); } catch { /* display callback must not break parsing */ }
+
         }
       }
       if (part.functionCall && typeof part.functionCall === 'object') {
@@ -418,9 +424,10 @@ class GeminiResponseAssembler {
   }
 
   finishResponse(fallbackModel: string): JsonRecord {
+    const content = readReply(this.visibleText);
     const message: JsonRecord = {
       role: 'assistant',
-      content: this.visibleText,
+      content,
       ...(this.calls.length ? { tool_calls: this.calls } : {}),
     };
     if (this.calls.length || this.rawParts.some(part => part.thoughtSignature != null)) {
@@ -430,6 +437,7 @@ class GeminiResponseAssembler {
         ...(this.providerToolCalls.length ? { toolCalls: this.providerToolCalls.map(call => ({ ...call })) } : {}),
       });
     }
+    if (content && this.finish) this.hooks?.onDelta?.(content, content);
     const promptTokens = Number(this.usage?.promptTokenCount) || 0;
     const completionTokens = Number(this.usage?.candidatesTokenCount) || 0;
     const totalTokens = Number(this.usage?.totalTokenCount) || promptTokens + completionTokens;

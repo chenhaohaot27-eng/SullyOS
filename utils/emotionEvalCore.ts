@@ -1,3 +1,4 @@
+import { publicMessageText, readReply } from './replyBoundary';
 /**
  * 云端情绪评估的共用内核：占位符还原 + 副 API 请求 + 失败文案（先打码后截断）。
  *
@@ -128,11 +129,7 @@ export const requestEmotionEval = async (
       return { raw: null, error: `副 API HTTP ${res.status}${snippet ? `：${snippet}` : ''}` };
     }
     const data = await res.json() as any;
-    // 个别中转把全部输出塞进 reasoning_content 而 content 留空——与客户端
-    // utils/emotionApply.ts 的 extractAssistantText 同一套兜底。
-    const message = data?.choices?.[0]?.message;
-    const raw = flattenEvalContent(message?.content)
-      || (typeof message?.reasoning_content === 'string' ? message.reasoning_content : '');
+    const raw = readReply(publicMessageText(data?.choices?.[0]?.message));
     if (!raw.trim()) {
       return {
         raw: null,

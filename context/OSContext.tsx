@@ -1,3 +1,4 @@
+import { completeCharacterChat } from '../utils/chatCompletionClient';
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
@@ -23,7 +24,6 @@ import { WorldScheduler, toTickEntries } from '../utils/worldHome/scheduler';
 import { runWorldEpisode, rerollWorldCharBeat } from '../utils/worldHome/engine';
 import { migrateWorldDaySegs } from '../utils/worldHome/prompts';
 import { ChatParser } from '../utils/chatParser';
-import { safeFetchJson } from '../utils/safeApi';
 import { captureApiRequestOnce, getApiCallAmbientContext, recordApiCall, setApiCallAmbientContext, updateApiRequestCaptureUsage } from '../utils/apiCallLog';
 import { isGlobalStreamEnabled, upgradeChatBodyToStream, assembleUpgradedResponse } from '../utils/streamUpgrade';
 import { matrixRequests } from '../utils/protocolMatrixTransport';
@@ -1246,14 +1246,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           }
                           const responseDetail = imageLogMeta
                               ? sanitizeImageGenerationLogText(text, sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)
-                              : text.substring(0, 500);
+                              : `HTTP ${response.status}`;
                           setSystemLogs(prev => [{
                               id: `log-${Date.now()}`,
                               timestamp: Date.now(),
                               type: 'network',
                               source: imageLogMeta ? 'Image API' : 'API Request',
                               message: imageLogMeta && response.status === 429 ? '当前模型线路繁忙' : `HTTP ${response.status} Error`,
-                              detail: `URL: ${urlStr}\nResponse: ${responseDetail}${reqSummary}`
+                              detail: `Response: ${responseDetail}${reqSummary}`
                           }, ...prev.slice(0, 49)]); // Keep last 50
                       } catch (e) {
                           setSystemLogs(prev => [{
@@ -1262,7 +1262,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               type: 'network',
                               source: 'API Request',
                               message: `HTTP ${response.status} (Unreadable Body)`,
-                              detail: `URL: ${urlStr}`
+                              detail: `HTTP ${response.status}`
                           }, ...prev.slice(0, 49)]);
                       }
                   }
@@ -2096,13 +2096,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       const inboxFailToastAt: Record<string, number> = {};
       const inboxFailHandler = (e: Event) => {
           const { charId, charName, kind } = ((e as CustomEvent).detail || {}) as
-              { charId?: string; charName?: string; kind?: 'retrying' | 'degraded' | 'swallowed' };
+              { charId?: string; charName?: string; kind?: 'retrying' | 'degraded' | 'swallowed' | 'reply-boundary' };
           if (!charId) return;
           const now = Date.now();
           if (now - (inboxFailToastAt[charId] || 0) < 60_000) return;
           inboxFailToastAt[charId] = now;
           const who = charName || '角色';
-          const text = kind === 'degraded'
+          const text = kind === 'reply-boundary' ? '云端无法验证正式回复，请确认 Worker 已更新后重新生成。' : kind === 'degraded'
               ? `${who}有一条消息没能正常处理，已按原文显示（表情、卡片这些可能不完整）`
               : kind === 'swallowed'
                   ? `${who}有一条定时消息被跳过了：本地存储异常，判不出发出来会不会打断你们当前的对话`
@@ -2352,7 +2352,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               // 4. API call
               const baseUrl = api.baseUrl.replace(/\/+$/, '');
-              const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api.apiKey || 'sk-none'}` };
               const reqBody: any = { model: api.model, messages: fullMessages, temperature: 0.85, stream: false };
               // 思考链开启时显式向后端请求 extended thinking — 与 useChatAI 同步,
               // 不同代理认不同入口,全都试一遍,代理不识别的会自动忽略
@@ -2369,33 +2368,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   delete reqBody.temperature;
                   delete reqBody.top_p;
               }
-              const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                  method: 'POST', headers,
-                  body: JSON.stringify(reqBody)
-              }, 2, 0, { appName: '消息', charId, charName: char.name, purpose: '主动消息' });
-
-              // 5. Process & save response
-              let aiContent = data.choices?.[0]?.message?.content || '';
-              // 思考链抽取 — 与 useChatAI 保持一致:reasoning_content 字段 + 主 content 里的 <think>/<thinking>/<thought> 块,
-              // 拼接后挂到本回合首条 assistant 消息的 metadata.thinkingChain
-              let pendingThinkingChain: string | null = null;
-              if (payload.flags.thinkingActive) {
-                  const lastReasoning = (data?.choices?.[0]?.message?.reasoning_content || '').trim();
-                  const thinkBlocks: string[] = [];
-                  const thinkPat = /<(think|thinking|thought)>([\s\S]*?)<\/\1>/gi;
-                  let tm: RegExpExecArray | null;
-                  while ((tm = thinkPat.exec(aiContent)) !== null) {
-                      const t = tm[2].trim();
-                      if (t) thinkBlocks.push(t);
-                  }
-                  if (!/<\/(?:think|thinking|thought)>/i.test(aiContent)) {
-                      const openOnly = aiContent.match(/<(?:think|thinking|thought)>([\s\S]*$)/i);
-                      if (openOnly && openOnly[1].trim()) thinkBlocks.push(openOnly[1].trim());
-                  }
-                  const chain = [lastReasoning, ...thinkBlocks].filter(s => !!s).join('\n\n').trim();
-                  if (chain) pendingThinkingChain = chain;
-              }
-              aiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/gi, '');
+              const data = await completeCharacterChat({ ...api, baseUrl }, reqBody, {
+                  meta: { appName: '消息', charId, charName: char.name, purpose: '主动消息' },
+              });
+              let aiContent = data.choices[0].message.content;
               aiContent = aiContent.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, '');
               aiContent = aiContent.replace(/^[\w一-龥]+:\s*/, '');
               aiContent = aiContent.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n').trim();
@@ -2405,21 +2381,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               const savedPreviewChunks: string[] = [];
               const baseTimestamp = Date.now();
               let offset = 0;
-              // 思考链只挂到本回合首条 assistant 消息上,避免每个气泡重复
-              const consumeThinkingMeta = (): { thinkingChain: string } | undefined => {
-                  if (!pendingThinkingChain) return undefined;
-                  const meta = { thinkingChain: pendingThinkingChain };
-                  pendingThinkingChain = null;
-                  return meta;
-              };
-
               // HTML 卡片：在 sanitize 之前抽出 [html]...[/html] 块,与 useChatAI 保持一致。
               // 没这一步主动消息会把整段 [html] 当纯文本落库,前端只能渲染成乱码。
               if ((char as any).htmlModeEnabled && /\[html\]/i.test(aiContent)) {
                   const { blocks, cleanedContent } = extractHtmlBlocks(aiContent);
                   for (const blk of blocks) {
                       try {
-                          const meta = consumeThinkingMeta();
+
                           await DB.saveMessage({
                               charId,
                               role: 'assistant',
@@ -2429,7 +2397,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               metadata: {
                                   htmlSource: blk.html,
                                   htmlTextPreview: blk.textPreview,
-                                  ...(meta || {}),
+
                               },
                           } as any);
                           if (blk.textPreview) savedPreviewChunks.push(blk.textPreview);
@@ -2461,14 +2429,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           });
                           return false;
                       }
-                      const meta = consumeThinkingMeta();
+
                       await DB.saveMessage({
                           charId,
                           role: 'assistant',
                           type: 'emoji',
                           content: resolution.emoji.url,
                           timestamp: baseTimestamp + offset,
-                          ...(meta ? { metadata: meta } : {}),
+
                       });
                       offset += 1;
                       return true;
@@ -2489,14 +2457,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               if (!cleaned || !ChatParser.hasDisplayContent(cleaned)) continue;
                               for (const chunk of ChatParser.chunkText(cleaned)) {
                                   if (!chunk) continue;
-                                  const meta = consumeThinkingMeta();
+
                                   await DB.saveMessage({
                                       charId,
                                       role: 'assistant',
                                       type: 'text',
                                       content: chunk,
                                       timestamp: baseTimestamp + offset,
-                                      ...(meta ? { metadata: meta } : {}),
+
                                   });
                                   savedPreviewChunks.push(chunk);
                                   offset += 1;
@@ -2521,14 +2489,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               const biContent = originalText && translatedText
                                   ? `${originalText}\n%%BILINGUAL%%\n${translatedText}`
                                   : (originalText || translatedText);
-                              const meta = consumeThinkingMeta();
+
                               await DB.saveMessage({
                                   charId,
                                   role: 'assistant',
                                   type: 'text',
                                   content: biContent,
                                   timestamp: baseTimestamp + offset,
-                                  ...(meta ? { metadata: meta } : {}),
+
                               });
                               savedPreviewChunks.push(originalText || translatedText);
                               offset += 1;
@@ -2554,14 +2522,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               .filter(chunk => ChatParser.hasDisplayContent(chunk));
 
                           for (const chunk of textChunks) {
-                              const meta = consumeThinkingMeta();
+
                               await DB.saveMessage({
                                   charId,
                                   role: 'assistant',
                                   type: 'text',
                                   content: chunk,
                                   timestamp: baseTimestamp + offset,
-                                  ...(meta ? { metadata: meta } : {}),
+
                               });
                               savedPreviewChunks.push(chunk);
                               offset += 1;

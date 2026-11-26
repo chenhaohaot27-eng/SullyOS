@@ -1,3 +1,6 @@
+import { publicMessageText, readReply, finalizeReply } from './replyBoundary';
+import { parseSseToCompletion, SseAssembler, type SseFeedDelta } from './openAiStream';
+export { parseSseToCompletion } from './openAiStream';
 /**
  * Safe API response parsing utilities.
  *
@@ -23,7 +26,7 @@ export function isChatCompletionUrl(url: string): boolean {
 /** Parse a fetch Response as JSON safely (text-first, then JSON.parse) */
 export async function safeResponseJson(response: Response): Promise<any> {
     const text = await response.text();
-    return parseRawBodyText(text, response.status, response.headers.get('content-type'));
+    return finalizeReply(parseRawBodyText(text, response.status, response.headers.get('content-type')));
 }
 
 /** 判断响应是否是 SSE；兼容 OpenRouter 在首个 data 事件前发送的 ": OPENROUTER PROCESSING" 注释。 */
@@ -48,11 +51,8 @@ function parseRawBodyText(text: string, status: number, contentType?: string | n
     // Detect HTML / XML responses
     const trimmed = text.trimStart();
     if (trimmed.startsWith('<')) {
-        // Extract useful info from HTML error pages
-        const titleMatch = trimmed.match(/<title>(.*?)<\/title>/i);
-        const hint = titleMatch ? titleMatch[1] : trimmed.slice(0, 120);
         throw new Error(
-            `API返回了HTML而非JSON (HTTP ${status}): ${hint}`
+            `API返回了HTML而非JSON (HTTP ${status})`
         );
     }
 
@@ -66,196 +66,23 @@ function parseRawBodyText(text: string, status: number, contentType?: string | n
     if (isSseResponseText(text, contentType)) {
         const assembled = parseSseToCompletion(text);
         if (assembled) return assembled;
-        const preview = text.slice(0, 200);
         throw new Error(
-            `API流式响应未返回有效数据 (HTTP ${status}): ${preview}`
+            `API流式响应未返回有效数据 (HTTP ${status})`
         );
     }
 
     try {
         return JSON.parse(text);
     } catch (e) {
-        // Show a snippet of what we got for debugging
-        const preview = text.slice(0, 200);
         throw new Error(
-            `API返回了无效JSON (HTTP ${status}): ${preview}`
+            `API返回了无效JSON (HTTP ${status})`
         );
-    }
-}
-
-/**
- * 把 OpenAI 兼容的 SSE 流响应合成一个普通 chat/completion 响应对象。
- *
- * 支持两种形态：
- *  1. delta 流：每个 chunk 的 choices[0].delta.content 是增量片段，拼接起来
- *  2. 一次性 SSE：choices[0].message.content 直接就是全部内容（少见）
- *
- * 返回 { choices: [{ message: { content, role }, finish_reason }], ... } 方便上游
- * 用现有的 data.choices[0].message.content 路径消费，无需改调用点。
- */
-export function parseSseToCompletion(raw: string): any | null {
-    const asm = new SseAssembler();
-    // 按行切，逐行找 "data: " 开头（允许 \r\n、空行分隔）
-    for (const line of raw.split(/\r?\n/)) asm.feedLine(line);
-    return asm.finish();
-}
-
-/**
- * OpenAI 兼容 SSE 流的增量拼装器。
- * feedLine 逐行喂入（分别返回本行的正文与思考增量），finish 合成完整 completion 对象。
- * parseSseToCompletion（整包路径）和 readBodyWithStreaming（真流式路径）共用这一份，
- * 保证两条路对 delta / message / tool_calls 分片的处理完全一致。
- */
-interface SseFeedDelta {
-    content: string;
-    reasoning: string;
-}
-
-class SseAssembler {
-    content = '';
-    private role = 'assistant';
-    private finishReason: string | null = null;
-    private firstChunk: any = null;
-    private usage: any = undefined;
-    private gotAnyChunk = false;
-    private sawDone = false;
-    get receivedDone(): boolean { return this.sawDone; }
-    private brokenEvent = false;
-    // tool_calls 流式分片: OpenAI 约定按 index 分组, id/name 在首片, arguments 逐片拼接。
-    // 不拼的话开了 stream 的工具模式(瑞幸/MCP)会静默丢掉全部工具调用。
-    private toolCalls: any[] = [];
-    // 思考通道: DeepSeek/Gemini 系走 delta.reasoning_content, OpenRouter 走 delta.reasoning,
-    // 部分 Claude 官转(CC 渠道)走 delta.thinking 或分块 content(数组里 type:'thinking')。
-    // 丢掉它 = 开思考链的角色"不出思维链"(后处理从 message.reasoning_content 抽取),
-    // 且 extractContent / extractAssistantText 的 reasoning 兜底全部失效(思考模型把全部
-    // 输出塞进 reasoning 时表现为空回复→重试→巨慢)。2026-07 全局流式上线后被放大成必现。
-    private reasoning = '';
-    // 取证探针: 记录本条流里 delta 出现过的字段名。渠道的思考字段形状五花八门,
-    // 与其一轮一轮猜, 不如把名单打出来(finish() 附带 + 控制台一行)一次看清。
-    private deltaKeys = new Set<string>();
-
-    /** 喂一行 SSE 文本，分别返回正文与思考增量（没有则为空串）。 */
-    feedLine(line: string): SseFeedDelta {
-        if (!line.startsWith('data:')) return { content: '', reasoning: '' };
-        const payload = line.slice(5).trim();
-        if (payload === '[DONE]') this.sawDone = true;
-        if (!payload || this.sawDone) return { content: '', reasoning: '' };
-        let chunk: any;
-        try { chunk = JSON.parse(payload); } catch {
-            this.brokenEvent = true;
-            return { content: '', reasoning: '' };
-        }
-        if (chunk?.error) this.brokenEvent = true;
-        if (!chunk || typeof chunk !== 'object') return { content: '', reasoning: '' };
-        return this.feedChunk(chunk);
-    }
-
-    feedChunk(chunk: any): SseFeedDelta {
-        this.gotAnyChunk = true;
-        if (!this.firstChunk) this.firstChunk = chunk;
-        // OpenAI 流式 usage 在最后一个 chunk（include_usage=true 时），也可能出现在中途；
-        // 始终取最后一个非空的 usage，兼容各家代理。
-        if (chunk.usage) this.usage = chunk.usage;
-        const choice = chunk.choices?.[0];
-        if (!choice) return { content: '', reasoning: '' };
-        let delta = '';
-        let reasoningDelta = '';
-        // delta 路径（OpenAI 流式常见）
-        if (choice.delta) {
-            for (const k of Object.keys(choice.delta)) this.deltaKeys.add(k);
-            if (typeof choice.delta.content === 'string') {
-                delta = choice.delta.content;
-                this.content += delta;
-            }
-            // Anthropic 透传形态: delta.content 是分块数组 [{type:'text',text}|{type:'thinking',thinking}]
-            else if (Array.isArray(choice.delta.content)) {
-                for (const block of choice.delta.content) {
-                    if (block?.type === 'text' && typeof block.text === 'string') {
-                        delta += block.text;
-                        this.content += block.text;
-                    } else if (block?.type === 'thinking' && typeof block.thinking === 'string') {
-                        this.reasoning += block.thinking;
-                        reasoningDelta += block.thinking;
-                    }
-                }
-            }
-            const dr = choice.delta.reasoning_content ?? choice.delta.reasoning ?? choice.delta.thinking;
-            if (typeof dr === 'string') {
-                this.reasoning += dr;
-                reasoningDelta += dr;
-            }
-            if (choice.delta.role) this.role = choice.delta.role;
-            if (Array.isArray(choice.delta.tool_calls)) {
-                for (const frag of choice.delta.tool_calls) {
-                    const idx = frag.index ?? 0;
-                    if (!this.toolCalls[idx]) this.toolCalls[idx] = { id: '', type: 'function', function: { name: '', arguments: '' } };
-                    if (frag.id) this.toolCalls[idx].id = frag.id;
-                    if (frag.type) this.toolCalls[idx].type = frag.type;
-                    if (frag.function?.name) this.toolCalls[idx].function.name += frag.function.name;
-                    if (frag.function?.arguments) this.toolCalls[idx].function.arguments += frag.function.arguments;
-                }
-            }
-        }
-        // message 路径（一次性 SSE，不常见但兼容）
-        else if (choice.message) {
-            if (typeof choice.message.content === 'string') {
-                delta = choice.message.content;
-                this.content = delta;
-            }
-            const mr = choice.message.reasoning_content ?? choice.message.reasoning ?? choice.message.thinking;
-            if (typeof mr === 'string') {
-                this.reasoning += mr;
-                reasoningDelta += mr;
-            }
-            if (choice.message.role) this.role = choice.message.role;
-            if (Array.isArray(choice.message.tool_calls)) this.toolCalls.push(...choice.message.tool_calls);
-        }
-        if (choice.finish_reason) this.finishReason = choice.finish_reason;
-        return { content: delta, reasoning: reasoningDelta };
-    }
-
-    get reasoningContent(): string {
-        return this.reasoning;
-    }
-
-    finish(): any | null {
-        if (!this.gotAnyChunk) return null;
-        // 取证探针: 思考没抓到时把渠道实际用的 delta 字段名单打出来, 下一轮排查直接看名单。
-        // (开思考的请求思考却为空 = 大概率又是没见过的字段形状)
-        if (!this.reasoning && this.deltaKeys.size > 0) {
-            console.log(`🔎 [SSE] 本条流的 delta 字段: ${[...this.deltaKeys].join(', ')}${this.content ? '' : ' (且正文为空!)'}`);
-        }
-        // 合成兼容结构
-        return {
-            ...(this.brokenEvent || (!this.sawDone && !this.finishReason) ? { stream_incomplete: true } : {}),
-            id: this.firstChunk?.id || 'sse-assembled',
-            object: 'chat.completion',
-            created: this.firstChunk?.created || Math.floor(Date.now() / 1000),
-            model: this.firstChunk?.model || '',
-            choices: [{
-                index: 0,
-                message: {
-                    role: this.role,
-                    content: this.content,
-                    ...(this.reasoning ? { reasoning_content: this.reasoning } : {}),
-                    ...(this.toolCalls.length ? {
-                        tool_calls: this.toolCalls.filter(Boolean).map((tc, i) => ({ ...tc, id: tc.id || `call_sse_${i}` })),
-                    } : {}),
-                },
-                finish_reason: this.finishReason,
-            }],
-            usage: this.usage || this.firstChunk?.usage,
-        };
     }
 }
 
 /** safeFetchJson 的可选流式钩子（只在响应确实是 SSE 流时触发） */
 export interface StreamHooks {
-    /**
-     * 每收到一段正文增量时回调。fullText 是**本次尝试**累计的完整正文——
-     * safeFetchJson 内部重试会重新开一条流，fullText 从空串重新累计，
-     * 调用方每次都应基于 fullText 全量重算（天然处理重试重置）。
-     */
+    /** 完整 SSE 正文通过校验后通知显示层。 */
     onDelta?: (delta: string, fullText: string) => void;
     /** 每收到一段原生 reasoning 增量时回调；渠道不发送 reasoning 时不会触发。 */
     onReasoningDelta?: (delta: string, fullReasoning: string) => void;
@@ -264,7 +91,7 @@ export interface StreamHooks {
 }
 
 /**
- * 真·流式读取响应体：边到边解析 SSE 行并回调 onDelta。
+ * 真·流式读取响应体：边到边解析 SSE 行，收齐校验后回调 onDelta。
  * 支持 data 事件前先到达的 SSE 注释/心跳；代理无视 stream:true 返回整包 JSON / HTML
  * 错误页时，自动退化为累积全文后走 parseRawBodyText —— 与非流式路径行为一致。
  */
@@ -291,7 +118,7 @@ export async function readBodyWithStreaming(
                 if (timing && startedAt) timing.firstDeltaMs = Date.now() - startedAt;
                 try { hooks.onFirstDelta?.(); } catch { /* 回调异常不拦截流 */ }
             }
-            try { hooks.onDelta?.(delta.content, asm.content); } catch { /* 回调异常不拦截流 */ }
+            // Content is released only after the complete turn passes validation.
         }
         if (delta.reasoning) {
             try { hooks.onReasoningDelta?.(delta.reasoning, asm.reasoningContent); } catch { /* 回调异常不拦截流 */ }
@@ -344,10 +171,15 @@ export async function readBodyWithStreaming(
         consumeLines();
         if (pending.trim()) emit(asm.feedLine(pending.trim()));
         const assembled = asm.finish();
-        if (assembled) return assembled;
+        if (assembled) {
+            const result = finalizeReply(assembled);
+            const content = result.choices[0].message.content;
+            if (content && !result.stream_incomplete) hooks.onDelta?.(content, content);
+            return result;
+        }
         // 一个 chunk 都没解析出来 → 按原始文本兜底（保留原 preview 报错行为）
     }
-    return parseRawBodyText(raw, response.status, contentType);
+    return finalizeReply(parseRawBodyText(raw, response.status, contentType));
 }
 
 /**
@@ -515,35 +347,9 @@ export async function safeFetchJson(
  * Safely extract the AI content string from an OpenAI-compatible response.
  * Returns '' instead of crashing when the structure is unexpected.
  *
- * Handles thinking models (DeepSeek-R1, GLM-4.5, QwQ, Qwen3, ...):
- *  - Falls back to `reasoning_content` when `content` is missing/empty
- *  - Strips hidden <think>...</think> chain-of-thought blocks
  */
 export function extractContent(data: any): string {
-    const msg = data?.choices?.[0]?.message;
-    const contentToText = (value: unknown): string => {
-        if (typeof value === 'string') return value;
-        if (Array.isArray(value)) {
-            return value.map(part => {
-                if (typeof part === 'string') return part;
-                if (!part || typeof part !== 'object') return '';
-                const record = part as Record<string, unknown>;
-                return contentToText(record.text ?? record.content ?? record.value);
-            }).filter(Boolean).join('');
-        }
-        if (value && typeof value === 'object') {
-            const record = value as Record<string, unknown>;
-            return contentToText(record.text ?? record.content ?? record.value);
-        }
-        return '';
-    };
-
-    let text = contentToText(msg?.content);
-    if (!text.trim()) text = contentToText(msg?.reasoning_content);
-    // Strip hidden chain-of-thought blocks: <think> / <thinking> / <thought>
-    text = text.replace(/<(think|thinking|thought)>[\s\S]*?<\/\1>/gi, '');
-    text = text.replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, '');
-    return text.trim();
+    return readReply(publicMessageText(data?.choices?.[0]?.message)).trim();
 }
 
 /**
@@ -771,6 +577,6 @@ export function extractJson(raw: string): any | null {
         } catch {}
     }
 
-    console.error('[extractJson] All attempts failed. Raw:', raw.slice(0, 300));
+    console.error('[extractJson] JSON 解析失败', { chars: raw.length });
     return null;
 }

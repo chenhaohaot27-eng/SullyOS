@@ -195,11 +195,11 @@ describe('extractAssistantText — 响应形态兜底', () => {
     });
 
     it('分块数组 content', () => {
-        expect(extractAssistantText({ content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] })).toBe('a\nb');
+        expect(extractAssistantText({ content: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] })).toBe('ab');
     });
 
-    it('content 为空时回退 reasoning_content', () => {
-        expect(extractAssistantText({ content: '', reasoning_content: '{"changed":false}' })).toBe('{"changed":false}');
+    it('content 为空时不解析 reasoning_content', () => {
+        expect(extractAssistantText({ content: '', reasoning_content: '{"changed":false}' })).toBe('');
     });
 
     it('全空 → 空字符串', () => {

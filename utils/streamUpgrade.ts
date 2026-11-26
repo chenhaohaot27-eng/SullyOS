@@ -11,7 +11,7 @@
  *     `stream:true (+ stream_options.include_usage)`
  *   - 响应侧：把 SSE 攒齐拼回标准 chat.completion JSON，再交还调用方
  *
- * 调用方拿到的响应与升级前**字节级等价**（同样的 choices/usage 结构），但传输过程
+ * 调用方拿到统一隔离思考字段后的 choices/usage 结构，但传输过程
  * 一直有字节在流，网关不会误判死连接。已经自己设了 `stream:true` 的调用（聊天主路径、
  * 见面、情绪评估）不碰——它们各自的解析链路（增量预览 / safeResponseJson）原样工作。
  *
@@ -19,7 +19,7 @@
  * 重发付费生成请求：中转可能已经把第一份交给上游，静默重发会造成重复扣费。
  */
 
-import { isSseResponseText, parseSseToCompletion, readBodyWithStreaming } from './safeApi';
+import { readBodyWithStreaming } from './safeApi';
 
 const API_CONFIG_KEY = 'os_api_config';
 
@@ -51,34 +51,11 @@ export function upgradeChatBodyToStream(bodyStr: string): string | null {
     return JSON.stringify(parsed);
 }
 
-/**
- * 把（升级后拿到的）响应归一化回调用方期待的形态：
- *   - SSE 流 → 攒齐拼装成标准 chat.completion JSON（Content-Type: application/json）
- *   - 已是 JSON（代理无视 stream）/ 其他文本 → 原文重新包装（body 已被消费，必须重包）
- * 只在响应 ok 时调用；错误响应由调用方原样透传给业务层的错误处理。
- */
+/** Upgraded and mislabeled responses pass through the same public-message adapter. */
 export async function assembleUpgradedResponse(response: Response): Promise<Response> {
-    if (response.headers.get('content-type')?.includes('text/event-stream')) {
-        const data = await readBodyWithStreaming(response, {});
-        return new Response(JSON.stringify(data), {
-            status: response.status, statusText: response.statusText, headers: { 'Content-Type': 'application/json' },
-        });
-    }
-    const text = await response.text();
-    if (isSseResponseText(text, response.headers.get('content-type'))) {
-        const assembled = parseSseToCompletion(text);
-        if (assembled) {
-            return new Response(JSON.stringify(assembled), {
-                status: response.status,
-                statusText: response.statusText,
-                headers: { 'Content-Type': 'application/json' },
-            });
-        }
-        // 拼不出任何 chunk：按原文透传，让调用方的解析器报出带 preview 的错误
-    }
-    return new Response(text, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: { 'Content-Type': response.headers.get('content-type') || 'application/json' },
+    const data = await readBodyWithStreaming(response, {});
+    return new Response(JSON.stringify(data), {
+        status: response.status, statusText: response.statusText,
+        headers: { 'Content-Type': 'application/json' },
     });
 }
