@@ -49,9 +49,10 @@ function safeField(value: string, request: any, credentials: string[]): string {
     // This known relay error can itself appear in a previous failure notice in the history.
     if (/^invalid thought signature\.?$/i.test(line)) return line;
     // Reject full short inputs and excerpts of longer turns (including multipart content).
-    const samples = (line.match(/.{8,10}/gu) || []).concat(
-        line.split(/["'“”‘’：:\n]/).map(s => s.trim()).filter(s => s.length >= 2),
-    );
+    const samples = [
+        ...(line.match(/.{8,10}/gu) ?? []),
+        ...line.split(/["'“”‘’：:\n]/).map(s => s.trim()).filter(s => s.length >= 2),
+    ];
     const echoed = (part: unknown): boolean => {
         if (typeof part === 'string') {
             const s = part.trim();
