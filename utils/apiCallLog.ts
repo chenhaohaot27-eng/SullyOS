@@ -83,6 +83,7 @@ export interface ApiCallLogEntry extends ApiCallMeta {
     backendModel?: string;
     /** HTTP 状态码（成功 / 失败均记，失败时可能是最后一次的状态） */
     status?: number;
+    errorDetail?: string;
     finishReason?: string;
     /** 请求是否成功拿到 JSON */
     ok: boolean;
@@ -449,7 +450,7 @@ const MAX_BREAKDOWN_BLOCKS = 48;
  * 从 chat/completions 请求体算输入构成。解析不了 / 没有 messages 时返回 undefined。
  * system 逐块统计，历史消息按角色聚合（用户只关心"内置注入哪块肥"，不关心第几条历史）。
  */
-export function buildPromptBreakdown(body: unknown): PromptBlockStat[] | undefined {
+export function buildPromptBreakdown(body: unknown, countsOnly = false): PromptBlockStat[] | undefined {
     try {
         let parsed: any = body;
         if (typeof body === 'string') {
@@ -459,6 +460,7 @@ export function buildPromptBreakdown(body: unknown): PromptBlockStat[] | undefin
         if (!Array.isArray(messages) || messages.length === 0) return undefined;
 
         const out: PromptBlockStat[] = [];
+        let systemChars = 0, systemCount = 0;
         let userChars = 0, userCount = 0, asstChars = 0, asstCount = 0, otherChars = 0, otherCount = 0;
         // 情绪评估等路径把「完整 system prompt + 展平历史 + 任务说明」整个打包成一条
         // user 消息发送——不拆的话构成面板只会显示「用户消息 ×1 · 100%」，看不出内里。
@@ -477,9 +479,10 @@ export function buildPromptBreakdown(body: unknown): PromptBlockStat[] | undefin
         for (const msg of messages) {
             const text = contentToText(msg?.content);
             if (msg?.role === 'system') {
-                out.push(...splitSystemBlocks(text));
+                if (countsOnly) { systemChars += text.length; systemCount++; }
+                else out.push(...splitSystemBlocks(text));
             } else if (msg?.role === 'user') {
-                if (text.length > HUGE_USER_MSG_SPLIT_CHARS && countBlockHeaders(text) >= 2) {
+                if (!countsOnly && text.length > HUGE_USER_MSG_SPLIT_CHARS && countBlockHeaders(text) >= 2) {
                     out.push(...splitSystemBlocks(text));
                 } else {
                     userChars += text.length; userCount++;
@@ -490,10 +493,11 @@ export function buildPromptBreakdown(body: unknown): PromptBlockStat[] | undefin
                 otherChars += text.length; otherCount++;
             }
         }
+        if (systemCount) out.push({ label: `系统消息 ×${systemCount}`, chars: systemChars });
         if (userCount) {
             // 记忆提取/日程生成/查手机等大量调用点是「单条 user 提示词」形态——
             // 标成"聊天历史"纯属误导，改用首行摘要让人一眼看出是什么任务。
-            const soloPrompt = messages.length === 1 && userCount === 1;
+            const soloPrompt = !countsOnly && messages.length === 1 && userCount === 1;
             const firstLine = soloPrompt
                 ? (contentToText(messages[0]?.content).trimStart().split('\n', 1)[0] || '').slice(0, BLOCK_LABEL_MAX)
                 : '';
@@ -984,6 +988,7 @@ export function recordApiCall(input: {
     body?: unknown;
     status?: number;
     ok: boolean;
+    errorDetail?: string;
     response?: unknown;
     /** 响应原始文本（JSON.parse 失败时传入，供 SSE 兜底解析 model / usage） */
     responseText?: string;
@@ -1014,13 +1019,15 @@ export function recordApiCall(input: {
             model,
             backendModel,
             status: input.status,
+            ...(input.errorDetail ? { errorDetail: input.errorDetail } : {}),
             ok: input.ok,
             finishReason: completionOutcome(input.response).reason ?? undefined,
             promptTokens: usage.prompt,
             completionTokens: usage.completion,
             totalTokens: usage.total,
             durationMs: input.durationMs,
-            promptBreakdown: buildPromptBreakdown(input.body),
+            // Block labels can include the first line of a prompt. Keep failed diagnostics content-free.
+            promptBreakdown: buildPromptBreakdown(input.body, !!input.errorDetail),
             appId: meta.appId,
             appName: meta.appName,
             charId: meta.charId,

@@ -27,6 +27,7 @@ import { ChatParser } from '../utils/chatParser';
 import { captureApiRequestOnce, getApiCallAmbientContext, recordApiCall, setApiCallAmbientContext, updateApiRequestCaptureUsage } from '../utils/apiCallLog';
 import { isGlobalStreamEnabled, upgradeChatBodyToStream, assembleUpgradedResponse } from '../utils/streamUpgrade';
 import { matrixRequests } from '../utils/protocolMatrixTransport';
+import { readApiErrorDiagnostic } from '../utils/apiErrorDiagnostic';
 import { rewriteStaleWorkerUrl } from '../utils/proxyWorker';
 import { buildFetchFailureDetail, classifyFetchFailure, describeReachabilityProbe, parseTargetUrl, probeOriginReachability, shouldProbeReachability } from '../utils/networkFailureDiagnosis';
 import { INSTALLED_APPS, HIDDEN_APP_NAMES } from '../constants';
@@ -1181,7 +1182,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 流式透传的正文可能再流几十秒——旧版在 headers 处截止，「假流」渠道 6.5s 出头、
               // 正文 44s 才灌完，卡片却记成 6.5s（实测误导排查）。clone 与调用方并行消费同一
               // 条流，text() 完成时刻 ≈ 真实收完时刻。
-              if (urlStr.includes('/chat/completions')) {
+              if (response.ok && urlStr.includes('/chat/completions')) {
                   const meta = (config as any)?.__sullyMeta || ambientMetaAtStart;
                   const requestId = (config as any)?.__sullyApiCallId;
                   const body = (sendArgs[1] as any)?.body;
@@ -1214,9 +1215,23 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // Only log if it's likely an API call (contains chat/completions or models)
                   const imageLogMeta = getImageGenerationLogMeta(sendArgs[1] as RequestInit | undefined);
                   if (urlStr.includes('/chat/completions') || urlStr.includes('/models') || imageLogMeta) {
-                      try {
-                          const clone = response.clone();
-                          const text = await clone.text();
+                      const logFailure = async () => {
+                          const init = sendArgs[1];
+                          const responseDetail = imageLogMeta
+                              ? sanitizeImageGenerationLogText(await response.clone().text(), init, init?.body)
+                              : await readApiErrorDiagnostic(response, init, resource);
+                          const nativeChat = /\/models\/([^/?#:]+):(?:streamGenerateContent|generateContent)(?:[?#]|$)/.exec(urlStr);
+                          if (urlStr.includes('/chat/completions') || (nativeChat && !imageLogMeta)) {
+                              updateApiRequestCaptureUsage({ captureId: apiRequestCaptureId, ok: false });
+                              recordApiCall({
+                                  requestId: (config as any)?.__sullyApiCallId,
+                                  url: nativeChat ? urlStr.slice(0, nativeChat.index) : urlStr,
+                                  body: nativeChat ? { model: nativeChat[1] } : init?.body,
+                                  status: response.status, ok: false, errorDetail: responseDetail,
+                                  meta: (config as any)?.__sullyMeta || ambientMetaAtStart,
+                                  durationMs: Date.now() - fetchStartedAt,
+                              });
+                          }
                           // 把发出去的请求体摘要也记上 —— 排查"只有点单(带工具)报错"必须看到 model/参数/tools/消息结构
                           let reqSummary = '';
                           if (imageLogMeta) {
@@ -1244,18 +1259,17 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                                   }
                               } catch { /* 解析不了就算了 */ }
                           }
-                          const responseDetail = imageLogMeta
-                              ? sanitizeImageGenerationLogText(text, sendArgs[1] as RequestInit | undefined, (sendArgs[1] as any)?.body)
-                              : `HTTP ${response.status}`;
+
                           setSystemLogs(prev => [{
                               id: `log-${Date.now()}`,
                               timestamp: Date.now(),
                               type: 'network',
                               source: imageLogMeta ? 'Image API' : 'API Request',
                               message: imageLogMeta && response.status === 429 ? '当前模型线路繁忙' : `HTTP ${response.status} Error`,
-                              detail: `Response: ${responseDetail}${reqSummary}`
+                              detail: `Response: HTTP ${response.status}\n${responseDetail}${reqSummary}`
                           }, ...prev.slice(0, 49)]); // Keep last 50
-                      } catch (e) {
+                      };
+                      void logFailure().catch(() => {
                           setSystemLogs(prev => [{
                               id: `log-${Date.now()}`,
                               timestamp: Date.now(),
@@ -1264,7 +1278,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               message: `HTTP ${response.status} (Unreadable Body)`,
                               detail: `HTTP ${response.status}`
                           }, ...prev.slice(0, 49)]);
-                      }
+                      });
                   }
               }
               return response;

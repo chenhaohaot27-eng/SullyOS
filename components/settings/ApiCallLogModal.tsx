@@ -293,6 +293,9 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                                             </div>
                                         );
                                     })()}
+                                    {!e.ok && e.errorDetail && (
+                                        <div className="col-span-2"><Field label="上游错误" value={e.errorDetail} wrap /></div>
+                                    )}
                                     {e.durationMs != null && (
                                         <Field label="耗时" value={e.durationMs >= 1000 ? `${(e.durationMs / 1000).toFixed(1)}s` : `${e.durationMs}ms`} />
                                     )}
