@@ -577,11 +577,12 @@ const OneShotCapturePanel: React.FC<{
                                 </div>
                             </div>
                             <div className="mt-2 border-t border-emerald-100/70 pt-2 text-[9px] leading-relaxed text-slate-400">
-                                辅助计数：请求 JSON {fmt(capture.totalChars)} 字符（非 Token） · {capture.messageCount} 条消息 · {capture.sections.length} 个分区
+                                辅助计数：{capture.lengthBasis === 'original' ? '请求 JSON' : '旧版保存副本（原始总长未记录）'} {fmt(capture.totalChars)} 字符（非 Token） · {capture.messageCount} 条消息 · {capture.sections.length} 个分区
                             </div>
                         </div>
 
-                        {duplicateSummary && (
+                        {capture.peekReport && <p className="mt-2 text-xs text-slate-600">导出 TXT 可查看陪伴开场组件、占比和 SHA-256 重复明细。</p>}
+                        {!capture.peekReport && duplicateSummary && (
                             <div className={`mt-3 border-l-2 py-1.5 pl-3 ${
                                 duplicateSummary.groups === 0 ? 'border-emerald-400' : 'border-amber-400'
                             }`}>

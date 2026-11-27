@@ -20,6 +20,25 @@ import {
 } from './apiCallLog';
 
 describe('one-shot full API request capture', () => {
+    it('counts the outgoing JSON and original content before hiding framed messages', () => {
+        const messages = [
+            { role: 'system', content: '本轮传输格式：\n测试' },
+            { role: 'user', content: '合成样本🌿\n"'.repeat(400) },
+        ];
+        const body = JSON.stringify({ model: 'test', messages, temperature: 0.8 }, null, 2);
+        const capture = buildApiRequestCapture({ url: 'https://example.com/v1/chat/completions', body });
+        expect(capture.totalChars).toBe(body.length);
+        expect(capture.sections.filter(section => section.messageIndex != null).map(section => section.chars))
+            .toEqual(messages.map(message => message.content.length));
+        expect(capture.sections.find(section => section.kind === 'request')?.chars)
+            .toBe(JSON.stringify({ model: 'test', temperature: 0.8 }).length);
+        const txt = formatApiRequestCaptureTxt(capture);
+        expect(txt).toContain(`[已隐藏，${messages[1].content.length} 字符]`);
+        expect(txt).not.toContain('合成样本');
+        expect(formatApiRequestCaptureTxt({ ...capture, lengthBasis: undefined, totalChars: 129 }))
+            .toContain('旧版保存副本字符：129（未记录原始请求总长）');
+    });
+
     it('uses the in-memory armed flag on the disabled hot path instead of reading localStorage per request', () => {
         vi.stubGlobal('localStorage', {
             getItem: () => { throw new Error('isApiRequestCaptureArmed must not read storage'); },
@@ -203,6 +222,8 @@ describe('one-shot full API request capture', () => {
         });
 
         expect(capture.binaryPlaceholders).toBe(1);
+        expect(capture.sections.find(section => section.kind === 'user')?.chars)
+            .toBe(JSON.stringify([{ type: 'image_url', image_url: { url: dataUrl } }]).length);
         const raw = JSON.stringify(capture.payload);
         expect(raw).toContain('原始 5,022 字符');
         expect(raw).not.toContain('a'.repeat(100));

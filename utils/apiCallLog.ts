@@ -19,6 +19,7 @@
 
 /** 调用方可补充的语义信息（哪个 App / 角色 / 用途）。能填多少填多少。 */
 import { completionOutcome } from './completionOutcome';
+import { capturePeek, formatPeekReport, type PeekReport } from './peekDiagnostics';
 
 export interface ApiCallMeta {
     /** AppID 字符串，如 'chat' / 'lifesim'，可空 */
@@ -155,6 +156,9 @@ export interface ApiRequestCapture {
     meta: ApiCallMeta;
     payload: unknown;
     totalChars: number;
+    /** Older captures measured the sanitized copy instead of the request. */
+    lengthBasis?: 'original';
+    peekReport?: PeekReport;
     /** 模型/中转响应 usage 中自报的真实输入 Token；对方不返回时为空。 */
     promptTokens?: number;
     completionTokens?: number;
@@ -679,22 +683,38 @@ export function buildApiRequestCapture(input: {
     body?: unknown;
     meta?: ApiCallMeta;
     capturedAt?: number;
-}): ApiRequestCapture {
+}, onPeek?: (report: Promise<PeekReport>) => void): ApiRequestCapture {
     let parsed: unknown = input.body;
     if (typeof input.body === 'string') {
         try { parsed = JSON.parse(input.body); } catch { parsed = { rawBody: input.body }; }
     }
+    const totalChars = typeof input.body === 'string' ? input.body.length : jsonLength(input.body);
     // A one-shot capture of a character request retains role/size information only.
     const request = parsed as any;
     const framingRule = (value: unknown) => typeof value === 'string' && value.includes('本轮传输格式：');
-    if (framingRule(request?.messages?.[0]?.content) || request?.systemInstruction?.parts?.some((p: any) => framingRule(p.text))) {
+    const framed = framingRule(request?.messages?.[0]?.content) || request?.systemInstruction?.parts?.some((p: any) => framingRule(p.text));
+    const originalMessages = request?.messages ?? (framed ? request?.contents : undefined);
+    const messageChars = Array.isArray(originalMessages) ? originalMessages.map(m => {
+        const content = m && typeof m === 'object' ? m.content ?? m.parts : m;
+        return typeof content === 'string' ? content.length : jsonLength(content);
+    }) : [];
+    if (framed) {
+        if (onPeek && Array.isArray(originalMessages)) {
+            const report = capturePeek(originalMessages, totalChars);
+            if (report) onPeek(report);
+        }
         parsed = {
             model: request.model,
-            messages: (request.messages ?? request.contents ?? []).map((m: any) => ({
-                role: m.role, content: '[已隐藏，' + jsonLength(m.content ?? m.parts) + ' 字符]',
+            messages: (originalMessages ?? []).map((m: any, index: number) => ({
+                role: m.role, content: '[已隐藏，' + messageChars[index] + ' 字符]',
             })),
         };
     }
+    const originalBody: Record<string, unknown> = request && typeof request === 'object' && !Array.isArray(request)
+        ? request : { rawBody: request };
+    const optionsChars = jsonLength(Object.fromEntries(Object.entries(originalBody)
+        .filter(([key]) => key !== 'messages' && key !== 'tools' && !(framed && key === 'contents'))));
+    const toolsChars = jsonLength(originalBody.tools);
     const stats = { binaryPlaceholders: 0 };
     const payload = sanitizeCapturePayload(parsed ?? null, stats);
     const body = payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -708,7 +728,7 @@ export function buildApiRequestCapture(input: {
             id: 'request-options',
             label: '请求参数',
             kind: 'request',
-            chars: jsonLength(requestOptions),
+            chars: optionsChars,
             source: CAPTURE_SOURCE_DESCRIPTIONS.request,
             path: '请求体顶层（messages / tools 除外）',
         });
@@ -718,17 +738,17 @@ export function buildApiRequestCapture(input: {
             id: 'tool-definitions',
             label: '工具定义（tools）',
             kind: 'tools',
-            chars: jsonLength(body.tools),
+            chars: toolsChars,
             source: CAPTURE_SOURCE_DESCRIPTIONS.tools,
             path: 'tools',
         });
     }
 
     messages.forEach((rawMessage, messageIndex) => {
-        const message = rawMessage && typeof rawMessage === 'object' ? rawMessage as Record<string, unknown> : { content: rawMessage };
+        const message: Record<string, unknown> = rawMessage && typeof rawMessage === 'object' ? rawMessage : { content: rawMessage };
         const role = typeof message.role === 'string' ? message.role : 'unknown';
         const content = message.content;
-        const shouldSplit = typeof content === 'string' && (
+        const shouldSplit = !framed && typeof content === 'string' && content.length === messageChars[messageIndex] && (
             role === 'system' || (content.length > 8000 && splitCaptureTextBlocks(content).length > 1)
         );
         if (shouldSplit) {
@@ -756,7 +776,7 @@ export function buildApiRequestCapture(input: {
             id: `message-${messageIndex}`,
             label: `${roleLabel} · 第 ${messageIndex + 1} 条`,
             kind: roleKind,
-            chars: typeof content === 'string' ? content.length : jsonLength(content),
+            chars: messageChars[messageIndex],
             source: CAPTURE_SOURCE_DESCRIPTIONS[roleKind],
             path: `messages[${messageIndex}].content`,
             role,
@@ -777,7 +797,8 @@ export function buildApiRequestCapture(input: {
         model,
         meta,
         payload,
-        totalChars: jsonLength(payload),
+        totalChars,
+        lengthBasis: 'original',
         usageStatus: 'pending',
         messageCount: messages.length,
         binaryPlaceholders: stats.binaryPlaceholders,
@@ -902,15 +923,18 @@ export function formatApiRequestCaptureTxt(capture: ApiRequestCapture): string {
         `输入 Token（模型响应自报）：${capture.promptTokens != null ? fmt(capture.promptTokens) : capture.usageStatus === 'pending' ? '等待响应' : capture.usageStatus === 'failed' ? '请求失败，无法取得' : '接口未返回 usage'}`,
         `输出 Token：${capture.completionTokens != null ? fmt(capture.completionTokens) : '—'}`,
         `总 Token：${capture.totalTokens != null ? fmt(capture.totalTokens) : '—'}`,
-        `请求体总字符（不是 Token）：${fmt(capture.totalChars)}`,
+        capture.lengthBasis === 'original'
+            ? `请求体总字符（不是 Token）：${fmt(capture.totalChars)}`
+            : `旧版保存副本字符：${fmt(capture.totalChars)}（未记录原始请求总长）`,
         `消息数：${capture.messageCount}`,
         `分区数：${capture.sections.length}`,
         capture.binaryPlaceholders > 0
             ? `二进制占位：${capture.binaryPlaceholders} 个（图片/音频正文未保存，已保留原始长度）`
             : '二进制占位：0',
         '',
+        ...(capture.peekReport ? [formatPeekReport(capture.peekReport), ''] : []),
         '===== 客户端发出前重复检查 =====',
-        duplicateSummary.groups === 0
+        capture.peekReport ? '角色正文已隐藏，原始组件重复情况见上方 SHA-256 明细。' : duplicateSummary.groups === 0
             ? '未发现完全相同的长文本被客户端重复发送。'
             : `发现 ${duplicateSummary.groups} 组完全相同的长文本；重复部分额外 ${fmt(duplicateSummary.extraChars)} 字符。`,
         '说明：这里只能证明客户端实际发出了什么，无法检查中转站收到请求后的二次拼接。',
@@ -920,7 +944,7 @@ export function formatApiRequestCaptureTxt(capture: ApiRequestCapture): string {
         '',
         '===== 分区正文（按实际发送顺序） =====',
         ...sectionRows.flatMap(row => [row, '']),
-        '===== 完整原始请求 JSON =====',
+        capture.peekReport ? '===== 脱敏请求摘要 JSON =====' : '===== 完整原始请求 JSON =====',
         JSON.stringify(capture.payload, null, 2),
         '',
         '提示：内容可能包含聊天、记忆和角色隐私，分享前请检查。',
@@ -933,8 +957,14 @@ let captureSaveInFlight: { id: string; promise: Promise<void> } | null = null;
 export function captureApiRequestOnce(input: { url: string; body?: unknown; meta?: ApiCallMeta }): string | null {
     if (!claimApiRequestCapture()) return null;
     try {
-        const capture = buildApiRequestCapture(input);
-        const savePromise = import('./db').then(({ DB }) => DB.saveApiRequestCapture(capture));
+        let reportPromise: Promise<PeekReport | undefined> | undefined;
+        const capture = buildApiRequestCapture(input, report => { reportPromise = report.catch(() => undefined); });
+        // Save in capture order even if hashing the preceding capture takes longer.
+        const previousSave = captureSaveInFlight?.promise.catch(() => {});
+        const savePromise = Promise.all([import('./db'), reportPromise, previousSave]).then(([{ DB }, report]) => {
+            if (report) capture.peekReport = report;
+            return DB.saveApiRequestCapture(capture);
+        });
         captureSaveInFlight = { id: capture.id, promise: savePromise };
         savePromise.then(
             () => emitCaptureChange('saved'),

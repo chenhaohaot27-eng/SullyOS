@@ -7,6 +7,8 @@ import { ActiveMsgClient } from '../utils/activeMsgClient';
 import { previewDateDeletion, deleteDateHistory, finishDateDeletionSync, readDeletionLedger, type DateDeleteSelection } from '../utils/dateHistoryDeletion';
 import { CharacterProfile, Message, DateState, AppID } from '../types';
 import { DatePrompts, ApiMessage } from '../utils/datePrompts';
+import { isApiRequestCaptureArmed } from '../utils/apiCallLog';
+import { PeekTrace } from '../utils/peekDiagnostics';
 import { processNewMessagesWithAutoArchive } from '../utils/memoryPalace/autoArchive';
 import type { PipelineResult } from '../utils/memoryPalace/pipeline';
 import { incrementDigestRound, runCognitiveDigestion } from '../utils/memoryPalace';
@@ -441,6 +443,7 @@ const DateApp: React.FC = () => {
             const emojis = await DB.getEmojis();
             const { messages } = DatePrompts.buildPeekPayload({
                 char: c,
+                trace: isApiRequestCaptureArmed() ? new PeekTrace() : undefined,
                 userProfile,
                 allMsgs: preparedMsgs,
                 emojis,
@@ -588,6 +591,7 @@ const DateApp: React.FC = () => {
         if (lastMsg.metadata?.isOpening === true) {
             const { messages } = DatePrompts.buildPeekPayload({
                 char,
+                trace: isApiRequestCaptureArmed() ? new PeekTrace() : undefined,
                 userProfile,
                 allMsgs: preparedValidMsgs,
                 emojis,

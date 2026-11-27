@@ -1,3 +1,6 @@
+import { PeekTrace, peekTemplate, trackPeek } from './peekDiagnostics';
+import { PeekHistoryDiagnostics } from './peekHistoryDiagnostics';
+
 /**
  * 见面（DateApp）提示词统一构造器
  *
@@ -311,10 +314,10 @@ const buildPovBlock = (config: DateStyleConfig | undefined, charName: string, us
 };
 
 /** 自定义补充文风要求块。为空时不注入。 */
-const buildExtraStyleBlock = (config?: DateStyleConfig): string => {
+const buildExtraStyleBlock = (config?: DateStyleConfig, trace?: PeekTrace): string => {
     const extra = (config?.extra || '').trim();
     if (!extra) return '';
-    return `### 用户对文风的额外要求（优先级高于风格预设）
+    return peekTemplate(trace, '自定义文风格式', ['自定义文风正文'])`### 用户对文风的额外要求（优先级高于风格预设）
 ${extra}
 `;
 };
@@ -480,11 +483,17 @@ export const resolveObserveFields = (config?: DateObserveConfig, charName = ''):
  * 线格式字段名固定用默认 label（保证解析稳定），但每项「生成什么」用角色自定义 hint。
  * 全部维度被用户关掉时返回空串（等于不注入观测块）。
  */
-const buildObserveBlock = (char: CharacterProfile): string => {
+const buildObserveBlock = (char: CharacterProfile, trace?: PeekTrace): string => {
     const fields = resolveObserveFields(char.dateObserve, char.name);
     if (fields.length === 0) return '';
-    const lines = fields.map(f => `${f.label}｜（${f.hint}）`).join('\n');
-    return `
+    const lines = fields.map((f, i) => {
+        const line = `${f.label}｜（${f.hint}）`;
+        if (i) trace?.add('user', '观测换行', '\n');
+        trace?.add('user', '观测字段', line, { index: i + 1 });
+        return line;
+    }).join('\n');
+    const template = peekTemplate(trace, '观测协议', ['角色名', '观测定界', null, '观测定界', '观测定界', '观测定界', '观测字段列表']);
+    return template`
 ### 👁 观测协议（OBSERVE，必须严格执行）
 在你**整段回复的最前面**，先输出一段「观测块」，用来让用户全方位观察${char.name}此刻的状态。
 观测块**不受**上面「一行一念 / 每行 [emotion] 开头」规则约束——它是独立的元信息，紧接着才是正常的 VN 正文。
@@ -659,13 +668,14 @@ const getTimeGapHint = (lastMsgTimestamp: number | undefined, tz?: string): stri
  * 把 buildMessageHistory 的结构化输出压平成纯文本（peek 的 [最近记录] 块用）。
  * 图片消息的 image_url 部分丢弃，只保留文字占位（peek 不需要看图）。
  */
-const flattenHistoryToText = (apiMessages: ApiMessage[]): string =>
-    apiMessages.map(m => {
+const flattenHistoryToText = (apiMessages: ApiMessage[], onLine?: (index: number, text: string, prefix: string) => void): string =>
+    apiMessages.map((m, index) => {
         const text = typeof m.content === 'string'
             ? m.content
             : Array.isArray(m.content)
                 ? m.content.filter((p: any) => p?.type === 'text').map((p: any) => p.text).join(' ')
                 : '';
+        onLine?.(index, text, `${m.role}: `);
         return `${m.role}: ${text}`;
     }).join('\n');
 
@@ -742,6 +752,7 @@ export const DatePrompts = {
      * 但文本本身来自 buildMessageHistory，卡片/媒体已压成短摘要。
      */
     buildPeekPayload: (input: {
+        trace?: PeekTrace;
         char: CharacterProfile;
         userProfile: UserProfile;
         allMsgs: Message[];
@@ -760,43 +771,51 @@ export const DatePrompts = {
         const timeStr = getRealTimeStr(charTz);
         const limit = char.contextLimit || 500;
         const peekLimit = Math.min(limit, 50);
+        const trace = input.trace;
+        const history = trace && new PeekHistoryDiagnostics(trace, allMsgs, char.id);
         const lastMsg = allMsgs[allMsgs.length - 1];
         const gapHint = getTimeGapHint(lastMsg?.timestamp, charTz);
 
-        const { apiMessages } = ChatPrompts.buildMessageHistory(
+        const { apiMessages, historySlice } = ChatPrompts.buildMessageHistory(
             prepareDatePlayerHistory(allMsgs, char),
             peekLimit,
             char,
             userProfile || ({} as UserProfile),
             emojis,
             undefined,
-            { useVisionDescriptions: input.useVisionDescriptions === true },
+            { useVisionDescriptions: input.useVisionDescriptions === true, onPeekParts: history?.onParts },
         );
-        const recentMsgs = flattenHistoryToText(apiMessages);
+        const recentMsgs = flattenHistoryToText(apiMessages, history && ((i, text, prefix) => history.message(historySlice[i], text, prefix, i)));
 
         // 线下时间感知关掉 → 抑制 buildCoreContext 的时间注入，让见面真正脱离现实时间线（纯架空）。
         // 世界书扫描：用压缩后的近期记录（peek 上限 50 条）激活关键词词条；constant/position 0/1/2/3/5/6
         // 仍由 buildCoreContext 既有语义注入，这里不另建第二套解析器。
-        const baseContext = ContextBuilder.buildCoreContext(char, userProfile, false, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char), worldbookMessages: toWorldbookScanMessages(apiMessages) });
+        const baseContext = ContextBuilder.buildCoreContext(char, userProfile, false, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char), worldbookMessages: toWorldbookScanMessages(apiMessages), trace });
 
         // 文风预设也作用于开场感知；人称（pov）刻意不作用——peek 的设计就是
         // 第三人称旁观镜头（用户还没"走过去"），人称指令只影响 session 内叙述
         const preset = getStylePreset(char.dateStyleConfig);
-        const extraBlock = buildExtraStyleBlock(char.dateStyleConfig);
+        const extraBlock = buildExtraStyleBlock(char.dateStyleConfig, trace);
 
         // 根据时间间隔选择合适的分隔符
+        const separator = peekTemplate(input.sceneHint ? undefined : trace, '场景衔接', ['互动间隔']);
+        const invitation = peekTemplate(trace, '邀请模板', ['邀请参与者', '邀请场景', null]);
+        const background = peekTemplate(trace, '邀请摘要格式', ['邀请前背景']);
         const contextSeparator = gapHint
-            ? `\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
-            : `\n\n--- [SCENE CONTINUATION: 刚刚还在聊天，现在来到了面对面的场景] ---\n\n`;
+            ? separator`\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
+            : separator`\n\n--- [SCENE CONTINUATION: 刚刚还在聊天，现在来到了面对面的场景] ---\n\n`;
 
         // 来自聊天见面邀请的情境锚点：优先级高于通用衔接——玩家是「应约前来」，
         // 场景起点由邀请的 sceneSeed 决定（发起者位置/状态/环境），不由时间间隔推断。
         const sceneHintBlock = input.sceneHint
-            ? `\n\n--- [MEETING INVITATION ACCEPTED] ---\n[应约情境] 玩家刚刚在聊天里接受了见面邀请并前来赴约。到场角色：${input.sceneHint.participantsText || char.name}。\n[场景起点] ${input.sceneHint.sceneSeed}${input.sceneHint.contextSummary ? `\n[赴约前背景] ${input.sceneHint.contextSummary}` : ''}\n请以此情境为这场见面的锚点：从这里开始描写，衔接赴约前的情绪与话题。`
+            ? invitation`\n\n--- [MEETING INVITATION ACCEPTED] ---\n[应约情境] 玩家刚刚在聊天里接受了见面邀请并前来赴约。到场角色：${input.sceneHint.participantsText || char.name}。\n[场景起点] ${input.sceneHint.sceneSeed}${input.sceneHint.contextSummary ? background`\n[赴约前背景] ${input.sceneHint.contextSummary}` : ''}\n请以此情境为这场见面的锚点：从这里开始描写，衔接赴约前的情绪与话题。`
             : '';
         const effectiveSeparator = input.sceneHint ? sceneHintBlock : contextSeparator;
 
-        const peekInstructions = `
+        const task = peekTemplate(trace, '开场任务固定文字', ['当前时间', '互动间隔', '角色名', '状态分支', '预设文风', '观测开关指令', null, null]);
+        const extra = peekTemplate(trace, '自定义文风分隔', [null]);
+        const observe = peekTemplate(trace, '观测分隔', [null]);
+        const peekInstructions = task`
 ### 场景：感知 (Sense Presence)
 ${dateTimeOn ? `当前时间: ${timeStr}\n` : ''}时间上下文: ${gapHint}
 
@@ -809,14 +828,18 @@ ${dateTimeOn ? `当前时间: ${timeStr}\n` : ''}时间上下文: ${gapHint}
 1. **上下文连贯性**: 参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话）。如果有 [TIME SKIP] 且间隔很久，开启新场景；如果是 [SCENE CONTINUATION]，说明刚刚还在聊天，**必须**自然衔接最近的聊天话题和情绪状态，不要无视之前的对话内容。
 2. **状态一致性**: ${gapHint.includes('天') ? '如果间隔了很多天，可能在发呆、忙碌或者有点落寞。' : '根据最近的聊天内容和情绪来决定当前状态。如果刚聊完，角色的状态应该与聊天内容相呼应。'}
 3. **描写风格**: ${preset.peekHint}。${isObserveOn(char) ? '先按下方「观测协议」输出观测块，再开始描写内容（描写本身不要加任何前缀）。' : '不要输出任何前缀，直接输出描写内容。'}
-${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlock(char)}` : ''}`;
+${extraBlock ? extra`\n${extraBlock}` : ''}${isObserveOn(char) ? observe`\n${buildObserveBlock(char, trace)}` : ''}`;
 
-        return {
-            messages: [
-                { role: 'system', content: baseContext + (isParentheticalNarrationOn(char) ? PARENTHETICAL_NARRATION_RULES : '') },
-                { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${effectiveSeparator}${peekInstructions}\n\n(Start sensing...)` },
-            ],
-        };
+        const outer = peekTemplate(trace, '开场标题与结束分隔', [null, null, null]);
+        const messages: ApiMessage[] = [
+            { role: 'system', content: baseContext + (isParentheticalNarrationOn(char) ? PARENTHETICAL_NARRATION_RULES : '') },
+            { role: 'user', content: outer`[最近记录 (Previous Context)]:${recentMsgs}${effectiveSeparator}${peekInstructions}\n\n(Start sensing...)` },
+        ];
+        if (trace) {
+            trace.mark('括号叙事规则', messages[0].content as string);
+            trackPeek(messages, trace);
+        }
+        return { messages };
     },
 
     /**

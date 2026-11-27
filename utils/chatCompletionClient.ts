@@ -1,4 +1,5 @@
 import { finalizeReply, frameReplyMessages } from './replyBoundary';
+import { bindPeek } from './peekDiagnostics';
 import type { APIConfig } from '../types';
 import { recordApiCall, type ApiCallMeta } from './apiCallLog';
 import { normalizeApiBaseUrl, normalizeChatApiFormat } from './apiConfigNormalize';
@@ -128,7 +129,14 @@ export async function completeCharacterChat(
 ): Promise<any> {
   const nonce = crypto.randomUUID();
   const { streamHooks, ...transport } = options;
-  const data = await completeChat(apiConfig, { ...body, messages: frameReplyMessages(body.messages, nonce) }, transport);
+  const messages = frameReplyMessages(body.messages, nonce);
+  const unbind = bindPeek(body.messages, nonce, messages, apiConfig.apiKey);
+  let data;
+  try {
+    data = await completeChat(apiConfig, { ...body, messages }, transport);
+  } finally {
+    unbind?.();
+  }
   finalizeReply(data, nonce);
   const content = data.choices[0].message.content;
   if (body.stream && content) streamHooks?.onDelta?.(content, content);

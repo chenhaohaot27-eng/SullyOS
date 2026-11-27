@@ -1109,7 +1109,9 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         userProfile: UserProfile,
         emojis: Emoji[],
         processedExcludeIds?: Set<number>,
-        options?: { useVisionDescriptions?: boolean; includeTimeGapHint?: boolean },
+options?: { useVisionDescriptions?: boolean; includeTimeGapHint?: boolean;
+            onPeekParts?: import('./peekHistoryDiagnostics').PeekHistoryDiagnostics['onParts'];
+        },
     ) => {
         // Filter Logic
         // 新版上下文范围由 chatContextRange 先按「自适应/拉杆最大范围」取窗；
@@ -1486,12 +1488,17 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 else if ((m.type as string) === 'chat_forward') {
                     try {
                         const fwd = JSON.parse(m.content);
+                        const items: { text: string; prefix: string; id?: number | string; raw?: string }[] | undefined = options?.onPeekParts ? [] : undefined;
                         const lines = (fwd.messages || []).map((fm: any) => {
                             const sender = fm.role === 'user' ? (fwd.fromUserName || '用户') : (fwd.fromCharName || '角色');
                             const text = fm.type === 'image' ? '[图片]' : fm.type === 'emoji' ? '[表情]' : (fm.content || '').slice(0, 200);
-                            return `  ${sender}: ${text}`;
+                            const speaker = `  ${sender}: `;
+                            items?.push({ prefix: speaker, text, id: fm.id, raw: typeof fm.content === 'string' ? fm.content : undefined });
+                            return speaker + text;
                         });
-                        content = `${timeStr} [用户转发了与 ${fwd.fromCharName || '另一个角色'} 的 ${fwd.count || lines.length} 条聊天记录]\n${lines.join('\n')}`;
+                        const prefix = `${timeStr} [用户转发了与 ${fwd.fromCharName || '另一个角色'} 的 ${fwd.count || lines.length} 条聊天记录]\n`;
+                        content = prefix + lines.join('\n');
+                        if (items) options?.onPeekParts?.(m.id, prefix, items, true);
                     } catch {
                         content = `${timeStr} [用户转发了一段聊天记录]`;
                     }
@@ -1543,7 +1550,12 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                         content = `${timeStr} [用户分享音乐]`;
                     }
                 }
-                else content = `${timeStr} ${sourceTag} ${content}`;
+                else {
+                    const prefix = `${timeStr} ${sourceTag} `;
+                    const text = String(content);
+                    content = prefix + text;
+                    if (options?.onPeekParts) options.onPeekParts(m.id, prefix, [{ text }], false);
+                }
 
                 return { role: m.role, content };
             }),

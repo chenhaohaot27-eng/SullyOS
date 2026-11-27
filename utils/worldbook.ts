@@ -6,6 +6,8 @@ import type {
     WorldbookSelectiveLogic,
 } from '../types';
 
+import type { PeekTrace } from './peekDiagnostics';
+
 export type WorldbookLike = Worldbook | MountedWorldbook;
 
 export interface WorldbookScanMessage {
@@ -209,11 +211,14 @@ export const splitWorldbookSections = (entries: ResolvedWorldbookEntry[]): World
 export const formatWorldbookSection = (
     entries: ResolvedWorldbookEntry[],
     heading: string,
+    trace?: PeekTrace,
 ): string => {
     if (entries.length === 0) return '';
     let output = `### ${heading}\n`;
+    trace?.add('system', '世界书位置标题', output);
     let lastLegacyCategory = '';
     for (const entry of entries) {
+        const start = output.length;
         // SillyTavern comments are editor-only and are not part of the prompt.
         if (entry.book.sourceUid === undefined) {
             const category = entry.book.category || '通用设定 (General)';
@@ -223,8 +228,21 @@ export const formatWorldbookSection = (
             }
             output += `**Title: ${entry.book.title}**\n`;
         }
-        output += `${entry.content.trim()}\n---\n`;
+        const body = entry.content.trim();
+        if (trace) {
+            const book = entry.book;
+            trace.add('system', '世界书标题与分类格式', output.slice(start));
+            trace.add('system', '世界书条目正文', body, {
+                bookId: book.id, entryId: book.sourceUid ?? book.id, title: book.title,
+                position: entry.position, activation: (book.constant ?? !book.key?.length) ? '常驻' : '关键词条件命中',
+                probability: book.useProbability ? (book.probability ?? 100) : '未启用',
+                injectedWithFormatChars: output.length - start + body.length + 5,
+            }, book.content);
+            trace.add('system', '世界书条目分隔', '\n---\n');
+        }
+        output += `${body}\n---\n`;
     }
+    trace?.add('system', '世界书段尾', '\n');
     return `${output}\n`;
 };
 
