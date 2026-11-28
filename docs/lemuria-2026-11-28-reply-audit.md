@@ -147,3 +147,47 @@ e376c8e8db133332717757d7f11e191ad5cf6883c37eac9421fcbc8259e10359
 5. **数据保护独立验收。** 参考上游救援与多槽快照，验证角色、历史、记忆、附件和用户空间的导出—恢复闭环后再进行结构迁移。
 
 线上验收只需少量受控样本，分别覆盖普通聊天、陪伴、实际启用的云端路线及所用协议；每次同时核对调用记录、正文校验、显示、保存与任务状态。失败后先保留该次证据，避免把不同请求的日志拼成一条因果链。
+
+## 8. 词元接入复检（2026-11-28，第二轮）
+
+本轮基线为已合并的 `main@d2b3be4`。前一轮 Pages 发布和私人 Worker `2026-11-28` 已分别核验完成。本节记录后续的连接测试 HTTP 400 复检，不能将两轮不同请求的错误合并归因。
+
+### 真实服务商证据
+
+经用户授权，读取现有令牌对应的模型目录，并做了 8 次短合成生成请求。只使用 `Hi`、`Reply with exactly OK.` 及简短合成角色指令，没有发送真实角色历史。所有请求均为 HTTP 200；截图中那次 HTTP 400 未复现，服务商日志只提供通用参数错误，尚不足以确定具体拒绝字段。
+
+| 样本 | 路径与变量 | 结果 |
+|---|---|---|
+| 1 | 3.8 Flash，OpenAI JSON，重放原测试形状，`max_tokens: 5` | 有正文，`finish_reason: length` |
+| 2 | 只将输出上限改为 128 | 有正文，仍为 `length` |
+| 3 | 上限 1024，要求仅回复 OK | `OK`，`stop` |
+| 4 | 样本 3 增加 `temperature: 0.85` | `OK`，`stop` |
+| 5 | 实际 `completeCharacterChat` 入口，OpenAI SSE，含本轮回复边界 | `OK`，`stop` |
+| 6 | 同一生产入口，增加现有混合 thinking/reasoning 字段 | 有可用 OK 正文，`stop` |
+| 7 | 实际生产入口，3.8 Flash，Gemini Native JSON | `OK`，`stop` |
+| 8 | 实际生产入口，4 Argon，Gemini Native SSE | `OK`，`stop` |
+
+这证明测试时的令牌与上述服务商路线能够生成并通过生产解析器；尚未覆盖 iPhone Safari 的跨域网络、真实长上下文、当地路由和最终 UI 保存。因此没有把“5 token 非法”或“混合 thinking 一定导致 400”当作结论，也没有为此增加站点特判或自动重发。
+
+当前认证 `/v1/models` 返回的能力为：
+
+| 模型 | `supported_endpoint_types` | 配置依据 |
+|---|---|---|
+| `gemini-3.8-flash` | `gemini`, `openai` | 两种现有请求格式均有目录声明，JSON/SSE 路径已有上述成功样本 |
+| `gemini-4-argon` | `gemini` | 优先使用目录声明的 Gemini 原生格式；这不否定历史兼容接口成功记录 |
+
+调用说明来源：[词元 Chat 兼容接口](https://tokenmarket.apifox.cn/502442100e0)、[Gemini 原生](https://tokenmarket.apifox.cn/502442072e0)、[Gemini 原生流式](https://tokenmarket.apifox.cn/502442073e0)。目录能力按站点当时返回值处理，不将型号名当作永久协议规则。
+
+### 已确认并修复的问题
+
+1. **显式流式参数被覆盖。** 全局升级器原先会把请求自己的 `stream: false` 改成 `true`；现在显式 true/false 都保留，仅缺省字段继承全局偏好。协议矩阵的“全局升级”样本改为真正省略 stream。截图失败请求在服务商端为非流式，此修复不能单独解释该次 400。
+2. **健康检测预算与结果判定。** 连接测试原上限只有 5，真实样本已观察到输出截断。改为单条合成提示、上限 1024、零自动重试；完整可用正文、达到输出上限、空正文、实际失败分别显示，思考内容不补作正文。
+3. **模型目录能力丢失。** 保留模型的 `supported_endpoint_types`，提供 OpenAI 兼容 / Gemini 原生标签与显式草稿切换按钮。能力只存在当前 URL/Key 对应的组件内存；迟到响应不能污染新站点。刷新目录不再自动替换当前模型，缺失或未知元数据不推断不兼容。
+4. **请求诊断误导。** 缺失 thinking 字段现在显示“未发送（服务端默认）”，同时记录实际发出后的 stream、输出上限、已知推理字段和消息结构。摘要有长度上限，并排除正文、凭据和任意扩展值。
+5. **Gemini 原生用量漏记思考。** 原生候选输出与 thoughts 分开报告，转换时原先只计候选输出。共享归一化函数现在仅加上明确、有限、非负的 `thoughtsTokenCount`，并保留 reasoning 明细；优先使用上游 total，不从差额猜思考，不重复叠加已归一化 completion。JSON、SSE 与调用记录使用同一口径。参见 [Google UsageMetadata](https://ai.google.dev/api/generate-content#UsageMetadata)。
+
+一次外部 OPTIONS 观察到 `Access-Control-Allow-Headers: *`。按照 [MDN 的 Authorization 说明](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Allow-Headers)，这不能代替显式授权 Authorization 头；但截图原请求确实到达服务商并显示 HTTP 400，因此该单次预检结果只作为浏览器复检线索，不能认定为原故障根因。
+
+本轮改动不需要重新部署私人 Worker，不涉及 Cloudflare 付费套餐、数据库迁移或聊天记录清理。最终发布与 iPhone 验收应通过构建提交号确认版本，避免仅根据刷新动作判断已更新。
+
+最终本地验证：14 个相关测试文件、206 项测试通过，覆盖连接测试、预设接线、请求摘要、显式流式、协议矩阵、模型能力异步隔离、Gemini 用量、正式聊天解析入口和调用日志。`pnpm build` 通过，包含既有 Worker pin 校验及私有数据检查。没有为了计数修复额外消耗真实模型额度。

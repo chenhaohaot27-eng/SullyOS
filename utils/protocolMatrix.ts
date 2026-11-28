@@ -20,7 +20,7 @@ const LONG = 'BEGIN ' + '2026年11月24日，我们下午三点见。'.repeat(15
 type Mode = {
   name: string;
   native?: boolean;
-  stream: boolean;
+  stream?: boolean;
   ui: boolean;
   extra?: Record<string, unknown>;
   completionCap?: boolean;
@@ -28,7 +28,7 @@ type Mode = {
 const CHAT: Mode[] = [
   { name: 'chat-json', stream: false, ui: false },
   { name: 'chat-sse', stream: true, ui: true },
-  { name: 'chat-upgrade', stream: false, ui: true },
+  { name: 'chat-upgrade', ui: true },
   { name: 'chat-explicit-sse', stream: true, ui: false },
   { name: 'chat-temperature', stream: false, ui: false, extra: { temperature: 0.1 } },
   { name: 'chat-top-p', stream: false, ui: false, extra: { top_p: 1 } },

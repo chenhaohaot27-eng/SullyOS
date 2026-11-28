@@ -55,9 +55,9 @@ describe('请求格式设置与预设持久化', () => {
     expect(bodyOf('handleUpdatePreset')).toMatch(/apiFormat:\s*normalizeChatApiFormat\(editPresetApiFormat\)/);
   });
 
-  it('连接测试统一走 completeChat，不再硬编码 chat/completions', () => {
+  it('连接测试统一走生产适配器 helper，不再硬编码 chat/completions', () => {
     const testApi = bodyOf('handleTestApi');
-    expect(testApi).toMatch(/completeChat\(/);
+    expect(testApi).toMatch(/runApiConnectionTest\(/);
     expect(testApi).toMatch(/apiFormat:\s*normalizeChatApiFormat\(localApiFormat\)/);
     expect(testApi).not.toContain('/chat/completions');
   });

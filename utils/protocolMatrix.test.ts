@@ -78,7 +78,7 @@ describe('single-action protocol matrix', () => {
     const result = await runProtocolMatrix(cfg, controls, history, transport as typeof fetch);
     expect(result.rows.every((r) => r.status === '通过')).toBe(true);
     expect(result.rows.find((r) => r.probe === 'chat-upgrade')).toMatchObject({
-      requestedStream: false,
+      requestedStream: undefined,
       wireStream: true,
     });
     expect(result.rows.filter((r) => r.long)).toHaveLength(1);
