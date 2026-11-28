@@ -172,7 +172,7 @@ export async function readApiErrorDiagnostic(response: Response, init?: RequestI
         // inside a quoted prompt or a later explanation is not a provider category.
         const categories = new Set<string>();
         for (const field of fields.filter(field => field.kind === 'message')) {
-            const token = /^(?:status_code\s*=\s*[1-5][0-9]{2}\s*,\s*)?([A-Za-z][A-Za-z0-9_]*)(?=\s*(?::|$))/i
+            const token = /^(?:status_code\s*=\s*[1-5][0-9]{2}\s*,\s*)?([A-Za-z][A-Za-z0-9_]*)(?=\s*(?::|$|\(request id:\s*[A-Za-z0-9][A-Za-z0-9._-]{7,127}\)\s*$))/i
                 .exec(redactCredentials(field.value, secrets).trim())?.[1];
             const category = token && SAFE_CATEGORIES.get(token.toLowerCase());
             if (category && (token.includes('_') || token === category)

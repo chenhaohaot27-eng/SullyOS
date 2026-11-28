@@ -91,6 +91,13 @@ describe('mobile upstream error diagnostics', () => {
         expect(diagnostic).toBe('type: service_error · category: PROHIBITED_CONTENT · message: 已隐藏敏感内容');
     });
 
+    it('recognizes the relay category followed by its explicit request id annotation', async () => {
+        const diagnostic = await readApiErrorDiagnostic(fail(JSON.stringify({ error: {
+            type: 'service_error', message: 'status_code=400, PROHIBITED_CONTENT (request id: synthetic-id-12345678)',
+        } })), { body: JSON.stringify({ messages: [{ role: 'system', content: 'Earlier result: status_code=400, PROHIBITED_CONTENT' }] }) });
+        expect(diagnostic).toBe('type: service_error · category: PROHIBITED_CONTENT · message: 已隐藏敏感内容');
+    });
+
     it('keeps enum categories while hiding JSON dumps, and never promotes arbitrary private codes', async () => {
         const diagnostic = await readApiErrorDiagnostic(fail(JSON.stringify({ error: {
             code: 'SYNTHETIC_PRIVATE_CODE', status: 'PROHIBITED_CONTENT',
