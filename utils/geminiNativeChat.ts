@@ -1,6 +1,7 @@
 import { readReply } from './replyBoundary';
 import type { StreamHooks } from './safeApi';
 import { assertCompletionDelivered } from './completionOutcome';
+import { normalizeGeminiUsage } from './geminiUsage';
 
 type JsonRecord = Record<string, any>;
 
@@ -438,19 +439,11 @@ class GeminiResponseAssembler {
       });
     }
     if (content && this.finish) this.hooks?.onDelta?.(content, content);
-    const promptTokens = Number(this.usage?.promptTokenCount) || 0;
-    const completionTokens = Number(this.usage?.candidatesTokenCount) || 0;
-    const totalTokens = Number(this.usage?.totalTokenCount) || promptTokens + completionTokens;
+    const usage = normalizeGeminiUsage(this.usage);
     return {
       choices: [{ index: 0, message, finish_reason: this.finish }],
       model: this.model || fallbackModel,
-      ...(this.usage ? {
-        usage: {
-          prompt_tokens: promptTokens,
-          completion_tokens: completionTokens,
-          total_tokens: totalTokens,
-        },
-      } : {}),
+      ...(usage ? { usage } : {}),
     };
   }
 }

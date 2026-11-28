@@ -1,25 +1,33 @@
-import { describe, it, expect } from 'vitest';
-import { upgradeChatBodyToStream, assembleUpgradedResponse } from './streamUpgrade';
+import { afterEach, describe, it, expect } from 'vitest';
+import { isGlobalStreamEnabled, upgradeChatBodyToStream, assembleUpgradedResponse } from './streamUpgrade';
 
 // 透明流式升级：请求体改写 + SSE 响应拼回 JSON。
 // 关键不变量：调用方拿到的最终 JSON 与不升级时结构等价（choices/usage/model）。
 
 describe('upgradeChatBodyToStream', () => {
-    it('stream:false → 升级为 stream:true + include_usage，其余字段不动', () => {
-        const out = upgradeChatBodyToStream(JSON.stringify({ model: 'm', messages: [], stream: false, max_tokens: 8000 }));
-        const parsed = JSON.parse(out!);
-        expect(parsed.stream).toBe(true);
-        expect(parsed.stream_options).toEqual({ include_usage: true });
-        expect(parsed.max_tokens).toBe(8000);
+    afterEach(() => localStorage.removeItem('os_api_config'));
+
+    it('已保存的全局 stream:true 不覆盖本轮显式 stream:false，也不添加 stream_options', () => {
+        localStorage.setItem('os_api_config', JSON.stringify({ stream: true }));
+        const original = JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'Hi' }], stream: false, max_tokens: 5 });
+        expect(isGlobalStreamEnabled()).toBe(true);
+        const upgraded = isGlobalStreamEnabled() ? upgradeChatBodyToStream(original) : null;
+        expect(upgraded).toBeNull();
+        const wire = upgraded ?? original;
+        expect(wire).toBe(original);
+        expect(JSON.parse(wire)).toMatchObject({ stream: false, max_tokens: 5 });
+        expect(JSON.parse(wire)).not.toHaveProperty('stream_options');
     });
 
-    it('缺省 stream → 同样升级', () => {
-        const out = upgradeChatBodyToStream(JSON.stringify({ model: 'm', messages: [] }));
-        expect(JSON.parse(out!).stream).toBe(true);
+    it('缺省 stream 的旧调用仍按全局开关升级，其余请求字段保留', () => {
+        localStorage.setItem('os_api_config', JSON.stringify({ stream: true }));
+        const original = { model: 'm', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 8000 };
+        const out = isGlobalStreamEnabled() ? upgradeChatBodyToStream(JSON.stringify(original)) : null;
+        expect(JSON.parse(out!)).toEqual({ ...original, stream: true, stream_options: { include_usage: true } });
     });
 
     it('已是 stream:true（聊天主路径等自行开流的调用）→ 不碰，返回 null', () => {
-        expect(upgradeChatBodyToStream(JSON.stringify({ model: 'm', stream: true }))).toBeNull();
+        expect(upgradeChatBodyToStream(JSON.stringify({ model: 'm', stream: true, stream_options: { include_usage: false } }))).toBeNull();
     });
 
     it('非 JSON / 非对象 body → 返回 null 原样放行', () => {

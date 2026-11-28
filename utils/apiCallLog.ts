@@ -20,6 +20,7 @@
 /** 调用方可补充的语义信息（哪个 App / 角色 / 用途）。能填多少填多少。 */
 import { completionOutcome } from './completionOutcome';
 import { capturePeek, formatPeekReport, type PeekReport } from './peekDiagnostics';
+import { normalizeGeminiUsage } from './geminiUsage';
 
 export interface ApiCallMeta {
     /** AppID 字符串，如 'chat' / 'lifesim'，可空 */
@@ -327,16 +328,18 @@ export function extractApiTokenUsage(response: unknown): { prompt?: number; comp
     const usage = root?.usage || root?.usage_metadata || root?.usageMetadata;
     if (!usage || typeof usage !== 'object') return {};
     const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const native = normalizeGeminiUsage(usage);
     return {
-        prompt: num(usage.prompt_tokens ?? usage.input_tokens ?? usage.promptTokenCount),
-        completion: num(usage.completion_tokens ?? usage.output_tokens ?? usage.candidatesTokenCount),
-        total: num(usage.total_tokens ?? usage.totalTokenCount),
+        prompt: num(usage.prompt_tokens ?? usage.input_tokens) ?? native?.prompt_tokens,
+        // Normalized completion already includes reasoning. Do not add it twice.
+        completion: num(usage.completion_tokens ?? usage.output_tokens) ?? native?.completion_tokens,
+        total: num(usage.total_tokens) ?? native?.total_tokens,
     };
 }
 
 /**
  * SSE 流式响应文本的兜底解析：扫 `data: {...}` 行，抠后端自报 model（首个非空）
- * 和 usage（取最后一个非空，OpenAI 约定 usage 在末尾 chunk）。
+ * 和 usage / Native usageMetadata（取最后一个非空，通常在末尾 chunk）。
  * 拦截器 clone 出的流式响应 JSON.parse 必然失败，之前流式调用在记录里
  * 既没有 token 数也没有后端身份——这里补上。
  */
@@ -349,8 +352,10 @@ export function scanSseForLog(text: string): { model?: string; usage?: unknown }
         if (!payload || payload === '[DONE]') continue;
         let chunk: any;
         try { chunk = JSON.parse(payload); } catch { continue; }
-        if (!model && typeof chunk?.model === 'string' && chunk.model) model = chunk.model;
-        if (chunk?.usage && typeof chunk.usage === 'object') usage = chunk.usage;
+        const reportedModel = chunk?.model ?? chunk?.modelVersion;
+        if (!model && typeof reportedModel === 'string' && reportedModel) model = reportedModel;
+        const reportedUsage = chunk?.usage ?? chunk?.usage_metadata ?? chunk?.usageMetadata;
+        if (reportedUsage && typeof reportedUsage === 'object') usage = reportedUsage;
     }
     return { model, usage };
 }

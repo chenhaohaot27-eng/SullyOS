@@ -28,6 +28,7 @@ import { captureApiRequestOnce, getApiCallAmbientContext, recordApiCall, setApiC
 import { isGlobalStreamEnabled, upgradeChatBodyToStream, assembleUpgradedResponse } from '../utils/streamUpgrade';
 import { matrixRequests } from '../utils/protocolMatrixTransport';
 import { readApiErrorDiagnostic } from '../utils/apiErrorDiagnostic';
+import { formatApiRequestDiagnostic } from '../utils/apiRequestDiagnostic';
 import { rewriteStaleWorkerUrl } from '../utils/proxyWorker';
 import { buildFetchFailureDetail, classifyFetchFailure, describeReachabilityProbe, parseTargetUrl, probeOriginReachability, shouldProbeReachability } from '../utils/networkFailureDiagnosis';
 import { INSTALLED_APPS, HIDDEN_APP_NAMES } from '../constants';
@@ -1130,10 +1131,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       if (modelRejectsSamplingParams(parsed?.model) && stripSamplingParams(parsed)) {
                           body = JSON.stringify(parsed);
                       }
-                      // 透明流式升级：主 API 开了 stream 时，把硬编码非流式的旁路调用
-                      // （查手机/记忆宫殿/日程/剧场/群聊…40+ 处）升级为流式**传输**，防网关
-                      // 空闲超时把长生成掐成半截；响应会在下面攒齐拼回标准 JSON，调用方无感。
-                      // 已自带 stream:true 的请求（聊天主路径/见面/情绪评估）不碰。
+                      // 全局开关只为未指定 stream 的旧调用补默认值；本轮显式 true/false
+                      // 均须保留，尤其设置表单的测试不能被已保存的全局配置反向覆盖。
+                      // 升级后的响应仍在下面攒齐拼回标准 JSON，调用方无感。
                       if (matrix?.uiStream ?? isGlobalStreamEnabled()) {
                           const upgraded = upgradeChatBodyToStream(body);
                           if (upgraded) {
@@ -1236,32 +1236,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                               });
                           }
                           // 把发出去的请求体摘要也记上 —— 排查"只有点单(带工具)报错"必须看到 model/参数/tools/消息结构
-                          let reqSummary = '';
-                          if (imageLogMeta) {
-                              reqSummary = formatImageGenerationRequestLog(imageLogMeta);
-                          } else {
-                              try {
-                                  const b = (sendArgs[1] as any)?.body;
-                                  if (typeof b === 'string') {
-                                      const j = JSON.parse(b);
-                                      if (Array.isArray(j.contents)) {
-                                          // Gemini Native 请求体（contents/systemInstruction，没有 model/messages 字段）：
-                                          // 按 OpenAI 形状打印会显示成 "model: undefined / messages(0)"——那是日志形状不兼容，
-                                          // 不是请求坏了。这里按 Gemini 形状重排摘要（模型名从 URL 里取）。
-                                          const modelFromUrl = urlStr.match(/\/models\/([^:/]+):/)?.[1] ?? '(unknown)';
-                                          const fnNames = Array.isArray(j.tools)
-                                              ? j.tools.flatMap((t: any) => Array.isArray(t?.functionDeclarations) ? t.functionDeclarations.map((d: any) => d?.name).filter(Boolean) : [])
-                                              : [];
-                                          const geminiRoles = j.contents.map((c: any) => c?.role).join(',');
-                                          reqSummary = `\n--- Request (Gemini Native) ---\nmodel: ${modelFromUrl}\ngenerationConfig: ${JSON.stringify(j.generationConfig || {})}\ntools(${fnNames.length}): ${fnNames.join(', ')}\ncontents(${j.contents.length}) roles: ${geminiRoles}\nsystemInstruction parts: ${(j.systemInstruction?.parts || []).length}`;
-                                      } else {
-                                          const toolNames = Array.isArray(j.tools) ? j.tools.map((t: any) => t?.function?.name).filter(Boolean) : [];
-                                          const roles = Array.isArray(j.messages) ? j.messages.map((m: any) => m.role + (m.tool_calls ? '(tool_calls)' : '')).join(',') : '';
-                                          reqSummary = `\n--- Request ---\nmodel: ${j.model}\ntemperature: ${j.temperature} | top_p: ${j.top_p} | reasoning_effort: ${j.reasoning_effort} | thinking: ${j.thinking ? 'on' : 'off'}\ntools(${toolNames.length}): ${toolNames.join(', ')}\nmessages(${(j.messages || []).length}) roles: ${roles}`;
-                                      }
-                                  }
-                              } catch { /* 解析不了就算了 */ }
-                          }
+                          const reqSummary = imageLogMeta
+                              ? formatImageGenerationRequestLog(imageLogMeta)
+                              : formatApiRequestDiagnostic(init, resource);
 
                           setSystemLogs(prev => [{
                               id: `log-${Date.now()}`,

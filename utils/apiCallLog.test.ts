@@ -172,6 +172,40 @@ describe('one-shot full API request capture', () => {
             .toEqual({ prompt: 80, completion: 10, total: 90 });
     });
 
+    it.each(['usageMetadata', 'usage_metadata', 'usage'])('includes explicit Native thought tokens from %s', key => {
+        expect(extractApiTokenUsage({ [key]: {
+            promptTokenCount: 168, candidatesTokenCount: 1, thoughtsTokenCount: 107, totalTokenCount: 276,
+        } })).toEqual({ prompt: 168, completion: 108, total: 276 });
+    });
+
+    it.each(['completion_tokens', 'output_tokens'])('does not add reasoning again to normalized %s', key => {
+        expect(extractApiTokenUsage({ usage: {
+            prompt_tokens: 168, [key]: 108, total_tokens: 276,
+            completion_tokens_details: { reasoning_tokens: 107 },
+            promptTokenCount: 168, candidatesTokenCount: 1, thoughtsTokenCount: 107, totalTokenCount: 276,
+        } })).toEqual({ prompt: 168, completion: 108, total: 276 });
+    });
+
+    it.each(['json', 'sse'])('records corrected counts from raw Native %s responses', async mode => {
+        const { DB } = await import('./db');
+        const native = {
+            modelVersion: 'gemini-fixture',
+            usageMetadata: { promptTokenCount: 168, candidatesTokenCount: 1, thoughtsTokenCount: 107, totalTokenCount: 276 },
+        };
+        const id = `native-usage-${mode}`;
+        recordApiCall({
+            requestId: id, url: 'https://fixture.invalid/v1beta', body: { model: 'gemini-fixture' }, ok: true, status: 200,
+            ...(mode === 'json' ? { response: native } : {
+                responseText: 'data: {"modelVersion":"gemini-fixture","candidates":[]}\n\n'
+                    + `data: ${JSON.stringify({ usageMetadata: native.usageMetadata })}\n\n`,
+            }),
+        });
+        await vi.waitFor(async () => {
+            expect((await DB.getApiCallLog()).find(row => row.id === id))
+                .toMatchObject({ promptTokens: 168, completionTokens: 108, totalTokens: 276 });
+        });
+    });
+
     it('backfills the real response usage into the same one-shot capture', async () => {
         const { DB } = await import('./db');
         await DB.clearApiRequestCapture();

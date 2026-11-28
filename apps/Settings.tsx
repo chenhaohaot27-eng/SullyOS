@@ -4,8 +4,8 @@ import { useOS } from '../context/OSContext';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { extractContent, safeResponseJson } from '../utils/safeApi';
-import { extractModelIds, normalizeModelIds } from '../utils/modelList';
+import { safeResponseJson } from '../utils/safeApi';
+import { extractModelCatalog, extractModelIds, getModelProtocolInfo, normalizeModelIds, type ModelCatalogEntry } from '../utils/modelList';
 import { EXPORT_CHUNK_SIZE, sliceRanges } from '../utils/backupExport';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
@@ -43,7 +43,7 @@ import {
 } from '../utils/avatarModelBackup';
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel, normalizeChatApiFormat } from '../utils/apiConfigNormalize';
 import { configFromPreset, findActivePresetId, type PresetSwitchPatch } from '../utils/apiPresetSwitch';
-import { completeChat } from '../utils/chatCompletionClient';
+import { runApiConnectionTest, formatApiConnectionTestResult, type ApiConnectionTestResult } from '../utils/apiConnectionTest';
 import type { APIConfig, ChatApiFormat } from '../types';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import ImageGenerationSettings from '../components/settings/ImageGenerationSettings';
@@ -76,6 +76,10 @@ const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
 // 这里设为 false 只是把设置页里的入口隐藏掉，想恢复改回 true 即可。
 const SHOW_PROACTIVE_PUSH_ACCEL_UI = false;
 const VISION_MODEL_LIST_STORAGE_KEY = 'os_vision_available_models';
+const CHAT_API_FORMAT_LABELS: Record<ChatApiFormat, string> = {
+    'openai-compatible': 'OpenAI 兼容',
+    'gemini-native': 'Gemini 原生',
+};
 
 const readStoredVisionModels = (): string[] => {
     try {
@@ -523,6 +527,23 @@ const Settings: React.FC = () => {
   // 高级设置（流式/温度）默认折叠 — 大多数用户不需要碰
   const [showApiAdvanced, setShowApiAdvanced] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  // The opaque source identity changes with URL/Key; no credentials or capability
+  // metadata are added to persisted settings, presets, or backups.
+  const modelSourceUrl = normalizeApiBaseUrl(localUrl);
+  const modelSourceKey = normalizeApiCredential(localKey);
+  const modelCatalogSource = useMemo(() => ({}), [modelSourceUrl, modelSourceKey]);
+  const modelCatalogSourceRef = useRef(modelCatalogSource);
+  modelCatalogSourceRef.current = modelCatalogSource;
+  const modelCatalogRequestRef = useRef<AbortController | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<{ source: object; entries: ModelCatalogEntry[] } | null>(null);
+  useEffect(() => {
+      setIsLoadingModels(false);
+      setStatusMsg('');
+      return () => {
+          modelCatalogRequestRef.current?.abort();
+          modelCatalogRequestRef.current = null;
+      };
+  }, [modelCatalogSource]);
   const [isLoadingVisionModels, setIsLoadingVisionModels] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
   // 就地编辑某条预设：只改预设本身；改的正好是当前生效那条时，生效配置一并跟着走
@@ -678,6 +699,13 @@ const Settings: React.FC = () => {
       () => buildModelPickerView(availableModels, modelFilter),
       [modelFilter, availableModels],
   );
+  const currentModelCatalog = useMemo(
+      () => new Map(modelCatalog?.source === modelCatalogSource
+          ? modelCatalog.entries.map(model => [model.id, model] as const)
+          : []),
+      [modelCatalog, modelCatalogSource],
+  );
+  const currentModelProtocol = getModelProtocolInfo(currentModelCatalog.get(normalizeApiModel(localModel)), localApiFormat);
   const visionModelPickerView = useMemo(
       () => buildModelPickerView(availableVisionModels, visionModelFilter),
       [visionModelFilter, availableVisionModels],
@@ -849,7 +877,7 @@ const Settings: React.FC = () => {
 
   const [statusMsg, setStatusMsg] = useState('');
   const [testingApi, setTestingApi] = useState(false);
-  const [testApiResult, setTestApiResult] = useState<string | null>(null);
+  const [testApiResult, setTestApiResult] = useState<ApiConnectionTestResult | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const avatarModelBackupInputRef = useRef<HTMLInputElement>(null);
   const refreshAvatarModelInventory = useCallback(async () => {
@@ -1057,22 +1085,14 @@ const Settings: React.FC = () => {
     setTestingApi(true);
     setTestApiResult(null);
     try {
-      const data = await completeChat({
+      const result = await runApiConnectionTest({
         baseUrl: normalizeApiBaseUrl(localUrl),
         apiKey: normalizeApiCredential(localKey),
         model: normalizeApiModel(localModel),
         apiFormat: normalizeChatApiFormat(localApiFormat),
         geminiNonStream: localGeminiNonStream,
-      }, {
-        model: normalizeApiModel(localModel),
-        messages: [{ role: 'user', content: 'Hi' }],
-        max_tokens: 5,
-        stream: localStream,
-      }, { maxRetries: 0 });
-      const reply = extractContent(data);
-      setTestApiResult(`✅ 连接成功 — 模型回复: "${reply.slice(0, 30)}"`);
-    } catch (error: any) {
-      setTestApiResult(`❌ 连接失败: ${String(error?.message || error).slice(0, 180)}`);
+      }, localStream);
+      setTestApiResult(result);
     } finally {
       setTestingApi(false);
     }
@@ -1240,29 +1260,49 @@ const Settings: React.FC = () => {
         setShowModelModal(true);
         return;
     }
+    const source = modelCatalogSource;
+    const controller = new AbortController();
+    modelCatalogRequestRef.current?.abort();
+    modelCatalogRequestRef.current = controller;
+    const isCurrentRequest = () => modelCatalogRequestRef.current === controller && modelCatalogSourceRef.current === source;
+    setModelCatalog(null);
     setIsLoadingModels(true);
     setStatusMsg('正在连接...');
     try {
         const response = await fetch(`${baseUrl}/models`, {
             method: 'GET',
-            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            signal: controller.signal,
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await safeResponseJson(response);
+        if (!isCurrentRequest()) return;
         // Support common OpenAI-compatible and nested gateway response formats.
-        const models = extractModelIds(data);
+        const entries = extractModelCatalog(data);
+        const models = entries.map(model => model.id);
+        setModelCatalog({ source, entries });
         if (models.length > 0) {
             setAvailableModels(models);
-            if (models.length > 0 && !models.includes(localModel)) setLocalModel(models[0]);
             setStatusMsg(`获取到 ${models.length} 个模型`);
             setShowModelModal(true); // Open selector immediately
         } else { setStatusMsg('模型列表为空或格式不兼容'); }
     } catch (error: any) {
+        if (!isCurrentRequest()) return;
         console.error(error);
         setStatusMsg(`连接失败${error?.message ? `：${error.message}` : ''}`);
     } finally {
-        setIsLoadingModels(false);
+        if (isCurrentRequest()) {
+            modelCatalogRequestRef.current = null;
+            setIsLoadingModels(false);
+        }
     }
+  };
+
+  const applySuggestedModelFormat = () => {
+      if (!currentModelProtocol.suggestedFormat) return;
+      setLocalApiFormat(currentModelProtocol.suggestedFormat);
+      setTestApiResult(null);
+      setStatusMsg('请求格式已修改，保存后生效');
   };
 
   // 一键清理「幽灵表情包」残留：先 dryRun 扫描，弹确认后才真正删。
@@ -2440,6 +2480,16 @@ const Settings: React.FC = () => {
                     </button>
                 </div>
 
+                {currentModelProtocol.suggestedFormat && (
+                    <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800" role="status">
+                        <p>模型目录标注支持「{CHAT_API_FORMAT_LABELS[currentModelProtocol.suggestedFormat]}」，未标注当前的「{CHAT_API_FORMAT_LABELS[localApiFormat]}」。</p>
+                        <button type="button" onClick={applySuggestedModelFormat} className="mt-2 font-bold underline underline-offset-2">
+                            切换到{CHAT_API_FORMAT_LABELS[currentModelProtocol.suggestedFormat]}
+                        </button>
+                        <p className="mt-1 text-[10px]">切换后请保存配置。</p>
+                    </div>
+                )}
+
                 <button onClick={handleSaveApi} className="w-full py-3 rounded-2xl font-bold text-white shadow-lg shadow-primary/20 bg-primary active:scale-95 transition-all mt-2">
                     {statusMsg || '保存配置'}
                 </button>
@@ -2478,9 +2528,10 @@ const Settings: React.FC = () => {
 
                 {testApiResult && (
                     <div className={`mt-2 text-xs px-3 py-2 rounded-xl ${
-                        testApiResult.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+                        testApiResult.status === 'success' ? 'bg-emerald-50 text-emerald-700'
+                            : testApiResult.status === 'error' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-800'
                     }`}>
-                        {testApiResult}
+                        {formatApiConnectionTestResult(testApiResult)}
                     </div>
                 )}
             </div>
@@ -3732,6 +3783,7 @@ const Settings: React.FC = () => {
                         {filtered.length > 0 ? filtered.map(m => {
                             const suffix = commonPrefix && m.startsWith(commonPrefix) ? m.slice(commonPrefix.length) : m;
                             const selected = m === localModel;
+                            const formats = getModelProtocolInfo(currentModelCatalog.get(m), localApiFormat).formats;
                             return (
                                 <button
                                     key={m}
@@ -3744,6 +3796,11 @@ const Settings: React.FC = () => {
                                             <span className={selected ? 'text-primary/40 font-normal' : 'text-slate-400 font-normal'}>{commonPrefix}</span>
                                         )}
                                         <span>{suffix}</span>
+                                        {formats.length > 0 && (
+                                            <span className="mt-1 flex flex-wrap gap-1 font-sans text-[9px] font-normal text-slate-500">
+                                                {formats.map(format => <span key={format} className="rounded bg-white/70 px-1.5 py-0.5">{CHAT_API_FORMAT_LABELS[format]}</span>)}
+                                            </span>
+                                        )}
                                     </span>
                                     {selected && <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0"></div>}
                                 </button>

@@ -265,6 +265,39 @@ describe('Gemini Native 末尾回合校验（上游 400 "Requests ending with a 
 });
 
 describe('Gemini Native response normalization', () => {
+  it.each(['json', 'sse'])('includes explicitly reported thought tokens in normalized %s usage', async mode => {
+    const payload = {
+      candidates: [{ content: { parts: [{ thought: true, text: 'PRIVATE_FIXTURE_THOUGHT' }, { text: 'OK' }] }, finishReason: 'STOP' }],
+      usageMetadata: { promptTokenCount: 168, candidatesTokenCount: 1, thoughtsTokenCount: 107, totalTokenCount: 276 },
+    };
+    const response = mode === 'json' ? jsonResponse(payload)
+      : streamResponse([new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`)]);
+    const fetchImpl = vi.fn(async () => response);
+    const result = await requestGeminiNativeChat('https://fixture.invalid', 'fixture-key', 'gemini-fixture', {
+      messages: [{ role: 'user', content: 'Fixture.' }],
+    }, { fetchImpl: fetchImpl as typeof fetch, nonStream: mode === 'json' });
+    expect(result.usage).toEqual({
+      prompt_tokens: 168, completion_tokens: 108, total_tokens: 276,
+      completion_tokens_details: { reasoning_tokens: 107 },
+    });
+    expect(result.choices[0].message.content).toBe('OK');
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_FIXTURE_THOUGHT');
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(['json', 'sse'])('keeps %s usage without reported thought tokens unchanged', async mode => {
+    const payload = {
+      candidates: [{ content: { parts: [{ text: 'Fixture.' }] }, finishReason: 'STOP' }],
+      usageMetadata: { promptTokenCount: 194, candidatesTokenCount: 396, totalTokenCount: 590 },
+    };
+    const response = mode === 'json' ? jsonResponse(payload)
+      : streamResponse([new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`)]);
+    const result = await requestGeminiNativeChat('https://fixture.invalid', 'fixture-key', 'gemini-fixture', {
+      messages: [{ role: 'user', content: 'Fixture.' }],
+    }, { fetchImpl: (async () => response) as typeof fetch, nonStream: mode === 'json' });
+    expect(result.usage).toEqual({ prompt_tokens: 194, completion_tokens: 396, total_tokens: 590 });
+  });
+
   it('parses split UTF-8 SSE, all parts, thought filtering, usage and provider state', async () => {
     const payload1 = JSON.stringify({
       candidates: [
