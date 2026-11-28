@@ -36,9 +36,12 @@ import {
 } from '../../utils/sceneCameraSession';
 import { loadSceneImageOptions, saveSceneImageOptions } from '../../utils/imageGenerationOptions';
 import { summarizeSceneAnalysis } from '../../utils/buildSceneAnalysisPrompt';
+import { useBlobRefUrl } from '../../utils/blobRef';
+import { cameraReferenceIssue, planCameraReferences, type CameraReference } from '../../utils/sceneCameraReferences';
 import ChatPhotoViewer from '../chat/ChatPhotoViewer';
 
 export interface SceneCameraModalProps {
+    playerName?: string;
     open: boolean;
     onClose: () => void;
     /** 上下文来源：companion（陪伴）/ story（剧情），只影响说明文案与上下文获取 */
@@ -113,11 +116,21 @@ const RENDERER_PROVIDER_LABELS: Record<string, string> = {
 };
 
 function rendererReady(config: ImageGenerationConfig | undefined): boolean {
-    return !!config && config.enabled && !!config.baseUrl && !!config.apiKey && !!config.model;
+    return !!config && config.enabled && !!config.baseUrl && (config.authMode === 'none' || !!config.apiKey) && !!config.model;
 }
 
-const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, contextSource, character, getSceneContext, selectedText }) => {
-    const { apiConfig } = useOS();
+function ReferenceThumbnail({ reference }: { reference: CameraReference }) {
+    const url = useBlobRefUrl(reference.data);
+    return <figure className="w-20">
+        <img src={url} alt={reference.label} className="h-16 w-full rounded-lg object-contain" />
+        <figcaption>{reference.label}</figcaption>
+    </figure>;
+}
+
+const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, contextSource, character, getSceneContext, selectedText, playerName }) => {
+    const { apiConfig, userProfile } = useOS();
+    const playerRef = useRef(userProfile);
+    playerRef.current = playerName ? { ...userProfile, name: playerName } : userProfile;
     const [state, setState] = useState<SceneCameraSessionState>(INITIAL_SCENE_CAMERA_SESSION_STATE);
     const [rendererConfig, setRendererConfig] = useState<ImageGenerationConfig | undefined>(() => (typeof window === 'undefined' ? undefined : loadImageGenerationConfig()));
     const [showViewer, setShowViewer] = useState(false);
@@ -147,6 +160,7 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
         if (!open) return;
         const session = new SceneCameraSession({
             getSceneContext: () => sceneContextRef.current(),
+            getPlayer: () => playerRef.current,
             getCharacter: () => characterRef.current,
             getDirectorConfig: () => deriveDirectorApiConfig(apiConfigRef.current),
             getRendererConfig: () => loadImageGenerationConfig(),
@@ -240,6 +254,9 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
 
     if (!open || typeof document === 'undefined') return null;
 
+    const planned = planCameraReferences(character, playerRef.current).references;
+    const referenceIssue = rendererConfig && cameraReferenceIssue(planned.length, rendererConfig);
+    const displayedRefs = state.phase === 'done' ? state.references ?? [] : planned;
     const subtitle = contextSource === 'companion' ? '把此刻的见面拍成一张照片' : '把这一幕剧情拍成一张照片';
     const directorLabel = `${apiConfig.apiFormat === 'gemini-native' ? 'Gemini 原生格式' : 'OpenAI 兼容格式'} · ${apiConfig.model || '未配置'}`;
     const rendererLabel = rendererConfig
@@ -397,6 +414,13 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
                     </div>
                 )}
 
+                <section className="mt-4 text-xs text-white/80">
+                    <p>{state.phase === 'done' ? '本次实际使用的参考图' : '本次拟用参考图'} · {displayedRefs.length} 张</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        {displayedRefs.map(ref => <ReferenceThumbnail key={ref.label} reference={ref} />)}
+                    </div>
+                    {referenceIssue && <p role="alert" className="mt-2 text-amber-300">{referenceIssue}</p>}
+                </section>
                 {!busy && state.imageUrl && (
                     <div className="mt-4">
                         <button
@@ -432,7 +456,7 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
                 {/* 主操作（关闭导演时不依赖聊天 API 配置） */}
                 <button
                     type="button"
-                    disabled={busy || (options.directorEnabled && !directorReady) || !isRendererReady}
+                    disabled={busy || (options.directorEnabled && !directorReady) || !isRendererReady || !!referenceIssue}
                     onClick={handleGenerate}
                     className="mt-4 h-12 w-full rounded-2xl bg-white text-[14px] font-bold text-slate-900 transition-transform active:scale-95 disabled:opacity-40"
                 >

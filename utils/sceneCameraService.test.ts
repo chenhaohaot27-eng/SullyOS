@@ -69,7 +69,7 @@ const mockShotPlan: SceneCameraShotPlan = {
 
 describe('generateShotPlanOnly', () => {
   it('应调用 Director 并返回 ShotPlan', async () => {
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue({
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue({
       id: 'preset-1',
       name: '日常形态',
       characterId: 'test-char-1',
@@ -104,7 +104,7 @@ describe('generateShotPlanOnly', () => {
   });
 
   it('应传递 previousShotPlan 给 Director', async () => {
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue(null);
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue(null);
     vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
       shotPlan: mockShotPlan,
       rawResponse: '',
@@ -131,7 +131,7 @@ describe('generateShotPlanOnly', () => {
 
 describe('generateSceneCamera', () => {
   it('应完成 Director + Renderer 完整流程', async () => {
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue(null);
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue(null);
     vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
       shotPlan: mockShotPlan,
       rawResponse: '',
@@ -156,10 +156,9 @@ describe('generateSceneCamera', () => {
     // 应调用 Renderer（imageGenerationService）
     expect(imageGenerationService.generateImage).toHaveBeenCalledWith({
       prompt: mockShotPlan.finalPrompt,
-      characterId: 'test-char-1', // 自动注入 Visual Identity
-      config: mockRendererConfig,
+      referenceImages: [],
       signal: undefined,
-    });
+    }, mockRendererConfig);
 
     // 应返回完整结果
     expect(result.shotPlan).toEqual(expect.objectContaining({
@@ -183,7 +182,7 @@ describe('generateSceneCamera', () => {
       interaction: '并肩站立',
     };
 
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue(null);
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue(null);
     vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
       shotPlan: duoShotPlan,
       rawResponse: '',
@@ -220,7 +219,7 @@ describe('generateSceneCamera', () => {
   });
 
   it('应传递 signal 给 imageGenerationService', async () => {
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue(null);
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue(null);
     vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
       shotPlan: mockShotPlan,
       rawResponse: '',
@@ -244,12 +243,12 @@ describe('generateSceneCamera', () => {
     expect(imageGenerationService.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
         signal: controller.signal,
-      }),
+      }), mockRendererConfig,
     );
   });
 
   it('应将 Director 和 Renderer metadata 记录到 ShotPlan', async () => {
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue(null);
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue(null);
     vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
       shotPlan: { ...mockShotPlan, directorProvider: 'anthropic', directorModel: 'claude-3' },
       rawResponse: '',
@@ -275,7 +274,7 @@ describe('generateSceneCamera', () => {
   });
 
   it('应在 Director 失败时抛出错误', async () => {
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue(null);
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue(null);
     vi.mocked(sceneCameraDirector.callDirector).mockRejectedValue(new Error('Director API failed'));
 
     await expect(
@@ -290,7 +289,7 @@ describe('generateSceneCamera', () => {
   });
 
   it('应在 Renderer 失败时抛出错误', async () => {
-    vi.mocked(visualIdentityPresets.getActiveVisualIdentity).mockReturnValue(null);
+    vi.mocked(visualIdentityPresets.getActiveVisualIdentityPreset).mockReturnValue(null);
     vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
       shotPlan: mockShotPlan,
       rawResponse: '',

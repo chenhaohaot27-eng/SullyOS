@@ -53,6 +53,7 @@ export function normalizeImageGenerationConfig(value: unknown): ImageGenerationC
             ? source.defaultAspectRatio as ImageGenerationAspectRatio
             : DEFAULT_IMAGE_GENERATION_CONFIG.defaultAspectRatio,
         allowReferenceImages: source.allowReferenceImages !== false,
+        ...(source.singleReferenceOnly === true ? { singleReferenceOnly: true } : {}),
         timeoutMs: Math.min(300_000, Math.max(5_000, timeout)),
         // 'none' 只在用户显式选择时生效；任何其他值（包括旧数据缺省）一律回落到 'api-key'，
         // 绝不因为 API Key 为空而自动把云端接口降级为无鉴权。

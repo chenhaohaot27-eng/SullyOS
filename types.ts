@@ -274,6 +274,7 @@ export interface ImageGenerationConfig {
   defaultResolution: ImageGenerationResolution;
   defaultAspectRatio: ImageGenerationAspectRatio;
   allowReferenceImages: boolean;
+  singleReferenceOnly?: boolean;
   timeoutMs: number;
   /** 缺省按 'api-key' 处理；'none' 只允许用户在预设中显式选择，绝不会因 Key 为空自动降级。 */
   authMode?: ImageGenerationAuthMode;
@@ -3447,7 +3448,8 @@ export interface CharacterExportData extends Omit<CharacterProfile, 'id' | 'memo
     embeddedTheme?: ChatTheme;
 }
 
-export interface UserProfile {
+export interface UserProfile extends Pick<CharacterProfile,
+  'visualIdentity' | 'visualIdentityPresets' | 'activeVisualIdentityPresetId'> {
     name: string;
     avatar: string;
     bio: string;

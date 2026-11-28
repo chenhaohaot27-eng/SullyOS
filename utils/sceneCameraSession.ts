@@ -8,11 +8,12 @@
  * - retry()             ：有 ShotPlan 时等价于重拍同一镜头，否则重新完整生成
  *
  * 不写聊天、不写长期记忆、不新增 DB 表；上一张图片不进入下一次 Visual Identity references
- * （references 只由 imageGenerationService 基于 characterId 从 active preset 读取）。
+ * （每次发送时从玩家和角色的当前形态生成参考图列表）。
  */
 
 import type {
   CharacterProfile,
+  UserProfile,
   ImageGenerationAspectRatio,
   ImageGenerationConfig,
   SceneAnalysis,
@@ -20,6 +21,7 @@ import type {
   SceneCameraShotPlan,
   SceneImageOptions,
 } from '../types';
+import type { CameraReference } from './sceneCameraReferences';
 import type { DirectorApiConfig } from './sceneCameraPrompt';
 import { generateShotPlanOnly, renderShotPlan } from './sceneCameraService';
 import { DEFAULT_SCENE_IMAGE_OPTIONS } from './imageGenerationOptions';
@@ -44,6 +46,7 @@ export interface SceneCameraSessionState {
   /** 上一次成功方案（重新导演时的差异化来源，仅 metadata，不携带图片） */
   previousShotPlan?: SceneCameraShotPlan;
   imageUrl?: string;
+  references?: CameraReference[];
   error?: string;
   /** 导演链路降级提示（如「导演解析失败，已改为直接根据原文生成」） */
   directorNotice?: string;
@@ -69,6 +72,7 @@ export interface SceneCameraSessionDeps {
   /** 最小必要场景上下文（陪伴 / 剧情各自由 sceneCameraContext 提供） */
   getSceneContext: () => string;
   getCharacter: () => CharacterProfile;
+  getPlayer?: () => UserProfile;
   /** Director 默认复用当前聊天 API config */
   getDirectorConfig: () => DirectorApiConfig;
   /** Renderer 每次动作前重新读取现有生图配置（允许用户中途换模型） */
@@ -208,6 +212,7 @@ export class SceneCameraSession {
             mode: this.state.mode,
             sceneContext: this.deps.getSceneContext(),
             character: this.deps.getCharacter(),
+            player: this.deps.getPlayer?.(),
             directorConfig,
             previousShotPlan,
             options: imageOptions,
@@ -215,6 +220,7 @@ export class SceneCameraSession {
             rendererProvider: this.deps.getRendererConfig().provider,
             signal,
           });
+          if (signal.aborted) return;
           this.patch({
             shotPlan,
             previousShotPlan,
@@ -225,19 +231,22 @@ export class SceneCameraSession {
         }
       }
 
-      this.patch({ phase: 'rendering', error: undefined });
+      this.patch({ phase: 'rendering', error: undefined, imageUrl: undefined, references: undefined });
       const rendererConfig = this.deps.getRendererConfig();
       const result = await (this.deps.renderExistingShotPlan ?? renderShotPlan)({
         shotPlan: shotPlan!,
         character: this.deps.getCharacter(),
+        player: this.deps.getPlayer?.(),
         rendererConfig,
         aspectRatio: this.state.aspectRatio,
         signal,
       });
+      if (signal.aborted) return;
       this.patch({
         phase: 'done',
         shotPlan: result.shotPlan,
         imageUrl: result.imageUrl,
+        references: result.references,
         rendererMetadata: result.rendererMetadata,
       });
       this.logDebug();
@@ -248,8 +257,10 @@ export class SceneCameraSession {
       // Renderer 失败时 shotPlan 已在 state 中，保留给「重试 / 重拍同一镜头」。
       this.patch({ phase: 'error', error: message });
     } finally {
-      this.busy = false;
-      this.notify();
+      if (!signal.aborted) {
+        this.busy = false;
+        this.notify();
+      }
     }
   }
 

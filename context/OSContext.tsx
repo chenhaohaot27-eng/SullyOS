@@ -3454,7 +3454,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 用户资料是所有角色共享的素材（名字、人设直接烤进 fire_pack 模板），改完不打脏的话
           // 角色到点还按旧名字叫你。仿表情库：逐个打脏，没开 2.0 的角色被 markDirty 的门筛掉。
           DB.saveUserProfile(next).then(() => {
-              markAmsgStateDirtyForAll({ characters, userProfile: next, groups, realtimeConfig });
+              if (Object.keys(updates).some(key => !['visualIdentity', 'visualIdentityPresets', 'activeVisualIdentityPresetId'].includes(key))) {
+                  markAmsgStateDirtyForAll({ characters, userProfile: next, groups, realtimeConfig });
+              }
           });
           return next;
       });
@@ -4263,7 +4265,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               //    （media_only 的 roomItems/backgrounds 提取也依赖已还原成 data:）
               //  · cc_custom_parts：捏人器自定义部件的 src / shadowSrc
                //  - messages camera snapshot / gift_records imageRef (blobref -> data: -> zip assets)
-               if ((storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages' || storeName === 'gift_records') && mode !== 'text_only' && Array.isArray(rawData)) {
+               if ((storeName === 'user_profile' || storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages' || storeName === 'gift_records') && mode !== 'text_only' && Array.isArray(rawData)) {
                   for (const c of rawData) await resolveBlobRefsDeep(c);
               }
 

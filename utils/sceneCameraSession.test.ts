@@ -9,7 +9,7 @@
  * 5. Renderer 失败：ShotPlan 保留，retry 只走 Renderer
  * 6. busy 互斥：生成期间不产生并发请求
  * 7. reset：关闭 modal 清理 loading / 临时 ShotPlan
- * 8. renderShotPlan / generateSceneCamera 传递 characterId 与 aspectRatio（Visual Identity 注入依赖 characterId）
+ * 8. renderShotPlan / generateSceneCamera 传递 显式参考图 与 aspectRatio（Visual Identity 注入依赖 显式参考图）
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -274,8 +274,8 @@ describe('SceneCameraSession', () => {
     });
 });
 
-describe('renderShotPlan / generateSceneCamera（characterId 传递 → Visual Identity 注入）', () => {
-    it('renderShotPlan 应把 characterId 与 aspectRatio 传给 imageGenerationService', async () => {
+describe('renderShotPlan / generateSceneCamera（显式参考图 传递 → Visual Identity 注入）', () => {
+    it('renderShotPlan 应把 显式参考图 与 aspectRatio 传给 imageGenerationService', async () => {
         vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
             shotPlan: makeShotPlan('scene-snapshot', 'p'),
             rawResponse: '',
@@ -297,15 +297,15 @@ describe('renderShotPlan / generateSceneCamera（characterId 传递 → Visual I
 
         expect(imageGenerationService.generateImage).toHaveBeenCalledWith(expect.objectContaining({
             prompt: 'rerender-prompt',
-            characterId: 'char-1',
+            referenceImages: [],
             aspectRatio: '3:4',
-        }));
+        }), rendererConfig);
         expect(result.shotPlan.rendererProvider).toBe('gpt-images');
         expect(result.shotPlan.rendererModel).toBe('renderer-model-a');
         expect(result.imageUrl).toBe('data:image/png;base64,AAA');
     });
 
-    it('generateSceneCamera 完整流程应传递 aspectRatio 与 characterId（Phase 3B 回归）', async () => {
+    it('generateSceneCamera 完整流程应传递 aspectRatio 与 显式参考图（Phase 3B 回归）', async () => {
         vi.mocked(sceneCameraDirector.callDirector).mockResolvedValue({
             shotPlan: makeShotPlan('duo-photo', 'duo-prompt'),
             rawResponse: '',
@@ -328,10 +328,10 @@ describe('renderShotPlan / generateSceneCamera（characterId 传递 → Visual I
         });
 
         expect(imageGenerationService.generateImage).toHaveBeenCalledWith(expect.objectContaining({
-            characterId: 'char-1',
+            referenceImages: [],
             aspectRatio: '16:9',
             prompt: 'duo-prompt',
-        }));
+        }), rendererConfig);
         expect(result.shotPlan.rendererProvider).toBe('gpt-images');
     });
 });

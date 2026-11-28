@@ -6,12 +6,11 @@
  * 流程：
  * 1. 调用 Director（文本模型）生成 ShotPlan
  * 2. 调用 Renderer（图像模型）基于 ShotPlan.finalPrompt 生成照片
- * 3. 自动注入 Visual Identity references（由 imageGenerationService 处理）
+ * 3. 按实际参考图顺序绑定玩家和角色身份
  * 4. 自动应用 photoSemantics 约束（由 imageGenerationService 处理）
  *
  * Phase 3B 限制：
  * - 只支持 scene-snapshot 和 duo-photo 模式
- * - 不新增 Player Visual Identity
  * - 不新增数据库表
  * - 不修改现有聊天生图行为
  */
@@ -20,7 +19,7 @@ import type {
   SceneCameraMode,
   SceneCameraShotPlan,
   SceneImageOptions,
-  VisualIdentityPreset,
+  UserProfile,
   CharacterProfile,
   ImageGenerationConfig,
   ImageGenerationAspectRatio,
@@ -28,7 +27,8 @@ import type {
 import type { DirectorApiConfig } from './sceneCameraPrompt';
 import { callDirector } from './sceneCameraDirector';
 import { generateImage } from './imageGenerationService';
-import { getActiveVisualIdentity } from './visualIdentityPresets';
+import { prepareCameraReferences, type CameraReference } from './sceneCameraReferences';
+import { getActiveVisualIdentity, getActiveVisualIdentityPreset } from './visualIdentityPresets';
 
 /** Scene Camera 生成请求参数。 */
 export interface SceneCameraRequest {
@@ -38,6 +38,7 @@ export interface SceneCameraRequest {
   sceneContext: string;
   /** 角色对象 */
   character: CharacterProfile;
+  player?: UserProfile;
   /** Director API 配置 */
   directorConfig: DirectorApiConfig;
   /** Renderer (图像生成) 配置 */
@@ -60,6 +61,7 @@ export interface SceneCameraResult {
   shotPlan: SceneCameraShotPlan;
   /** 生成的图像 URL（base64 data URL 或 https URL） */
   imageUrl: string;
+  references?: CameraReference[];
   /** 图像模型使用的 provider 和 model */
   rendererMetadata: {
     provider: string;
@@ -73,56 +75,15 @@ export interface SceneCameraResult {
  * @throws 当 Director 或 Renderer 调用失败时抛出错误
  */
 export async function generateSceneCamera(request: SceneCameraRequest): Promise<SceneCameraResult> {
-  const { mode, sceneContext, character, directorConfig, rendererConfig, previousShotPlan, signal, options, selectedText } = request;
+  const { mode, rendererConfig } = request;
 
   // Phase 3B 范围限制
   if (mode !== 'scene-snapshot' && mode !== 'duo-photo') {
     throw new Error(`Phase 3B only supports scene-snapshot and duo-photo modes, got: ${mode}`);
   }
 
-  // 获取角色当前的 Visual Identity preset（用于 continuityConstraints）
-  const activePreset = getActiveVisualIdentity(character);
-
-  // Step 1: 调用 Director 生成 ShotPlan（两阶段：场景解析 → 视觉导演；失败内部降级）
-  const directorOutput = await callDirector({
-    apiConfig: directorConfig,
-    mode,
-    sceneContext,
-    characterName: character.name,
-    activePresetName: activePreset?.name,
-    previousShotPlan,
-    ...(options ? { options } : {}),
-    ...(selectedText ? { selectedText } : {}),
-  });
-
-  const shotPlan = directorOutput.shotPlan;
-
-  // Step 2: 调用 Renderer 生成图像
-  // imageGenerationService 会自动：
-  // - 注入 Visual Identity references（基于 characterId）
-  // - 应用 photoSemantics 约束
-  // - 处理 provider 适配（GPT Images / Gemini Native）
-  const imageResult = await generateImage({
-    prompt: shotPlan.finalPrompt,
-    characterId: character.id, // 自动注入 Visual Identity
-    aspectRatio: request.aspectRatio,
-    config: rendererConfig, // 保留 3B 调用契约；实际配置源仍是 imageGenerationSettings
-    signal,
-  });
-  const imageUrl = extractImageUrl(imageResult);
-
-  // 记录 Renderer metadata 到 ShotPlan
-  shotPlan.rendererProvider = rendererConfig.provider;
-  shotPlan.rendererModel = rendererConfig.model;
-
-  return {
-    shotPlan,
-    imageUrl,
-    rendererMetadata: {
-      provider: rendererConfig.provider,
-      model: rendererConfig.model,
-    },
-  };
+  const shotPlan = await generateShotPlanOnly({ ...request, rendererProvider: rendererConfig.provider });
+  return renderShotPlan({ ...request, shotPlan });
 }
 
 /**
@@ -148,6 +109,7 @@ export async function generateShotPlanOnly(request: {
   mode: SceneCameraMode;
   sceneContext: string;
   character: CharacterProfile;
+  player?: UserProfile;
   directorConfig: DirectorApiConfig;
   previousShotPlan?: SceneCameraShotPlan;
   /** 画面导演选项（构图方式 / 环境保留 / 人物焦点 / 导演开关） */
@@ -161,13 +123,15 @@ export async function generateShotPlanOnly(request: {
 }): Promise<SceneCameraShotPlan> {
   const { mode, sceneContext, character, directorConfig, previousShotPlan, options, selectedText, rendererProvider, signal } = request;
 
-  const activePreset = getActiveVisualIdentity(character);
+  const activePreset = getActiveVisualIdentityPreset(character);
 
+  const playerIdentity = request.player && getActiveVisualIdentity(request.player);
   const directorOutput = await callDirector({
     apiConfig: directorConfig,
     mode,
     sceneContext,
     characterName: character.name,
+    ...(request.player ? { playerName: request.player.name, playerHasReferences: !!(playerIdentity?.enabled && playerIdentity.references?.length) } : {}),
     activePresetName: activePreset?.name,
     previousShotPlan,
     ...(options ? { options } : {}),
@@ -185,24 +149,26 @@ export async function generateShotPlanOnly(request: {
  * 语义：
  * - 保留传入的 ShotPlan，不重新调用 Director
  * - 允许调用方更换 rendererConfig（换生图模型后重拍）
- * - characterId 继续传递，保证 active Visual Identity 自动生效
+ * - 重新读取当前形态，生成本次请求及预览共用的参考图列表
  */
 export async function renderShotPlan(request: {
   shotPlan: SceneCameraShotPlan;
   character: CharacterProfile;
+  player?: UserProfile;
   rendererConfig: ImageGenerationConfig;
   aspectRatio?: ImageGenerationAspectRatio;
   signal?: AbortSignal;
 }): Promise<SceneCameraResult> {
   const { shotPlan, character, rendererConfig, aspectRatio, signal } = request;
 
+  const { references, instructions } = await prepareCameraReferences(character, request.player, rendererConfig);
   const imageResult = await generateImage({
-    prompt: shotPlan.finalPrompt,
-    characterId: character.id, // 自动注入 Visual Identity（与完整流程一致）
+    prompt: [shotPlan.finalPrompt, instructions].filter(Boolean).join('\n\n'),
+    referenceImages: references.map(ref => ref.data),
+    ...(references.length ? { identityActive: true } : {}),
     aspectRatio,
-    config: rendererConfig, // 保留与 generateSceneCamera 一致的调用契约
     signal,
-  });
+  }, rendererConfig);
   const imageUrl = extractImageUrl(imageResult);
 
   const updatedShotPlan: SceneCameraShotPlan = {
@@ -213,6 +179,7 @@ export async function renderShotPlan(request: {
 
   return {
     shotPlan: updatedShotPlan,
+    references,
     imageUrl,
     rendererMetadata: {
       provider: rendererConfig.provider,

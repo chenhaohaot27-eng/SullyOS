@@ -32,6 +32,8 @@ export interface TwoStageDirectorInput {
   selectedText?: string;
   characterName: string;
   activePresetName?: string;
+  playerName?: string;
+  playerHasReferences?: boolean;
   previousShotPlan?: SceneCameraShotPlan;
   /** 导演选项；缺省使用默认值（narrative_balanced / key_elements / auto / 开启导演）。 */
   options?: SceneImageOptions;
@@ -128,7 +130,7 @@ export async function runTwoStageDirector(input: TwoStageDirectorInput): Promise
           options,
           rendererProvider,
           previousShotPlan,
-        }) },
+        }) + (input.playerName ? `\n身份对应：玩家「${input.playerName}」，当前角色「${characterName}」。玩家${input.playerHasReferences ? '已有独立视觉参考，可按原文自然露脸' : '未配置视觉参考'}。在 finalPrompt 中用姓名与身份标明已入镜人物的动作和位置。只描绘原文要求出现的人，避免互换外貌。` : '') },
       ],
       temperature: 0.7,
       max_tokens: 2048,

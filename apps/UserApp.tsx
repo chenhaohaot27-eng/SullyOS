@@ -3,6 +3,7 @@ import React, { useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { processImage } from '../utils/file';
 import LifeRecordPanel from '../components/lifeRecord/LifeRecordPanel';
+import VisualIdentityPanel from '../components/character/VisualIdentityPanel';
 import PerCharAvatarPicker from '../components/user/PerCharAvatarPicker';
 import { trackEvent } from '../utils/analytics';
 
@@ -102,6 +103,17 @@ const UserApp: React.FC = () => {
 
                 {/* 分角色聊天头像：上面的整体头像是宏观默认，这里可给每个角色的私聊单独换「你」的头像 */}
                 <PerCharAvatarPicker />
+                <section aria-label="玩家视觉身份">
+                    <h2 className="mb-2 text-sm font-bold text-slate-700">玩家视觉身份</h2>
+                    <VisualIdentityPanel
+                        owner="玩家"
+                        visualIdentity={userProfile.visualIdentity}
+                        visualIdentityPresets={userProfile.visualIdentityPresets}
+                        activeVisualIdentityPresetId={userProfile.activeVisualIdentityPresetId}
+                        onChangePatch={updateUserProfile}
+                        addToast={addToast}
+                    />
+                </section>
 
                 {/* About / setting card */}
                 <div className="bg-white rounded-[1.75rem] shadow-[0_10px_30px_-12px_rgba(80,70,120,0.18)] border border-slate-100 p-5">

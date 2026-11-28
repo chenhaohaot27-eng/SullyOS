@@ -3343,11 +3343,12 @@ export const DB = {
           getAllFromStore(STORE_PLAYER_WALLET),
       ]);
 
-      const userProfile = userProfiles.length > 0 ? {
-          name: userProfiles[0].name,
-          avatar: userProfiles[0].avatar,
-          bio: userProfiles[0].bio
-      } : undefined;
+      const { id: _profileKey, ...storedProfile } = userProfiles[0] ?? {};
+      const userProfile = userProfiles.length ? storedProfile as UserProfile : undefined;
+      if (userProfile) {
+          const { resolveBlobRefsDeep } = await import('./blobRef');
+          await resolveBlobRefsDeep(userProfile);
+      }
 
       const mainState = bankData.find((d: any) => d.id === 'main_state');
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
@@ -4123,6 +4124,21 @@ export const DB = {
       await runSection('用户资料', data.userProfile !== undefined, async () => {
           if (!hasStore(STORE_USER)) return;
           await beforeWrite(data.userProfile, '用户资料', true);
+          if (data.userProfile) {
+              const { migrateDataUrlToRef } = await import('./blobRef');
+              const host = data.userProfile;
+              const identities = [host.visualIdentity, ...(host.visualIdentityPresets ?? []).map(p => p.identity)];
+              const restored = new Map<string, string>();
+              for (const identity of identities) {
+                  for (const ref of identity?.references ?? []) {
+                      if (!ref.blobRef?.startsWith('data:image/')) continue;
+                      const dataUrl = ref.blobRef;
+                      const token = restored.get(dataUrl) ?? await migrateDataUrlToRef(dataUrl);
+                      restored.set(dataUrl, token);
+                      ref.blobRef = token;
+                  }
+              }
+          }
           await withStore(STORE_USER, store => {
               store.clear();
               if (data.userProfile) {

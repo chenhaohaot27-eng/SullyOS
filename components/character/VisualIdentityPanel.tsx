@@ -48,12 +48,13 @@ import {
  * - 删除预设只清理该预设独占的 Blob（被其他预设 / legacy 引用的 blobRef 保留）
  */
 const VisualIdentityPanel: React.FC<{
+    owner?: '玩家' | '角色';
     visualIdentity?: VisualIdentity;
     visualIdentityPresets?: VisualIdentityPreset[];
     activeVisualIdentityPresetId?: string;
     onChangePatch: (patch: Partial<Pick<CharacterProfile, 'visualIdentity' | 'visualIdentityPresets' | 'activeVisualIdentityPresetId'>>) => void;
     addToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
-}> = ({ visualIdentity, visualIdentityPresets, activeVisualIdentityPresetId, onChangePatch, addToast }) => {
+}> = ({ owner = '角色', visualIdentity, visualIdentityPresets, activeVisualIdentityPresetId, onChangePatch, addToast }) => {
     const presets = visualIdentityPresets ?? [];
     const activePreset = useMemo(
         () => getActiveVisualIdentityPreset({ visualIdentity, visualIdentityPresets, activeVisualIdentityPresetId }),
@@ -61,6 +62,7 @@ const VisualIdentityPanel: React.FC<{
     );
     // 当前编辑对象：active 预设优先，否则 legacy visualIdentity（旧角色零迁移照常编辑）
     const vi = useMemo(() => normalizeVisualIdentity(activePreset?.identity ?? visualIdentity), [activePreset, visualIdentity]);
+    const [previewId, setPreviewId] = useState<string>();
     const [uploading, setUploading] = useState(false);
     const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
     const [fixedTraitsDraft, setFixedTraitsDraft] = useState(() => joinTraitInput(vi.fixedTraits));
@@ -159,7 +161,13 @@ const VisualIdentityPanel: React.FC<{
     const handleRemove = async (ref: VisualIdentityReference) => {
         writeIdentity({ ...vi, references: removeVisualIdentityReferenceFromList(vi.references, ref.id) });
         try {
-            await removeVisualIdentityReference(ref, vi.references);
+            const otherReferences = [
+                ...(activePreset ? visualIdentity?.references ?? [] : []),
+                ...presets.filter(p => p.id !== activePreset?.id).flatMap(p => p.identity.references),
+            ];
+            if (!otherReferences.some(other => other.blobRef === ref.blobRef)) {
+                await removeVisualIdentityReference(ref, vi.references);
+            }
         } catch { /* 删除孤儿 Blob 失败不影响元数据 */ }
     };
 
@@ -384,7 +392,7 @@ const VisualIdentityPanel: React.FC<{
                     <label className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest block">视觉身份 (Visual Identity)</label>
                     <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
                         {activePreset ? `正在编辑形态「${activePreset.name}」。` : ''}
-                        启用后，角色生图会自动使用当前视觉形态的参考图与外观设定。
+                        启用后，{owner === '玩家' ? '见面摄影机拍摄玩家时会使用' : '角色生图会自动使用'}当前视觉形态的参考图与外观设定。
                     </p>
                 </div>
                 <button
@@ -443,6 +451,13 @@ const VisualIdentityPanel: React.FC<{
                 />
             </div>
 
+            {previewId && thumbUrls[previewId] && (
+                <button type="button" aria-label="关闭参考图预览" onClick={() => setPreviewId(undefined)}
+                    className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-black/90 p-4 text-white">
+                    <img src={thumbUrls[previewId]} alt="参考图预览" className="max-h-[80dvh] max-w-full object-contain" />
+                    点击关闭
+                </button>
+            )}
             {/* 缩略图网格 */}
             {vi.references.length > 0 ? (
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
@@ -450,7 +465,9 @@ const VisualIdentityPanel: React.FC<{
                         <div key={ref.id} className="space-y-1.5">
                             <div className="relative aspect-square rounded-2xl overflow-hidden border border-slate-100 bg-slate-50">
                                 {thumbUrls[ref.id]
-                                    ? <img src={thumbUrls[ref.id]} alt={`参考图 ${roleLabelOf(ref.role)}`} className="h-full w-full object-cover" />
+                                    ? <button type="button" className="h-full w-full" onClick={() => setPreviewId(ref.id)} aria-label="预览参考图">
+                                        <img src={thumbUrls[ref.id]} alt={roleLabelOf(ref.role)} className="h-full w-full object-cover" />
+                                      </button>
                                     : <div className="h-full w-full animate-pulse bg-slate-100" />}
                                 <button
                                     type="button"
@@ -572,7 +589,7 @@ const VisualIdentityPanel: React.FC<{
                             </button>
                         </div>
                         <p className="mt-1.5 text-[10px] leading-relaxed text-slate-400">
-                            导入 = 新增一个视觉形态并设为当前（不覆盖已有形态）；导出 = 打包当前形态。每套形态最多 5 张参考图，只作用于当前角色。
+                            导入 = 新增一个视觉形态并设为当前（不覆盖已有形态）；导出 = 打包当前形态。每套形态最多 5 张参考图，只作用于当前{owner}。
                         </p>
                         <input
                             ref={zipInputRef}

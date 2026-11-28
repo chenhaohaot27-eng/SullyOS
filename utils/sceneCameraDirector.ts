@@ -36,6 +36,8 @@ export interface DirectorInput {
   sceneContext: string;
   /** 角色名 */
   characterName: string;
+  playerName?: string;
+  playerHasReferences?: boolean;
   /** 当前 Visual Identity preset 名称（用于 continuityConstraints） */
   activePresetName?: string;
   /** 上一次 ShotPlan（用于差异化） */

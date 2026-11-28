@@ -964,6 +964,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
             onClose={() => { setShowSceneCamera(false); setCameraSelectedText(undefined); }}
             contextSource='story'
             character={actors[0]}
+            playerName={promptIdentityName}
             getSceneContext={() => buildStorySceneContext(messages, entry.title, promptIdentityName)}
             selectedText={cameraSelectedText}
         />}

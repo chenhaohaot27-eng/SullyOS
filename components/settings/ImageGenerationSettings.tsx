@@ -585,6 +585,14 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
                     <input type="checkbox" checked={draft.allowReferenceImages} onChange={event => patchDraft('allowReferenceImages', event.target.checked)} className="h-4 w-4 accent-fuchsia-500" />
                 </div>
 
+                {draft.allowReferenceImages && draft.provider !== 'openai-images' && (
+                    <label className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                        此预设仅支持单张参考图（摄影机）
+                        <input type="checkbox" checked={!!draft.singleReferenceOnly}
+                            onChange={event => patchDraft('singleReferenceOnly', event.target.checked)} />
+                    </label>
+                )}
+
                 <div>
                     <label className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">请求超时（秒）</label>
                     <input className={fieldClass} type="number" min={5} max={300} step={5} value={Math.round(draft.timeoutMs / 1000)} onChange={event => patchDraft('timeoutMs', Number(event.target.value) * 1000)} />

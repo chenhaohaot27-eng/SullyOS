@@ -23,6 +23,8 @@ export type ReferenceImageInput = string | {
 export interface GenerateImageOptions {
     prompt: string;
     referenceImages?: ReferenceImageInput[];
+    /** 摄影机已显式传入带归属的视觉身份参考图。 */
+    identityActive?: boolean;
     resolution?: ImageGenerationResolution;
     aspectRatio?: ImageGenerationAspectRatio;
     style?: string;
@@ -369,7 +371,7 @@ export async function buildCloudImageGenTemplate(
 
     const identityMergedPrompt = identityPrompt ? `${identityPrompt}\n\n${prompt}` : prompt;
     const finalPrompt = applyPhotoSemantics(identityMergedPrompt, {
-        identityActive: !!(visualIdentity?.enabled && visualIdentity.references.length > 0),
+        identityActive: options.identityActive || !!(visualIdentity?.enabled && visualIdentity.references.length > 0),
     });
 
     const inlineRefs = skipReferences ? [] : await Promise.all(finalReferences.map(async reference => {
@@ -1007,7 +1009,7 @@ export class ImageGenerationService {
         // ─── Phase 2E 摄影语义修正：只在末尾补充约束，不覆盖剧情原文 ──────────────
         // 视觉身份启用（或 prompt 自带拍照语义）时按生活照处理；commercial 请求不强压。
         const finalPrompt = applyPhotoSemantics(identityMergedPrompt, {
-            identityActive: !!(visualIdentity?.enabled && visualIdentity.references.length > 0),
+            identityActive: options.identityActive || !!(visualIdentity?.enabled && visualIdentity.references.length > 0),
         });
 
         const controller = new AbortController();
@@ -1044,8 +1046,8 @@ export class ImageGenerationService {
 export const imageGenerationService = new ImageGenerationService();
 
 /** Future apps should import this function; React components must not call providers directly. */
-export const generateImage = (options: GenerateImageOptions): Promise<ImageGenerationResult> => (
-    imageGenerationService.generateImage(options)
+export const generateImage = (options: GenerateImageOptions, config?: ImageGenerationConfig): Promise<ImageGenerationResult> => (
+    imageGenerationService.generateImage(options, config)
 );
 
 /** Settings and future callers share provider adapters; UI components must not fetch /models directly. */
