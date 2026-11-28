@@ -7,6 +7,132 @@ export function parseSseToCompletion(raw: string): any | null {
     return asm.finish();
 }
 
+/** A finish event can precede a separate usage event. Drain briefly, but never let
+ * a proxy's heartbeats keep a completed generation waiting for transport EOF. */
+export const SSE_FINISH_GRACE_MS = 1_000;
+
+export function isSseResponseText(text: string, contentType?: string | null): boolean {
+    const firstLine = text.split(/\r?\n/).map(line => line.trimStart()).find(line => line.length > 0) || '';
+    if (firstLine.startsWith('data:') || firstLine.startsWith(':') || firstLine.startsWith('event:')
+        || firstLine.startsWith('id:') || firstLine.startsWith('retry:')) return true;
+    // Some relays label a complete JSON or HTML response as event-stream.
+    if (/^[{["<]/.test(firstLine)) return false;
+    return contentType?.toLowerCase().includes('text/event-stream') === true;
+}
+
+function parseRawBodyText(text: string, status: number, contentType?: string | null): any {
+    const trimmed = text.trimStart();
+    if (trimmed.startsWith('<')) throw new Error(`API返回了HTML而非JSON (HTTP ${status})`);
+    if (!trimmed) throw new Error(`API返回了空响应 (HTTP ${status})`);
+    if (isSseResponseText(text, contentType)) {
+        const assembled = parseSseToCompletion(text);
+        if (assembled) return assembled;
+        throw new Error(`API流式响应未返回有效数据 (HTTP ${status})`);
+    }
+    try { return JSON.parse(text); }
+    catch { throw new Error(`API返回了无效JSON (HTTP ${status})`); }
+}
+
+/** Shared browser/Worker reader. This module has no browser logging or storage
+ * dependencies. Callers still validate the assembled public reply before use. */
+export async function readOpenAiResponse(
+    response: Response,
+    onDelta?: (delta: SseFeedDelta, fullReasoning: string) => void,
+): Promise<{ data: any; isSse: boolean }> {
+    const contentType = response.headers.get('content-type');
+    if (!response.body?.getReader) {
+        const text = await response.text();
+        return { data: parseRawBodyText(text, response.status, contentType), isSse: isSseResponseText(text, contentType) };
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const asm = new SseAssembler();
+    let raw = '';
+    let pending = '';
+    let mode: 'undecided' | 'sse' | 'raw' = 'undecided';
+    let reachedEof = false;
+    let finishDeadline: number | undefined;
+
+    const emit = (delta: SseFeedDelta) => {
+        try { onDelta?.(delta, asm.reasoningContent); } catch { /* A UI callback must not interrupt the stream. */ }
+    };
+    const consumeLines = () => {
+        const lastNl = pending.lastIndexOf('\n');
+        if (lastNl < 0) return;
+        const complete = pending.slice(0, lastNl);
+        pending = pending.slice(lastNl + 1);
+        for (const line of complete.split(/\r?\n/)) emit(asm.feedLine(line));
+    };
+    const readNext = async (): Promise<ReadableStreamReadResult<Uint8Array> | null> => {
+        if (finishDeadline === undefined) return reader.read();
+        const remaining = finishDeadline - Date.now();
+        if (remaining <= 0) return null;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            return await Promise.race([
+                reader.read(),
+                new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), remaining); }),
+            ]);
+        } finally { clearTimeout(timer); }
+    };
+
+    try {
+        while (true) {
+            const next = await readNext();
+            if (!next) break;
+            if (next.done) { reachedEof = true; break; }
+            const textChunk = decoder.decode(next.value, { stream: true });
+            raw += textChunk;
+            if (mode === 'undecided') {
+                const t = raw.trimStart();
+                if (!t) continue;
+                if (isSseResponseText(raw, contentType)) {
+                    mode = 'sse';
+                    pending = raw;
+                } else if (/^[{["<]/.test(t) || /\r?\n/.test(t)) {
+                    mode = 'raw';
+                } else {
+                    // A byte chunk can end halfway through an SSE field name.
+                    continue;
+                }
+            } else if (mode === 'sse') {
+                pending += textChunk;
+            }
+            if (mode === 'sse') {
+                consumeLines();
+                if (asm.receivedDone) break;
+                if (asm.receivedFinish && finishDeadline === undefined) {
+                    finishDeadline = Date.now() + SSE_FINISH_GRACE_MS;
+                }
+            }
+        }
+        // A deadline after finish is not transport EOF. An unfinished usage event
+        // in that window must not turn the already completed reply into a failure.
+        // DONE also makes any trailing bytes irrelevant to this completion.
+        if (reachedEof) {
+            const tail = decoder.decode();
+            raw += tail;
+            if (mode === 'sse') pending += tail;
+        }
+        if (mode === 'sse') {
+            if (reachedEof) {
+                consumeLines();
+                if (pending.trim()) emit(asm.feedLine(pending.trim()));
+            }
+            const assembled = asm.finish();
+            if (assembled) return { data: assembled, isSse: true };
+        }
+        return { data: parseRawBodyText(raw, response.status, contentType), isSse: isSseResponseText(raw, contentType) };
+    } finally {
+        if (!reachedEof) {
+            // Response.clone() tees the body: cancel can wait for the other branch
+            // or upstream cleanup forever. Neither must delay an assembled reply.
+            try { void reader.cancel().catch(() => {}); } catch { /* Preserve the original result/error. */ }
+        }
+        reader.releaseLock();
+    }
+}
+
 /**
  * OpenAI 兼容 SSE 流的增量拼装器。
  * feedLine 逐行喂入（分别返回本行的正文与思考增量），finish 合成完整 completion 对象。
@@ -27,6 +153,7 @@ export class SseAssembler {
     private gotAnyChunk = false;
     private sawDone = false;
     get receivedDone(): boolean { return this.sawDone; }
+    get receivedFinish(): boolean { return this.finishReason !== null; }
     private brokenEvent = false;
     // tool_calls 流式分片: OpenAI 约定按 index 分组, id/name 在首片, arguments 逐片拼接。
     // 不拼的话开了 stream 的工具模式(瑞幸/MCP)会静默丢掉全部工具调用。

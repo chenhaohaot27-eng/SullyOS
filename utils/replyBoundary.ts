@@ -9,8 +9,9 @@ export class ReplyBoundaryError extends Error {
 }
 
 export function frameReplyMessages<T extends { role: string; content?: unknown }>(messages: T[], nonce: string) {
-    const rule = '本轮传输格式：请把完整的正式输出（含需要执行的动作，保留原有格式）放在唯一一对 '
-        + '<reply-' + nonce + '> 和 </reply-' + nonce + '> 之间。库存分析、推理和草案不得放入其中。仅调用原生工具时可留空正文。';
+    const rule = '本轮传输格式：请输出可直接展示的完整正式回复（含需要执行的动作，保留原有格式）。'
+        + '如使用正文标签，请放在唯一一对 <reply-' + nonce + '> 和 </reply-' + nonce + '> 之间；'
+        + '也可直接输出原有正文格式。库存分析、推理和草案不得混入正式回复。仅调用原生工具时可留空正文。';
     const first = messages[0];
     if (first?.role === 'system' && typeof first.content === 'string') {
         return [{ ...first, content: first.content + '\n\n' + rule }, ...messages.slice(1)];
@@ -36,8 +37,9 @@ export function publicMessageText(message: any): string {
     return publicPartText(message?.content);
 }
 
-/** Validate the complete turn before releasing any text or tool calls. Nested blocks
- * are legal. A mismatched, unfinished or repeated boundary has no safe interpretation. */
+/** Validate the complete turn before releasing any text or tool calls. Nested thought
+ * blocks are legal. Public text does not require a custom frame; any frame that is
+ * present must be complete, unique and correlated with this request. */
 export function readReply(text: string, nonce?: string, nativeTools = false): string {
     const tags = /<\s*(\/?)\s*(think(?:ing)?|thought|reasoning|analysis)(?=[\s>])[^>]*>/gi;
     const stack: string[] = [];
@@ -53,20 +55,28 @@ export function readReply(text: string, nonce?: string, nativeTools = false): st
     if (stack.length) throw new ReplyBoundaryError();
     visible.push(text.slice(cursor));
     const body = visible.join('');
+    // Transport normalization runs before the caller supplies its nonce. Keep frames
+    // intact here so only the request-aware pass can accept and remove them.
     if (!nonce) return body;
-    if (!body.trim() && nativeTools) return '';
-    const start = '<reply-' + nonce + '>';
-    const end = '</reply-' + nonce + '>';
-    const at = body.indexOf(start);
-    const to = body.indexOf(end);
-    if (at < 0 || to < at || at !== body.lastIndexOf(start) || to !== body.lastIndexOf(end)) throw new ReplyBoundaryError();
-    const answer = body.slice(at + start.length, to);
+    let answer = body;
+    // Include wrong nonces, malformed spacing/case, and truncated prefixes. Once a
+    // frame is attempted, its preamble can never become a plain-text fallback.
+    const markers = Array.from(body.matchAll(/<\s*\/?\s*reply(?=-|[\s>]|$)/gi));
+    if (markers.length) {
+        const start = '<reply-' + nonce + '>';
+        const end = '</reply-' + nonce + '>';
+        const at = body.indexOf(start);
+        const to = body.indexOf(end);
+        if (markers.length !== 2 || at < 0 || to < at + start.length
+            || markers[0].index !== at || markers[1].index !== to) throw new ReplyBoundaryError();
+        answer = body.slice(at + start.length, to);
+    }
     // A relay can copy a whole formatted scratchpad even inside the final span.
     // Require two distinct line-leading document headings before flagging prose.
     const headings = answer.split(/\r?\n/).map(line => line.trim().replace(/^[#*\s]+|[*\s]+$/g, ''));
     const scratchpad = headings.some(line => /^(?:表情包库存|内部分析|思考过程|sticker inventory|analysis)\s*(?:[:：]|$)/i.test(line))
         && headings.some(line => /^(?:回复草案|回复草稿|reply draft|draft reply)\s*(?:[:：]|$)/i.test(line));
-    if (scratchpad || (!nativeTools && !answer.trim()) || /<\/?reply-[\da-f-]+>/i.test(answer)) throw new ReplyBoundaryError();
+    if (scratchpad || (!nativeTools && !answer.trim())) throw new ReplyBoundaryError();
     return answer;
 }
 

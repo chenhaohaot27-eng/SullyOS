@@ -10,9 +10,11 @@ import {
     getApiRequestCaptureSectionContent,
     getApiRequestCaptureSectionSource,
     isApiRequestCaptureArmed,
+    isApiRequestCaptureRedacted,
     isFixedPromptBlockLabel,
     isSameCoreModel,
     scanSseForLog,
+    recordApiCall,
     setApiRequestCaptureArmed,
     setApiCallAmbientContext,
     summarizeApiRequestCaptureDuplicates,
@@ -35,8 +37,39 @@ describe('one-shot full API request capture', () => {
         const txt = formatApiRequestCaptureTxt(capture);
         expect(txt).toContain(`[已隐藏，${messages[1].content.length} 字符]`);
         expect(txt).not.toContain('合成样本');
+        expect(txt).toContain('脱敏请求摘要 JSON');
+        expect(txt).toContain('无法由这份报告判断原始请求是否重复');
+        expect(txt).not.toContain('未发现完全相同');
+        expect(summarizeApiRequestCaptureDuplicates(capture).status).toBe('unavailable');
         expect(formatApiRequestCaptureTxt({ ...capture, lengthBasis: undefined, totalChars: 129 }))
             .toContain('旧版保存副本字符：129（未记录原始请求总长）');
+    });
+
+    it('does not claim an old redacted report checked the original message bodies', () => {
+        const capture = buildApiRequestCapture({
+            url: 'https://example.com/v1/chat/completions',
+            body: { model: 'test', messages: [{ role: 'user', content: '[已隐藏，76785 字符]' }] },
+        });
+        delete capture.contentVisibility;
+        capture.sections.find(section => section.kind === 'user')!.chars = 76785;
+        expect(isApiRequestCaptureRedacted(capture)).toBe(true);
+        expect(summarizeApiRequestCaptureDuplicates(capture)).toMatchObject({ status: 'unavailable', comparedSections: 0 });
+        const txt = formatApiRequestCaptureTxt(capture);
+        expect(txt).toContain('脱敏请求摘要 JSON');
+        expect(txt).not.toContain('未发现完全相同');
+    });
+
+    it('keeps missing usage separate from response success in exported diagnostics', () => {
+        const capture = buildApiRequestCapture({
+            url: 'https://example.com/v1/chat/completions',
+            body: { model: 'test', messages: [{ role: 'user', content: 'hello' }] },
+        });
+        capture.usageStatus = 'not-reported';
+        const txt = formatApiRequestCaptureTxt(capture);
+        expect(txt).toContain('未取得用量（usage）');
+        expect(txt).toContain('不能单独判断回复是否成功');
+        expect(txt).not.toContain('接口未返回');
+        expect(txt).toContain('没有可比对的长文本分区');
     });
 
     it('uses the in-memory armed flag on the disabled hot path instead of reading localStorage per request', () => {
@@ -166,6 +199,27 @@ describe('one-shot full API request capture', () => {
         });
     });
 
+    it('correlates reply validation with its one-shot capture and preserves later usage', async () => {
+        const { DB } = await import('./db');
+        await DB.clearApiRequestCapture();
+        setApiRequestCaptureArmed(true);
+        const requestId = 'capture-reply-validation';
+        const captureId = captureApiRequestOnce({
+            url: 'https://example.com/v1/chat/completions', requestId,
+            body: { model: 'test', messages: [{ role: 'user', content: 'sample' }] },
+        });
+        recordApiCall({
+            requestId, url: 'https://example.com/v1/chat/completions', body: { model: 'test' },
+            replyValidation: 'failed', errorDetail: 'LLM_REPLY_BOUNDARY',
+        });
+        updateApiRequestCaptureUsage({ captureId, ok: true, response: { usage: { prompt_tokens: 123 } } });
+        await vi.waitFor(async () => {
+            const capture = await DB.getApiRequestCapture();
+            expect(capture).toMatchObject({ requestId, replyValidation: 'failed', usageStatus: 'reported', promptTokens: 123 });
+            expect(formatApiRequestCaptureTxt(capture)).toContain('未通过，回复未交给显示层');
+        });
+    });
+
     it('detects duplicated long prompt blocks in the client request without flagging short reminders', () => {
         const duplicated = `## 固定规则\n${'不要重复发送这段提示词。'.repeat(30)}`;
         const capture = buildApiRequestCapture({
@@ -182,6 +236,8 @@ describe('one-shot full API request capture', () => {
         });
 
         const summary = summarizeApiRequestCaptureDuplicates(capture);
+        expect(summary.status).toBe('checked');
+        expect(summary.comparedSections).toBe(2);
         expect(summary.groups).toBe(1);
         expect(summary.repeatedSections).toBe(2);
         expect(summary.extraChars).toBe(duplicated.length);
@@ -207,11 +263,11 @@ describe('one-shot full API request capture', () => {
         expect(txt).toContain('记忆系统召回后注入本次请求的内容');
         expect(txt).toContain('位置：messages[0].content · 分块 1');
         expect(txt).toContain('记忆正文');
-        expect(txt).toContain('完整原始请求 JSON');
+        expect(txt).toContain('请求副本 JSON');
         expect(txt).toContain('"content": "用户正文"');
         expect(txt).toContain('请求体总字符（不是 Token）');
         expect(txt).toContain('客户端发出前重复检查');
-        expect(txt).toContain('未发现完全相同的长文本被客户端重复发送');
+        expect(txt).toContain('没有可比对的长文本分区');
     });
 
     it('replaces oversized inline binary data but preserves its original size for diagnosis', () => {
@@ -222,6 +278,7 @@ describe('one-shot full API request capture', () => {
         });
 
         expect(capture.binaryPlaceholders).toBe(1);
+        expect(summarizeApiRequestCaptureDuplicates(capture).status).toBe('unavailable');
         expect(capture.sections.find(section => section.kind === 'user')?.chars)
             .toBe(JSON.stringify([{ type: 'image_url', image_url: { url: dataUrl } }]).length);
         const raw = JSON.stringify(capture.payload);

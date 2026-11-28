@@ -1,7 +1,7 @@
-import { finalizeReply, frameReplyMessages } from './replyBoundary';
+import { finalizeReply, frameReplyMessages, ReplyBoundaryError } from './replyBoundary';
 import { bindPeek } from './peekDiagnostics';
 import type { APIConfig } from '../types';
-import { recordApiCall, type ApiCallMeta } from './apiCallLog';
+import { getApiCallAmbientContext, recordApiCall, type ApiCallMeta } from './apiCallLog';
 import { normalizeApiBaseUrl, normalizeChatApiFormat } from './apiConfigNormalize';
 import { getGeminiProviderState, requestGeminiNativeChat } from './geminiNativeChat';
 import { safeFetchJson, type StreamHooks } from './safeApi';
@@ -15,6 +15,8 @@ export interface ChatCompletionOptions {
   maxRetries?: number;
   timeoutMs?: number;
   meta?: ApiCallMeta;
+  /** Internal correlation only; never sent as a provider request-body field. */
+  requestId?: string;
 }
 
 export type ChatCompletionApiConfig = Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>
@@ -76,6 +78,8 @@ export async function completeChat(
   options: ChatCompletionOptions = {},
 ): Promise<any> {
   const body: Record<string, any> = { ...openAiShapedBody, model: openAiShapedBody.model || apiConfig.model };
+  const requestId = options.requestId || `api-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const meta = options.meta ?? getApiCallAmbientContext();
   if (body.max_completion_tokens != null) delete body.max_tokens;
   if (normalizeChatApiFormat(apiConfig.apiFormat) === 'gemini-native') {
     const startedAt = Date.now();
@@ -88,11 +92,11 @@ export async function completeChat(
         signal: options.signal,
         streamHooks: body.stream === false ? undefined : options.streamHooks,
         fetchImpl: options.fetchImpl,
-        source: options.meta?.purpose,
+        source: meta.purpose,
         nonStream: apiConfig.geminiNonStream === true,
       },
     );
-    recordApiCall({ url: apiConfig.baseUrl, body, ok: true, response: data, meta: options.meta, durationMs: Date.now() - startedAt });
+    recordApiCall({ requestId, url: apiConfig.baseUrl, body, ok: true, response: data, meta, durationMs: Date.now() - startedAt });
     return data;
   }
 
@@ -106,10 +110,11 @@ export async function completeChat(
       },
       body: JSON.stringify(body),
       signal: options.signal,
-    },
+      __sullyApiCallId: requestId,
+    } as RequestInit,
     options.maxRetries ?? 2,
     options.timeoutMs ?? 0,
-    options.meta,
+    meta,
     options.streamHooks,
   );
   return normalizeOpenAiChatResponse(data);
@@ -129,15 +134,39 @@ export async function completeCharacterChat(
 ): Promise<any> {
   const nonce = crypto.randomUUID();
   const { streamHooks, ...transport } = options;
+  const requestId = options.requestId || `api-${nonce}`;
+  const meta = options.meta ?? getApiCallAmbientContext();
   const messages = frameReplyMessages(body.messages, nonce);
   const unbind = bindPeek(body.messages, nonce, messages, apiConfig.apiKey);
   let data;
+  const recordValidation = (replyValidation: 'passed' | 'failed') => {
+    // Only merge diagnostic metadata into the existing HTTP row. An early parser
+    // failure may have no response yet; leave HTTP status/ok and unknown usage unset.
+    recordApiCall({
+      requestId,
+      url: normalizeApiBaseUrl(apiConfig.baseUrl),
+      body: { model: body.model || apiConfig.model },
+      meta,
+      replyValidation,
+      ...(replyValidation === 'failed'
+        ? { errorDetail: '正文校验失败（LLM_REPLY_BOUNDARY），本轮正文与动作未释放。' } : {}),
+      response: data ? {
+        model: typeof data.model === 'string' ? data.model : undefined,
+        usage: data.usage,
+        choices: [{ finish_reason: completionOutcome(data).reason }],
+      } : undefined,
+    });
+  };
   try {
-    data = await completeChat(apiConfig, { ...body, messages }, transport);
+    data = await completeChat(apiConfig, { ...body, messages }, { ...transport, requestId, meta });
+    finalizeReply(data, nonce);
+  } catch (error) {
+    if (error instanceof ReplyBoundaryError) recordValidation('failed');
+    throw error;
   } finally {
     unbind?.();
   }
-  finalizeReply(data, nonce);
+  recordValidation('passed');
   const content = data.choices[0].message.content;
   if (body.stream && content) streamHooks?.onDelta?.(content, content);
   return data;

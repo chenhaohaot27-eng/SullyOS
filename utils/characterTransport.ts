@@ -1,5 +1,5 @@
 import { assertCompletionDelivered } from './completionOutcome';
-import { parseSseToCompletion } from './openAiStream';
+import { readOpenAiResponse } from './openAiStream';
 import { finalizeReply, frameReplyMessages, ReplyBoundaryError } from './replyBoundary';
 
 /** The SDK retains its own tool history before calling onLLMOutput. Adapt at fetch,
@@ -18,11 +18,7 @@ export function characterTransport(transport: typeof fetch, markedOnly: boolean)
         request.messages = frameReplyMessages([original, ...rest], nonce);
         const response = await transport(resource, { ...init, body: JSON.stringify(request) });
         if (!response.ok) return response;
-        const raw = await response.text();
-        let data;
-        try {
-            data = raw.trimStart().startsWith('{') ? JSON.parse(raw) : parseSseToCompletion(raw);
-        } catch { throw new ReplyBoundaryError(); }
+        const { data } = await readOpenAiResponse(response);
         if (!data || data.stream_incomplete) throw new ReplyBoundaryError();
         assertCompletionDelivered(data);
         finalizeReply(data, nonce);

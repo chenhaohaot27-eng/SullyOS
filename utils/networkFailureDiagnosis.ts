@@ -296,11 +296,12 @@ export const probeOriginReachability = async (
 };
 
 /** 把复检结论翻成给人看的一句话 + 下一步该往哪查。 */
-export const describeReachabilityProbe = (verdict: ReachabilityVerdict, host: string): string => {
+export const describeReachabilityProbe = (verdict: ReachabilityVerdict, host: string, modelRequest = false): string => {
     const who = host || '该域名';
     switch (verdict) {
         case 'reachable':
-            return `连通性复检: no-cors 直连 ${who} 成功 → 只能确认这个域名当前可达；原 POST 仍可能在生成后断流、被网关关闭，或因最终响应缺少 CORS 头而被浏览器拦截。上游若已开始生成，即使页面显示失败也可能计费；请先核对服务商日志，不要连续重发。`;
+            return `连通性复检: no-cors 直连 ${who} 成功 → 只能确认这个域名当前可达；无法确认原请求的路径、方法、响应状态或 CORS 是否正常。`
+                + (modelRequest ? '模型请求仍可能在生成后断流或被网关关闭；若上游已开始生成，即使页面显示失败也可能计费，请先核对服务商日志，不要连续重发。' : '请结合该请求自身的响应和错误继续核查。');
         case 'unreachable':
             return `连通性复检: no-cors 直连 ${who} 同样失败 → 这台设备到 ${who} 是真的连不上。按顺序查：梯子的分流规则（把该域名放进代理）、DNS、浏览器扩展（广告拦截/隐私盾）、系统或路由器防火墙。`;
         case 'timeout':

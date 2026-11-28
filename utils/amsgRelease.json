@@ -1,7 +1,7 @@
 {
-  "version": "2026-11-26",
-  "fileName": "amsg-worker-2026-11-26.bundle.js",
-  "sha256": "e376c8e8db133332717757d7f11e191ad5cf6883c37eac9421fcbc8259e10359",
+  "version": "2026-11-28",
+  "fileName": "amsg-worker-2026-11-28.bundle.js",
+  "sha256": "3523da5c27d66dfe3958dfc27fdad461544138688c896cc9bba965da36dd5c55",
   "channel": "lemuria-amsg",
   "schemaProtocol": "3.2.0-lease-token"
 }

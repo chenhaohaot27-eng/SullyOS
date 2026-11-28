@@ -84,6 +84,14 @@ it('refuses ambiguous or repeated frames before actions, preserves narrative pro
     expect(frameReplyMessages(history, nonce)[1]).toBe(history[1]);
 });
 
+it('accepts unframed public narrative and preserves frames until the request-aware pass', () => {
+    const framed = '<reply-abc>' + story + '</reply-abc>';
+    expect(readReply(story, 'abc')).toBe(story);
+    expect(readReply('<think>private</think>' + story, 'abc')).toBe(story);
+    expect(readReply(framed)).toBe(framed);
+    expect(() => readReply(readReply(framed), 'different-request')).toThrow(ReplyBoundaryError);
+});
+
 it('permits a typed tool-only response but blocks the same tool if unverified text accompanies it', async () => {
     for (const content of [null, draft]) {
         vi.stubGlobal('fetch', vi.fn(async () => Response.json({ choices: [{ message: { content, reasoning: draft,

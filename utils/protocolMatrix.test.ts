@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runProtocolMatrix, SHORT } from './protocolMatrix';
+import { runProtocolMatrix, matrixStations, SHORT } from './protocolMatrix';
 import { matrixRequests } from './protocolMatrixTransport';
 import { upgradeChatBodyToStream, assembleUpgradedResponse } from './streamUpgrade';
 import type { APIConfig } from '../types';
@@ -11,6 +11,14 @@ const cfg = {
   model: 'gemini-3.6-flash',
 } as APIConfig;
 describe('single-action protocol matrix', () => {
+  it('does not select an HTTP-200 reply rejection as a working control station', () => {
+    const control = { ...cfg, baseUrl: 'https://control.example/v1' };
+    const history = [{ baseUrl: control.baseUrl, model: cfg.model, ok: true,
+      replyValidation: 'failed' } as ApiCallLogEntry];
+    expect(matrixStations(cfg, [{ id: 'control', name: 'control', config: control }], history).controls).toEqual([]);
+    history[0].replyValidation = 'passed';
+    expect(matrixStations(cfg, [{ id: 'control', name: 'control', config: control }], history).controls).toEqual([control]);
+  });
   it('measures requests after stream upgrade, normalizes both provider formats, and spends one long probe', async () => {
     const caps: number[] = [];
     const transport = vi.fn(async (url: string, init: RequestInit) => {

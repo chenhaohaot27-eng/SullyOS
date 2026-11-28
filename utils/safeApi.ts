@@ -1,6 +1,6 @@
 import { publicMessageText, readReply, finalizeReply } from './replyBoundary';
-import { parseSseToCompletion, SseAssembler, type SseFeedDelta } from './openAiStream';
-export { parseSseToCompletion } from './openAiStream';
+import { readOpenAiResponse } from './openAiStream';
+export { isSseResponseText, parseSseToCompletion } from './openAiStream';
 /**
  * Safe API response parsing utilities.
  *
@@ -23,61 +23,9 @@ export function isChatCompletionUrl(url: string): boolean {
     return url.includes('/chat/completions');
 }
 
-/** Parse a fetch Response as JSON safely (text-first, then JSON.parse) */
+/** Parse JSON or a relay's SSE response through the shared bounded reader. */
 export async function safeResponseJson(response: Response): Promise<any> {
-    const text = await response.text();
-    return finalizeReply(parseRawBodyText(text, response.status, response.headers.get('content-type')));
-}
-
-/** 判断响应是否是 SSE；兼容 OpenRouter 在首个 data 事件前发送的 ": OPENROUTER PROCESSING" 注释。 */
-export function isSseResponseText(text: string, contentType?: string | null): boolean {
-    const firstLine = text
-        .split(/\r?\n/)
-        .map(line => line.trimStart())
-        .find(line => line.length > 0) || '';
-    const hasSseField = firstLine.startsWith('data:')
-        || firstLine.startsWith(':')
-        || firstLine.startsWith('event:')
-        || firstLine.startsWith('id:')
-        || firstLine.startsWith('retry:');
-    if (hasSseField) return true;
-    // 个别代理会把整包 JSON 错标成 text/event-stream；明确的 JSON/HTML 起始符优先。
-    if (/^[{["<]/.test(firstLine)) return false;
-    return contentType?.toLowerCase().includes('text/event-stream') === true;
-}
-
-/** safeResponseJson 的纯文本内核：HTML/空响应/SSE/JSON 判定与解析（流式路径复用） */
-function parseRawBodyText(text: string, status: number, contentType?: string | null): any {
-    // Detect HTML / XML responses
-    const trimmed = text.trimStart();
-    if (trimmed.startsWith('<')) {
-        throw new Error(
-            `API返回了HTML而非JSON (HTTP ${status})`
-        );
-    }
-
-    // Empty body
-    if (!trimmed) {
-        throw new Error(`API返回了空响应 (HTTP ${status})`);
-    }
-
-    // SSE / 流式响应（有些 OpenAI 兼容代理无视 stream:false 强行流式返回）：
-    // 注释/心跳行（以 ":" 开头）由 SseAssembler 忽略，data 事件照常拼成完整 content。
-    if (isSseResponseText(text, contentType)) {
-        const assembled = parseSseToCompletion(text);
-        if (assembled) return assembled;
-        throw new Error(
-            `API流式响应未返回有效数据 (HTTP ${status})`
-        );
-    }
-
-    try {
-        return JSON.parse(text);
-    } catch (e) {
-        throw new Error(
-            `API返回了无效JSON (HTTP ${status})`
-        );
-    }
+    return finalizeReply((await readOpenAiResponse(response)).data);
 }
 
 /** safeFetchJson 的可选流式钩子（只在响应确实是 SSE 流时触发） */
@@ -93,7 +41,7 @@ export interface StreamHooks {
 /**
  * 真·流式读取响应体：边到边解析 SSE 行，收齐校验后回调 onDelta。
  * 支持 data 事件前先到达的 SSE 注释/心跳；代理无视 stream:true 返回整包 JSON / HTML
- * 错误页时，自动退化为累积全文后走 parseRawBodyText —— 与非流式路径行为一致。
+ * 错误页时，自动退化为完整 JSON / HTML 解析 —— 与非流式路径行为一致。
  */
 export async function readBodyWithStreaming(
     response: Response,
@@ -101,17 +49,8 @@ export async function readBodyWithStreaming(
     timing?: { firstDeltaMs?: number },
     startedAt?: number,
 ): Promise<any> {
-    if (!response.body?.getReader) return safeResponseJson(response);
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const asm = new SseAssembler();
-    let raw = '';           // 全量原始文本（退化路径 / SSE 解析失败时兜底）
-    let pending = '';       // SSE 模式下未消费完的半行缓冲
-    let mode: 'undecided' | 'sse' | 'raw' = 'undecided';
     let sawFirstDelta = false;
-    const contentType = response.headers.get('content-type');
-
-    const emit = (delta: SseFeedDelta) => {
+    const { data, isSse } = await readOpenAiResponse(response, (delta, fullReasoning) => {
         if (delta.content) {
             if (!sawFirstDelta) {
                 sawFirstDelta = true;
@@ -121,65 +60,13 @@ export async function readBodyWithStreaming(
             // Content is released only after the complete turn passes validation.
         }
         if (delta.reasoning) {
-            try { hooks.onReasoningDelta?.(delta.reasoning, asm.reasoningContent); } catch { /* 回调异常不拦截流 */ }
+            try { hooks.onReasoningDelta?.(delta.reasoning, fullReasoning); } catch { /* 回调异常不拦截流 */ }
         }
-    };
-
-    const consumeLines = () => {
-        const lastNl = pending.lastIndexOf('\n');
-        if (lastNl < 0) return;
-        const complete = pending.slice(0, lastNl);
-        pending = pending.slice(lastNl + 1);
-        for (const line of complete.split(/\r?\n/)) emit(asm.feedLine(line));
-    };
-
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const textChunk = decoder.decode(value, { stream: true });
-        raw += textChunk;
-        if (mode === 'undecided') {
-            const t = raw.trimStart();
-            if (!t) continue;
-            if (isSseResponseText(raw, contentType)) {
-                mode = 'sse';
-                pending = raw;
-            } else if (/^[{["<]/.test(t) || /\r?\n/.test(t)) {
-                // 明确是整包 JSON/HTML，或首行已经完整且不是 SSE。
-                mode = 'raw';
-            } else {
-                // 首块可能只含 "d"/"da" 等 SSE 字段名前缀，等下一块再判断。
-                continue;
-            }
-        } else if (mode === 'sse') {
-            pending += textChunk;
-        }
-        if (mode === 'sse') {
-            consumeLines();
-            if (asm.receivedDone) {
-                void reader.cancel().catch(() => {});
-                break;
-            }
-        }
-    }
-    const tail = decoder.decode();
-    if (tail) {
-        raw += tail;
-        if (mode === 'sse') pending += tail;
-    }
-    if (mode === 'sse') {
-        consumeLines();
-        if (pending.trim()) emit(asm.feedLine(pending.trim()));
-        const assembled = asm.finish();
-        if (assembled) {
-            const result = finalizeReply(assembled);
-            const content = result.choices[0].message.content;
-            if (content && !result.stream_incomplete) hooks.onDelta?.(content, content);
-            return result;
-        }
-        // 一个 chunk 都没解析出来 → 按原始文本兜底（保留原 preview 报错行为）
-    }
-    return finalizeReply(parseRawBodyText(raw, response.status, contentType));
+    });
+    const result = finalizeReply(data);
+    const content = result?.choices?.[0]?.message?.content;
+    if (isSse && content && completionOutcome(result).kind !== 'interrupted') hooks.onDelta?.(content, content);
+    return result;
 }
 
 /**
@@ -219,7 +106,10 @@ export async function safeFetchJson(
     for (let attempt = 0; attempt <= automaticRetryLimit; attempt++) {
         // 全局 fetch 拦截器和这里的“已解析响应兜底”共享 ID。前者覆盖裸 fetch，
         // 后者不依赖 Response.clone()，避免部分 iOS/WebView 克隆流不结束时漏记。
-        const requestId = `api-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const callerRequestId = (options as RequestInit & { __sullyApiCallId?: unknown }).__sullyApiCallId;
+        const requestId = attempt === 0 && typeof callerRequestId === 'string' && callerRequestId.trim()
+            ? callerRequestId
+            : `api-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         // 每次 attempt 建一个独立的 AbortController（仅用于 timeout）
         // 调用方自己的 options.signal 仍然有效，两者任一触发就 abort
         let attemptOptions = { ...metaOptions, __sullyApiCallId: requestId } as RequestInit;

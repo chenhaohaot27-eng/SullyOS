@@ -36,6 +36,20 @@ describe('API call log atomic persistence', () => {
         expect(stored).toHaveLength(1);
         expect(stored[0]).toMatchObject({ backendModel: 'm-backend', totalTokens: 123 });
     });
+
+    it('keeps a reply rejection when a delayed HTTP success and usage arrive', async () => {
+        const id = 'reply-rejected-before-usage';
+        await DB.appendApiCallLog({
+            id, timestamp: Date.now(), model: 'm', replyValidation: 'failed', errorDetail: 'LLM_REPLY_BOUNDARY',
+        });
+        await DB.appendApiCallLog({
+            id, timestamp: Date.now(), model: 'm', ok: true, status: 200, promptTokens: 123,
+            replyValidation: undefined,
+        });
+        const rows = (await DB.getApiCallLog()).filter(entry => entry.id === id);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ ok: true, status: 200, promptTokens: 123, replyValidation: 'failed' });
+    });
 });
 
 describe('one-shot API request capture persistence', () => {
