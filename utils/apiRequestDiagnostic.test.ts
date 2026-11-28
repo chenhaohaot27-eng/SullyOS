@@ -45,6 +45,7 @@ describe('request metadata diagnostics', () => {
             tools: [{ functionDeclarations: [{ name: 'weather', description: 'PRIVATE_DESCRIPTION' }, { name: 'clock' }] }],
         }), `https://relay.invalid/v1beta/models/google%2Fgemini-3.8-flash:${action}?key=PRIVATE_URL_KEY`);
         expect(text).toContain('--- Request (Gemini Native) ---');
+        expect(text).toContain('endpoint_host: relay.invalid | protocol: gemini-native');
         expect(text).toContain('model: google/gemini-3.8-flash');
         expect(text).toContain('generationConfig.maxOutputTokens: 已发送(number=5)');
         expect(text).toContain(`transport: ${action === 'streamGenerateContent' ? 'SSE' : 'JSON'}（由URL指定）`);
@@ -55,6 +56,32 @@ describe('request metadata diagnostics', () => {
         expect(text).toContain('tools(2) names(2): weather, clock');
         expect(text).toContain('systemInstruction parts: 1');
         expect(text).not.toContain('PRIVATE_');
+    });
+
+    it('shows only the endpoint hostname and a fixed protocol label from the actual URL', () => {
+        const text = formatApiRequestDiagnostic(request({ model: 'fixture', messages: [] }),
+            'https://PRIVATE_USER:PRIVATE_PASSWORD@relay.invalid:8443/PRIVATE_PATH/v1/chat/completions?key=PRIVATE_QUERY#PRIVATE_FRAGMENT');
+        expect(text).toContain('endpoint_host: relay.invalid | protocol: openai-compatible');
+        expect(text).not.toMatch(/PRIVATE_|8443|https:|chat\/completions/);
+        expect(formatApiRequestDiagnostic(request({}), new URL('https://relay.invalid/unknown-endpoint')))
+            .toContain('endpoint_host: relay.invalid | protocol: unknown');
+    });
+
+    it('hides credential-bearing and IP endpoint hosts, and does not invent a relative URL origin', () => {
+        const hidden = [
+            ['https://HEADER-CREDENTIAL.relay.invalid/v1/chat/completions', { 'x-api-key': 'HEADER-CREDENTIAL' }],
+            ['https://relay.sk-fixture-secret.invalid/v1/chat/completions', undefined],
+            ['https://192.0.2.1/v1/chat/completions', undefined],
+            ['https://[2001:db8::1]/v1/chat/completions', undefined],
+        ] as const;
+        for (const [url, headers] of hidden) {
+            const text = formatApiRequestDiagnostic(request({}, headers), url);
+            expect(text).toContain('endpoint_host: [已隐藏标识]');
+            expect(text).not.toMatch(/header-credential|sk-fixture-secret|192\.0\.2\.1|2001:db8/);
+        }
+        const relative = formatApiRequestDiagnostic(request({}), '/v1/chat/completions');
+        expect(relative).toContain('endpoint_host: 未知 | protocol: unknown');
+        expect(relative).not.toContain('local.invalid');
     });
 
     it('shows invalid parameter types without echoing arbitrary values or role names', () => {

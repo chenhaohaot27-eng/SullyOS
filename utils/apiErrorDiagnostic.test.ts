@@ -8,13 +8,13 @@ const fail = (raw: string, type = 'application/json') =>
 
 describe('mobile upstream error diagnostics', () => {
     it.each([
-        ['{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"Invalid thought signature."}}', '400 · INVALID_ARGUMENT · Invalid thought signature.'],
-        ['{"message":"Unknown model","code":"no_model"}', 'no_model · Unknown model'],
-        ['{"code":"BAD_INPUT","msg":"参数不支持"}', 'BAD_INPUT · 参数不支持'],
-        ['上下文超长', '上下文超长'],
-        ['event: error\r\ndata: {"error":{"code":"E400",\r\ndata: "message":"Bad role order"}}\r\n\r\n', 'E400 · Bad role order'],
-        ['data: {"choices":[{"delta":{"content":"private reply"}}]}\n\ndata: {"error":{"message":"Model overloaded"}}\n\n', 'Model overloaded'],
-        ['event: error\ndata: Gateway unavailable\n\n', 'Gateway unavailable'],
+        ['{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"Invalid thought signature."}}', 'code: 400 · status: INVALID_ARGUMENT · message: Invalid thought signature.'],
+        ['{"message":"Unknown model","code":"no_model"}', 'code: no_model · message: Unknown model'],
+        ['{"code":"BAD_INPUT","msg":"参数不支持"}', 'code: BAD_INPUT · message: 参数不支持'],
+        ['上下文超长', 'message: 上下文超长'],
+        ['event: error\r\ndata: {"error":{"code":"E400",\r\ndata: "message":"Bad role order"}}\r\n\r\n', 'code: E400 · message: Bad role order'],
+        ['data: {"choices":[{"delta":{"content":"private reply"}}]}\n\ndata: {"error":{"message":"Model overloaded"}}\n\n', 'message: Model overloaded'],
+        ['event: error\ndata: Gateway unavailable\n\n', 'message: Gateway unavailable'],
         ['data: {"choices":[{"delta":{"content":"private reply"}}]}\n\n', '未找到可显示的上游错误字段'],
         ['{"error":{"input":"private payload"}}', '未找到可显示的上游错误字段'],
         ['', '服务器返回了空正文'],
@@ -43,7 +43,7 @@ describe('mobile upstream error diagnostics', () => {
         const body = JSON.stringify({ model: 'test-model', messages: [{ role: 'user', content: [{ type: 'text', text: message }] }] });
         const raw = JSON.stringify({ error: { code: 'INVALID_ARGUMENT', message: 'bad input: ' + message }, request: body });
         const diagnostic = await readApiErrorDiagnostic(fail(raw), { body });
-        expect(diagnostic).toBe('INVALID_ARGUMENT · 已隐藏敏感内容');
+        expect(diagnostic).toBe('code: INVALID_ARGUMENT · message: 已隐藏敏感内容');
         recordApiCall({ requestId: 'mobile-test', url: 'https://relay.invalid/v1/chat/completions', status: 400,
             ok: false, body, errorDetail: diagnostic });
         await vi.waitFor(async () => {
@@ -51,6 +51,92 @@ describe('mobile upstream error diagnostics', () => {
             expect(entry).toMatchObject({ status: 400, ok: false, model: 'test-model', errorDetail: diagnostic });
             expect(JSON.stringify(entry)).not.toContain(message);
         });
+    });
+
+    it('preserves controlled fields when ordinary error words occur in the request history', async () => {
+        const body = JSON.stringify({ messages: [
+            { role: 'system', content: 'Earlier result: 400 service_error INVALID_ARGUMENT Upstream service unavailable.' },
+            { role: 'user', content: 'Synthetic neutral input.' },
+        ] });
+        const diagnostic = await readApiErrorDiagnostic(fail(JSON.stringify({ error: {
+            code: 400, status: 'INVALID_ARGUMENT', type: 'service_error', message: 'Upstream service unavailable',
+        } })), { body });
+        expect(diagnostic).toBe('code: 400 · status: INVALID_ARGUMENT · type: service_error · message: 已隐藏敏感内容');
+    });
+
+    it.each(['json', 'sse'])('extracts a controlled rejection category from a private %s error message', async format => {
+        const privateText = 'SYNTHETIC_PRIVATE_BODY';
+        const body = JSON.stringify({ contents: [{ role: 'user', parts: [{ text: privateText }] }],
+            systemInstruction: { parts: [{ text: 'Previous diagnostic: PROHIBITED_CONTENT service_error' }] } });
+        const error = { error: { type: 'service_error', message: `PROHIBITED_CONTENT: ${privateText}` } };
+        const raw = format === 'json' ? JSON.stringify(error) : `event: error\ndata: ${JSON.stringify(error)}\n\n`;
+        const diagnostic = await readApiErrorDiagnostic(fail(raw, format === 'sse' ? 'text/event-stream' : 'application/json'), { body });
+        expect(diagnostic).toBe('type: service_error · category: PROHIBITED_CONTENT · message: 已隐藏敏感内容');
+        expect(diagnostic).not.toContain(privateText);
+    });
+
+    it('does not promote an enum mentioned in echoed request text into a rejection category', async () => {
+        const privateText = 'Discuss the label PROHIBITED_CONTENT in this synthetic example.';
+        const diagnostic = await readApiErrorDiagnostic(fail(JSON.stringify({ error: {
+            status: 'INVALID_ARGUMENT', message: `Echoed input: ${privateText}; missing role`,
+        } })), { body: JSON.stringify({ messages: [{ role: 'user', content: privateText }] }) });
+        expect(diagnostic).toBe('status: INVALID_ARGUMENT · message: 已隐藏敏感内容');
+        expect(diagnostic).not.toMatch(/category:|PROHIBITED_CONTENT|Discuss/);
+    });
+
+    it('recognizes the explicit relay status_code prefix without scanning the rest of the message', async () => {
+        const diagnostic = await readApiErrorDiagnostic(fail(JSON.stringify({ error: {
+            type: 'service_error', message: 'status_code=400, PROHIBITED_CONTENT',
+        } })), { body: JSON.stringify({ messages: [{ role: 'system', content: 'Earlier result: status_code=400, PROHIBITED_CONTENT' }] }) });
+        expect(diagnostic).toBe('type: service_error · category: PROHIBITED_CONTENT · message: 已隐藏敏感内容');
+    });
+
+    it('keeps enum categories while hiding JSON dumps, and never promotes arbitrary private codes', async () => {
+        const diagnostic = await readApiErrorDiagnostic(fail(JSON.stringify({ error: {
+            code: 'SYNTHETIC_PRIVATE_CODE', status: 'PROHIBITED_CONTENT',
+            message: 'PROHIBITED_CONTENT {"messages":[{"content":"SYNTHETIC_PRIVATE_BODY"}]}',
+        } })), { body: JSON.stringify({ messages: [{ role: 'user', content: 'SYNTHETIC_PRIVATE_CODE' }] }) });
+        expect(diagnostic).toBe('code: 已隐藏敏感内容 · status: PROHIBITED_CONTENT · message: 已隐藏敏感内容');
+        expect(diagnostic).not.toContain('SYNTHETIC_PRIVATE');
+    });
+
+    it('does not let the category allowlist reveal a matching credential', async () => {
+        const diagnostic = await readApiErrorDiagnostic(fail(JSON.stringify({ error: {
+            code: 'PROHIBITED_CONTENT', status: 'service_error', message: 'Credential PROHIBITED_CONTENT rejected',
+        } })), { headers: { 'x-api-key': 'PROHIBITED_CONTENT', Authorization: 'Bearer service_error' } });
+        expect(diagnostic).not.toMatch(/PROHIBITED_CONTENT|service_error/);
+        expect(diagnostic).toContain('已脱敏');
+    });
+
+    it('retains explicit provider request IDs without treating a long trace ID as a key', async () => {
+        const requestId = 'req-fixture-abcdefghijklmnopqrstuvwxyz1234567890abcdefgh';
+        const response = new Response(JSON.stringify({ error: { type: 'service_error', request_id: requestId } }), {
+            status: 400, headers: { 'content-type': 'application/json', 'x-request-id': 'header-fixture-0123456789' },
+        });
+        const diagnostic = await readApiErrorDiagnostic(response, { body: JSON.stringify({ messages: [
+            { role: 'system', content: 'Earlier trace: req-fixture-previous-unique-id. Type: service_error.' },
+            { role: 'user', content: 'Synthetic input.' },
+        ] }) });
+        expect(diagnostic).toBe(`type: service_error · error.request_id: ${requestId} · x-request-id: header-fixture-0123456789`);
+    });
+
+    it.each([
+        ['header-fixture-secret', { headers: { Authorization: 'Bearer header-fixture-secret' } }, undefined],
+        ['cookie-fixture-secret', { headers: { Cookie: 'session=cookie-fixture-secret; other=fixture' } }, undefined],
+        ['query-fixture-secret', {}, 'https://relay.invalid/v1/chat/completions?key=query-fixture-secret'],
+        ['password-fixture-secret', {}, 'https://user:password-fixture-secret@relay.invalid/v1/chat/completions'],
+        ['body-fixture-secret', { body: JSON.stringify({ extra_body: { apiKey: 'body-fixture-secret' } }) }, undefined],
+        ['SYNTHETIC_PRIVATE_BODY', { body: JSON.stringify({ messages: [{ role: 'user', content: 'SYNTHETIC_PRIVATE_BODY' }] }) }, undefined],
+        ['sk-fixture-secret', {}, undefined],
+        ['eyJfixture.opaque-fixture.token-fixture', {}, undefined],
+        ['https://private.invalid/private-path', {}, undefined],
+        ['192.0.2.1', {}, undefined],
+        ['x'.repeat(129), {}, undefined],
+    ] as const)('hides unsafe request ID fixture %s', async (id, init, resource) => {
+        const response = new Response(JSON.stringify({ requestId: id }), { status: 400, headers: { 'request-id': id } });
+        const diagnostic = await readApiErrorDiagnostic(response, init, resource);
+        expect(diagnostic).not.toContain(id);
+        expect(diagnostic).toContain('已隐藏敏感内容');
     });
 
     it('bounds bytes read and text displayed while the caller retains the entire error', async () => {

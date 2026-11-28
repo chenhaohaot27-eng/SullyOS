@@ -71,7 +71,8 @@ function rolesSummary(messages: unknown[], label: string): string {
 }
 
 /** Pass the actual outbound init, after any request rewrites. Request body streams
- * are deliberately not read; headers and URL credentials are used only to redact identifiers. */
+ * are deliberately not read. Only the hostname and a fixed protocol label may
+ * be displayed from the URL; credentials, path and query are never logged. */
 export function formatApiRequestDiagnostic(init?: RequestInit, resource?: RequestInfo | URL): string {
     const heading = '\n--- Request ---\n';
     try {
@@ -81,14 +82,18 @@ export function formatApiRequestDiagnostic(init?: RequestInit, resource?: Reques
 
         const source = typeof Request !== 'undefined' && resource instanceof Request ? resource : undefined;
         let url: URL | undefined;
-        try { if (resource) url = new URL(source?.url || String(resource), 'https://local.invalid'); } catch { /* No URL text is displayed. */ }
+        try { if (resource) url = new URL(source?.url || String(resource)); } catch { /* Relative or invalid URL: the actual host is unknown. */ }
         const credentials: string[] = [];
         new Headers(init.headers ?? source?.headers).forEach((value, key) => {
-            if (/authorization|api[-_]?key|token|secret|cookie/i.test(key)) credentials.push(value, value.replace(/^\S+\s+/, ''));
+            if (/authorization|api[-_]?key|token|secret|cookie/i.test(key)) {
+                credentials.push(value, value.replace(/^\S+\s+/, ''));
+                if (key.toLowerCase() === 'cookie') credentials.push(...value.split(';').map(part => part.slice(part.indexOf('=') + 1).trim()));
+            }
         });
         url?.searchParams.forEach((value, key) => {
             if (/key|token|auth|secret|signature/i.test(key)) credentials.push(value);
         });
+        if (url?.username) credentials.push(decodeURIComponent(url.username));
         if (url?.password) credentials.push(decodeURIComponent(url.password));
         for (const parent of [body, record(body.extra_body)]) {
             for (const [key, value] of Object.entries(parent ?? {})) {
@@ -106,6 +111,15 @@ export function formatApiRequestDiagnostic(init?: RequestInit, resource?: Reques
         };
 
         const nativeEndpoint = /\/models\/([^/]+):(streamGenerateContent|generateContent)$/.exec(url?.pathname || '');
+        const hostname = url?.hostname;
+        const endpointHost = !hostname ? '未知'
+            : !/^https?:$/.test(url?.protocol || '') || !/^[a-zA-Z0-9.-]+$/.test(hostname)
+                || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname)
+                || /(?:^|\.)(?:sk-|AIza|eyJ)/i.test(hostname)
+                || credentials.some(secret => secret && hostname.includes(secret.toLowerCase()))
+                ? HIDDEN_ID : identifier(hostname, 253);
+        const protocol = !/^https?:$/.test(url?.protocol || '') ? 'unknown' : nativeEndpoint ? 'gemini-native'
+            : /\/chat\/completions\/?$/.test(url?.pathname || '') ? 'openai-compatible' : 'unknown';
         const native = Array.isArray(body.contents) || !!nativeEndpoint;
         let model: unknown = body.model;
         if (nativeEndpoint) {
@@ -127,6 +141,7 @@ export function formatApiRequestDiagnostic(init?: RequestInit, resource?: Reques
         const streamOptions = record(body.stream_options);
         const lines = [
             native ? '\n--- Request (Gemini Native) ---' : '\n--- Request ---',
+            `endpoint_host: ${endpointHost} | protocol: ${protocol}`,
             `model: ${identifier(model, 120)}`,
             `max_tokens: ${field(body, 'max_tokens')} | max_completion_tokens: ${field(body, 'max_completion_tokens')}`,
             ...(native || has(generation, 'maxOutputTokens') ? [`generationConfig.maxOutputTokens: ${field(generation, 'maxOutputTokens')}`] : []),

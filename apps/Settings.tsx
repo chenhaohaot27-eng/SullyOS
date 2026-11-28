@@ -43,7 +43,8 @@ import {
 } from '../utils/avatarModelBackup';
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel, normalizeChatApiFormat } from '../utils/apiConfigNormalize';
 import { configFromPreset, findActivePresetId, type PresetSwitchPatch } from '../utils/apiPresetSwitch';
-import { runApiConnectionTest, formatApiConnectionTestResult, type ApiConnectionTestResult } from '../utils/apiConnectionTest';
+import { runApiConnectionTest, type ApiConnectionTestResult } from '../utils/apiConnectionTest';
+import { apiSettingsDraftMatches, normalizeApiSettingsDraft, formatApiSettingsTestResult } from '../utils/apiSettingsDraft';
 import type { APIConfig, ChatApiFormat } from '../types';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import ImageGenerationSettings from '../components/settings/ImageGenerationSettings';
@@ -877,7 +878,23 @@ const Settings: React.FC = () => {
 
   const [statusMsg, setStatusMsg] = useState('');
   const [testingApi, setTestingApi] = useState(false);
-  const [testApiResult, setTestApiResult] = useState<ApiConnectionTestResult | null>(null);
+  const draftApiSettings = normalizeApiSettingsDraft({
+      baseUrl: localUrl, apiKey: localKey, model: localModel, apiFormat: localApiFormat,
+      stream: localStream, geminiNonStream: localGeminiNonStream, temperature: localTemperature,
+  });
+  const appliedApiSettings = normalizeApiSettingsDraft(apiConfig);
+  const hasUnsavedApiChanges = !apiSettingsDraftMatches(draftApiSettings, appliedApiSettings);
+  // An opaque identity binds both pending and completed tests to this form.
+  // Editing and then restoring a value still invalidates the earlier test.
+  const apiTestSource = useMemo(() => ({}), [
+      draftApiSettings.baseUrl, draftApiSettings.apiKey, draftApiSettings.model,
+      draftApiSettings.apiFormat, draftApiSettings.stream, draftApiSettings.geminiNonStream,
+      draftApiSettings.temperature,
+  ]);
+  const apiTestSourceRef = useRef(apiTestSource);
+  apiTestSourceRef.current = apiTestSource;
+  const [testApiResult, setTestApiResult] = useState<{ source: object; result: ApiConnectionTestResult } | null>(null);
+  const currentTestApiResult = testApiResult?.source === apiTestSource ? testApiResult.result : null;
   const importInputRef = useRef<HTMLInputElement>(null);
   const avatarModelBackupInputRef = useRef<HTMLInputElement>(null);
   const refreshAvatarModelInventory = useCallback(async () => {
@@ -1082,6 +1099,7 @@ const Settings: React.FC = () => {
 
   const handleTestApi = async () => {
     if (!localUrl.trim() || !localKey.trim() || !localModel.trim()) return;
+    const source = apiTestSource;
     setTestingApi(true);
     setTestApiResult(null);
     try {
@@ -1092,7 +1110,7 @@ const Settings: React.FC = () => {
         apiFormat: normalizeChatApiFormat(localApiFormat),
         geminiNonStream: localGeminiNonStream,
       }, localStream);
-      setTestApiResult(result);
+      if (apiTestSourceRef.current === source) setTestApiResult({ source, result });
     } finally {
       setTestingApi(false);
     }
@@ -2490,9 +2508,20 @@ const Settings: React.FC = () => {
                     </div>
                 )}
 
+                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-1" role="status">
+                    <p>当前生效（全局）：{appliedApiSettings.model || '未配置模型'} · {CHAT_API_FORMAT_LABELS[appliedApiSettings.apiFormat]}</p>
+                    <p>测试草稿：{draftApiSettings.model || '未填写模型'} · {CHAT_API_FORMAT_LABELS[draftApiSettings.apiFormat]}</p>
+                    <p className={hasUnsavedApiChanges ? 'text-amber-700' : 'text-slate-500'}>
+                        {hasUnsavedApiChanges
+                            ? '有未保存更改。测试通过后，仍需点击“保存配置”才能应用。'
+                            : '表单与当前生效配置一致。'}
+                    </p>
+                </div>
+
                 <button onClick={handleSaveApi} className="w-full py-3 rounded-2xl font-bold text-white shadow-lg shadow-primary/20 bg-primary active:scale-95 transition-all mt-2">
-                    {statusMsg || '保存配置'}
+                    保存配置
                 </button>
+                {statusMsg && <p className="px-1 text-xs text-slate-500" role="status">{statusMsg}</p>}
                 {apiPresets.length > 0 && (
                     <p className="text-[9px] text-slate-300 px-1 leading-relaxed">
                         这里改的是当前生效的配置，不会动上面的预设；要把改动存回某条预设，点它的铅笔。
@@ -2526,12 +2555,12 @@ const Settings: React.FC = () => {
                     ? <details><summary className="text-xs">逐项响应详情</summary><pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs">{matrixStatus}</pre></details>
                     : matrixStatus && <p aria-live="polite" className="text-xs">{matrixStatus}</p>}
 
-                {testApiResult && (
+                {currentTestApiResult && (
                     <div className={`mt-2 text-xs px-3 py-2 rounded-xl ${
-                        testApiResult.status === 'success' ? 'bg-emerald-50 text-emerald-700'
-                            : testApiResult.status === 'error' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-800'
-                    }`}>
-                        {formatApiConnectionTestResult(testApiResult)}
+                        currentTestApiResult.status === 'success' ? 'bg-emerald-50 text-emerald-700'
+                            : currentTestApiResult.status === 'error' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-800'
+                    }`} role="status">
+                        {formatApiSettingsTestResult(currentTestApiResult, hasUnsavedApiChanges)}
                     </div>
                 )}
             </div>
