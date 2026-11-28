@@ -19,7 +19,9 @@ import * as visualIdentityPresets from './visualIdentityPresets';
 // Mock dependencies
 vi.mock('./sceneCameraDirector');
 vi.mock('./imageGenerationService');
-vi.mock('./visualIdentityPresets');
+vi.mock('./visualIdentityPresets', async importOriginal => ({
+  ...await importOriginal<typeof visualIdentityPresets>(), getActiveVisualIdentityPreset: vi.fn(),
+}));
 
 const mockCharacter: Character = {
   id: 'test-char-1',
@@ -196,9 +198,12 @@ describe('generateSceneCamera', () => {
     const result = await generateSceneCamera({
       mode: 'duo-photo',
       sceneContext: '角色和玩家在公园',
-      character: mockCharacter,
+      character: { ...mockCharacter, avatar: 'data:image/png;base64,Yw==' },
+      player: { name: '玩家', avatar: '', bio: '', visualIdentity: {
+        enabled: true, mode: 'simple', references: [{ id: 'p', blobRef: 'data:image/png;base64,cA==', role: 'front', createdAt: 0 }],
+      } },
       directorConfig: mockDirectorConfig,
-      rendererConfig: mockRendererConfig,
+      rendererConfig: { ...mockRendererConfig, provider: 'gemini-native' },
     });
 
     expect(result.shotPlan.mode).toBe('duo-photo');

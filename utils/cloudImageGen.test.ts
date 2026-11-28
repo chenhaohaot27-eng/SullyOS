@@ -131,6 +131,24 @@ describe('开关与默认行为', () => {
 });
 
 describe('submitCloudPhotoTask：提交与挂账', () => {
+  it('云端提交携带两份主图并在同一消息记录序号', async () => {
+    await DB.saveUserProfile({ name: '玩家甲', bio: '', avatar: '', visualIdentity: {
+      enabled: true, mode: 'simple', references: [{ id: 'me', role: 'front', blobRef: 'data:image/png;base64,cA==', createdAt: 0 }],
+    } });
+    const messageId = await pendingMessage(undefined);
+    mockedSubmit.mockResolvedValue({ created: true, status: 'queued' });
+    const submitted = await submitCloudPhotoTask({
+      char: { ...CHAR, avatar: 'data:image/png;base64,Yw==' },
+      intent: { ...INTENT, includePlayer: true, includeCharacter: true }, messageId,
+    });
+    expect(submitted).toBeTruthy();
+    const template = mockedSubmit.mock.calls[0][1] as { bodyJson: { contents: { parts: { inlineData?: { data: string }; text?: string }[] }[] } };
+    const parts = template.bodyJson.contents[0].parts;
+    expect(parts.slice(1).map(p => p.inlineData?.data)).toEqual(['Yw==', 'cA==']);
+    expect(parts[0].text).toContain('玩家「玩家甲」：仅图 2');
+    expect((await loadMessage(messageId))?.metadata?.chatPhoto.references).toHaveLength(2);
+    stopCloudPhotoPoller(submitted!.taskId);
+  });
   it('成功：taskId 写进消息 metadata；失败：消息翻 failed 且带原因（不留悬空 pending）', async () => {
     mockedSubmit.mockResolvedValue({ status: 'queued', created: true });
     const okId = await pendingMessage(undefined);

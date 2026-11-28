@@ -3403,6 +3403,8 @@ export interface SceneCameraShotPlan {
 
   // Scene composition
   subjects: string[];
+  /** 已入镜的已知身份，other 包括环境与其他人物。旧镜头从 subjects 推断。 */
+  photoSubjects?: 'player' | 'character' | 'both' | 'other';
   characterState: string;
   playerVisibility: SceneCameraPlayerVisibility;
   environment: string;

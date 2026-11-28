@@ -254,8 +254,10 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
 
     if (!open || typeof document === 'undefined') return null;
 
-    const planned = planCameraReferences(character, playerRef.current).references;
-    const referenceIssue = rendererConfig && cameraReferenceIssue(planned.length, rendererConfig);
+    const cast = state.shotPlan?.photoSubjects;
+    const planned = planCameraReferences(cast === 'player' || cast === 'other' ? undefined : character,
+        cast === 'character' || cast === 'other' ? undefined : playerRef.current).references;
+    const referenceIssue = cast && rendererConfig && cameraReferenceIssue(planned.length, rendererConfig);
     const displayedRefs = state.phase === 'done' ? state.references ?? [] : planned;
     const subtitle = contextSource === 'companion' ? '把此刻的见面拍成一张照片' : '把这一幕剧情拍成一张照片';
     const directorLabel = `${apiConfig.apiFormat === 'gemini-native' ? 'Gemini 原生格式' : 'OpenAI 兼容格式'} · ${apiConfig.model || '未配置'}`;
@@ -415,7 +417,7 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
                 )}
 
                 <section className="mt-4 text-xs text-white/80">
-                    <p>{state.phase === 'done' ? '本次实际使用的参考图' : '本次拟用参考图'} · {displayedRefs.length} 张</p>
+                    <p>{state.phase === 'done' ? '本次实际使用的参考图' : cast ? '镜头参考图' : '可用身份参考图'} · {displayedRefs.length} 张</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                         {displayedRefs.map(ref => <ReferenceThumbnail key={ref.label} reference={ref} />)}
                     </div>
@@ -456,7 +458,7 @@ const SceneCameraModal: React.FC<SceneCameraModalProps> = ({ open, onClose, cont
                 {/* 主操作（关闭导演时不依赖聊天 API 配置） */}
                 <button
                     type="button"
-                    disabled={busy || (options.directorEnabled && !directorReady) || !isRendererReady || !!referenceIssue}
+                    disabled={busy || (options.directorEnabled && !directorReady) || !isRendererReady}
                     onClick={handleGenerate}
                     className="mt-4 h-12 w-full rounded-2xl bg-white text-[14px] font-bold text-slate-900 transition-transform active:scale-95 disabled:opacity-40"
                 >

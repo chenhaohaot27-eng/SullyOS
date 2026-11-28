@@ -27,11 +27,6 @@ vi.mock('./imageGenerationConfig', () => ({
     loadImageGenerationConfig: () => configMock.current,
 }));
 
-const collectRefMock = vi.hoisted(() => vi.fn(async () => ['data:image/png;base64,REF']));
-vi.mock('./chatPhotoGeneration', () => ({
-    collectCharacterReferenceImages: collectRefMock,
-}));
-
 // 全流程绝不调用 vision（AI 生成的礼物不需要识图）。
 const describeImageMock = vi.hoisted(() => vi.fn(async () => '不应被调用'));
 vi.mock('./visionApi', async (importOriginal) => {
@@ -39,7 +34,7 @@ vi.mock('./visionApi', async (importOriginal) => {
     return { ...actual, describeImageWithVisionApi: describeImageMock };
 });
 
-const CHAR = { id: 'c1', name: '小星', avatar: '' } as any;
+const CHAR = { id: 'c1', name: '小星', avatar: 'data:image/png;base64,REF' } as any;
 
 const INTENT: GiftSendIntent = {
     name: '深蓝色羊绒围巾',
@@ -63,7 +58,6 @@ beforeEach(async () => {
         images: [{ source: 'b64', url: 'data:image/png;base64,aGVsbG8=', mimeType: 'image/png' }],
     }));
     toBlobMock.mockClear();
-    collectRefMock.mockClear();
     describeImageMock.mockClear();
     configMock.current = { enabled: true, apiKey: 'sk-gen-secret', provider: 'gemini-native', model: 'img-1' };
 });
@@ -159,14 +153,11 @@ describe('executeGiftSend — 角色 → 玩家送礼', () => {
 
     it('includeCharacter=false：不收集角色参考图', async () => {
         await run();
-        expect(collectRefMock).not.toHaveBeenCalled();
         expect(generateMock.mock.calls[0][0].referenceImages).toEqual([]);
     });
 
     it('includeCharacter=true：收集参考图并传给统一生图服务', async () => {
         await run({ intent: { ...INTENT, includeCharacter: true } });
-        expect(collectRefMock).toHaveBeenCalledTimes(1);
-        expect(collectRefMock).toHaveBeenCalledWith(CHAR);
         expect(generateMock.mock.calls[0][0].referenceImages).toEqual(['data:image/png;base64,REF']);
     });
 });

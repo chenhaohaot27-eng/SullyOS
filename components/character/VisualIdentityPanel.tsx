@@ -13,7 +13,7 @@ import {
     removeVisualIdentityReference,
     validateVisualIdentity,
 } from '../../utils/visualIdentity';
-import { getBlobForRef } from '../../utils/blobRef';
+import { getBlobForRef, putImageBlob } from '../../utils/blobRef';
 import {
     exportVisualIdentityZip,
     importVisualIdentityZip,
@@ -67,6 +67,8 @@ const VisualIdentityPanel: React.FC<{
     const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
     const [fixedTraitsDraft, setFixedTraitsDraft] = useState(() => joinTraitInput(vi.fixedTraits));
     const [variableTraitsDraft, setVariableTraitsDraft] = useState(() => joinTraitInput(vi.variableTraits));
+    const replaceId = useRef<string>();
+    const replaceInput = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const zipInputRef = useRef<HTMLInputElement | null>(null);
     const [zipBusy, setZipBusy] = useState(false);
@@ -86,7 +88,7 @@ const VisualIdentityPanel: React.FC<{
     }, [vi.variableTraits]);
 
     // 缩略图：blobref 令牌 → objectURL（卸载 / 列表变化时回收，避免移动端内存泄漏）
-    const referencesKey = vi.references.map(ref => `${ref.id}:${ref.isPrimary ? 1 : 0}`).join('|');
+    const referencesKey = vi.references.map(ref => `${ref.id}:${ref.blobRef}:${ref.isPrimary ? 1 : 0}`).join('|');
     const references = vi.references;
     useEffect(() => {
         let cancelled = false;
@@ -158,8 +160,7 @@ const VisualIdentityPanel: React.FC<{
         }
     };
 
-    const handleRemove = async (ref: VisualIdentityReference) => {
-        writeIdentity({ ...vi, references: removeVisualIdentityReferenceFromList(vi.references, ref.id) });
+    const releasePrevious = async (ref: VisualIdentityReference) => {
         try {
             const otherReferences = [
                 ...(activePreset ? visualIdentity?.references ?? [] : []),
@@ -169,6 +170,24 @@ const VisualIdentityPanel: React.FC<{
                 await removeVisualIdentityReference(ref, vi.references);
             }
         } catch { /* 删除孤儿 Blob 失败不影响元数据 */ }
+    };
+
+    const handleRemove = async (ref: VisualIdentityReference) => {
+        writeIdentity({ ...vi, references: removeVisualIdentityReferenceFromList(vi.references, ref.id) });
+        await releasePrevious(ref);
+    };
+
+    const replaceReference = async (file?: File) => {
+        const ref = vi.references.find(item => item.id === replaceId.current);
+        if (!file || !ref) return;
+        if (!file.type.startsWith('image/')) { addToast?.('请选择图片文件', 'error'); return; }
+        setUploading(true);
+        try {
+            const blobRef = await putImageBlob(file);
+            patch({ references: vi.references.map(item => item.id === ref.id ? { ...item, blobRef } : item) });
+            await releasePrevious(ref);
+        } catch { addToast?.('替换参考图失败，请重试', 'error'); }
+        finally { setUploading(false); }
     };
 
     const handleSetPrimary = (referenceId: string) => {
@@ -458,6 +477,11 @@ const VisualIdentityPanel: React.FC<{
                     点击关闭
                 </button>
             )}
+            <input ref={replaceInput} type="file" accept="image/*" className="hidden" onChange={event => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = '';
+                void replaceReference(file);
+            }} />
             {/* 缩略图网格 */}
             {vi.references.length > 0 ? (
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
@@ -486,6 +510,10 @@ const VisualIdentityPanel: React.FC<{
                                     ×
                                 </button>
                             </div>
+                            <button type="button" disabled={uploading} className="w-full text-xs text-indigo-600" onClick={() => {
+                                replaceId.current = ref.id;
+                                replaceInput.current?.click();
+                            }}>替换图片</button>
                             {vi.mode === 'advanced' ? (
                                 <select
                                     value={ref.role}

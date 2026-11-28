@@ -147,26 +147,28 @@ describe('executeChatPhotoIntent', () => {
         expect(toast).toHaveBeenCalled();
     });
 
-    it('不支持参考图的接口降级去掉参考图再生成（仍只成功出图一次）', async () => {
-        mockedGenerate
-            .mockRejectedValueOnce(new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前接口模式不支持参考图'))
-            .mockResolvedValueOnce({
-                provider: 'openai-images' as const,
-                model: 'm',
-                images: [{ source: 'url' as const, url: 'https://cdn.test/img.png', mimeType: 'image/png' }],
-                createdAt: 1,
-            });
+    it('正文称图中是玩家时，本地发图只提交玩家身份，即便旧标签误报 includeCharacter', async () => {
+        await DB.saveUserProfile({ name: '小禾', bio: '', avatar: '', visualIdentity: {
+            enabled: true, mode: 'simple', references: [{ id: 'p', role: 'front', createdAt: 0, blobRef: 'data:image/png;base64,cA==' }],
+        } });
+        const { extractChatPhotoIntent } = await import('./chatPhotoIntent');
+        const { intent } = extractChatPhotoIntent('这是你！\\n[[SEND_PHOTO: {"prompt":"a portrait","includeCharacter":true}]]');
+        mockedGenerate.mockResolvedValue(okResult());
+        await executeChatPhotoIntent({ char: CHAR, intent: intent!, persistMessage: msg => DB.saveMessage(msg) });
+        const [options] = mockedGenerate.mock.calls[0];
+        expect(options.referenceImages).toEqual(['data:image/png;base64,cA==']);
+        expect(options.prompt).toContain('玩家「小禾」：仅图 1');
+        expect((await listMessages())[0].metadata?.chatPhoto.references[0].label).toContain('玩家「小禾」');
+    });
 
+    it('接口拒绝参考图时保留失败原因，不发起无参考图重试', async () => {
+        mockedGenerate.mockRejectedValueOnce(new ImageGenerationError('REFERENCE_NOT_SUPPORTED', '当前接口模式不支持参考图'));
         await executeChatPhotoIntent({
-            char: CHAR,
-            intent: { ...INTENT, includeCharacter: true },
-            persistMessage: msg => DB.saveMessage(msg),
+            char: CHAR, intent: { ...INTENT, includeCharacter: true }, persistMessage: msg => DB.saveMessage(msg),
         });
-
-        expect(mockedGenerate).toHaveBeenCalledTimes(2);
-        expect(mockedGenerate.mock.calls[1][0].referenceImages).toEqual([]);
-        const msgs = await listMessages();
-        expect(msgs[0].metadata?.chatPhoto?.status).toBe('ready');
+        expect(mockedGenerate).toHaveBeenCalledTimes(1);
+        const [msg] = await listMessages();
+        expect(msg.metadata?.chatPhoto).toMatchObject({ status: 'failed', reason: '当前接口模式不支持参考图' });
     });
 });
 

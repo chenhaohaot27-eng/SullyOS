@@ -19,7 +19,8 @@ import { createGiftRecord, getGiftRecord, listGiftRecordsByChar, updateGiftRecor
 import type { GiftRecord } from './giftTypes';
 import { projectGiftToChat } from './giftChatBridge';
 import { giftSendIntentKey, type GiftSendIntent } from './giftIntent';
-import { collectCharacterReferenceImages } from './chatPhotoGeneration';
+import { bindMessagePhoto, photoReferencePreviews } from './photoIdentityBinding';
+import type { CameraReference } from './sceneCameraReferences';
 import { loadImageGenerationConfig } from './imageGenerationConfig';
 import {
     generateImage,
@@ -124,15 +125,6 @@ const redactReason = (reason: string, secret?: string): string => {
     return text || '礼物图片生成失败';
 };
 
-// includeCharacter / style 是意图层信息，不落 GiftRecord；经模块级 Map 透传给生成流程。
-const sendIntentMeta = new Map<string, { includeCharacter: boolean; style: string }>();
-function giftIncludeCharacterOf(gift: GiftRecord): boolean {
-    return sendIntentMeta.get(gift.id)?.includeCharacter === true;
-}
-function giftStyleOf(gift: GiftRecord): string {
-    return sendIntentMeta.get(gift.id)?.style || '';
-}
-
 // ─── 核心生图流程（execute 与 retry 共用，调用方负责 claim） ─────────────────
 
 async function runGiftImageGeneration(gift: GiftRecord, char: CharacterProfile): Promise<GiftRecord | null> {
@@ -153,34 +145,19 @@ async function runGiftImageGeneration(gift: GiftRecord, char: CharacterProfile):
         return fail('生图 API 未启用，请先在「设置 → 生图」中开启并测试通过');
     }
 
-    // ─── Phase 2C：优先使用 characterId（自动处理 visualIdentity），兜底旧头像 ─────
-    let characterId: string | undefined;
-    let legacyReferenceImages: Parameters<typeof generateImage>[0]['referenceImages'] = [];
-
-    if (giftIncludeCharacterOf(gift)) {
-        characterId = char.id;
-        // 兜底：若角色没有 visualIdentity，仍尝试读取头像作为参考图
-        try {
-            legacyReferenceImages = await collectCharacterReferenceImages(char);
-        } catch (e) {
-            console.warn('[Gift] 角色头像读取失败，继续生成:', e);
-        }
-    }
-
     let result;
+    let references: CameraReference[];
     try {
-        result = await generateImage({
+        const binding = await bindMessagePhoto(char, {
             prompt: gift.image.prompt || gift.gift.name,
-            style: giftStyleOf(gift) || undefined,
-            characterId,
-            // 若 visualIdentity 启用，服务层会优先使用 visualIdentity 参考图；
-            // 否则兜底使用头像（向后兼容旧角色）
-            referenceImages: legacyReferenceImages,
-            // 分辨率/比例不传 → 服务层按 imageGenerationConfig 默认值。
-        });
+            caption: [gift.gift.name, gift.gift.description, gift.gift.note].filter(Boolean).join('。'),
+            includeCharacter: gift.image.includeCharacter,
+            includePlayer: gift.image.includePlayer,
+            style: gift.image.style,
+        }, config);
+        result = await generateImage(binding.options, config);
+        references = await photoReferencePreviews(binding.references);
     } catch (e) {
-        // openai-images 等不支持参考图的接口：服务层已处理跳过逻辑，
-        // 这里仅需捕获其他错误
         return fail(errMessage(e));
     }
 
@@ -192,7 +169,7 @@ async function runGiftImageGeneration(gift: GiftRecord, char: CharacterProfile):
         const updated = await updateGiftRecord(gift.id, {
             status: 'delivered',
             deliveredAt: now,
-            image: { ...gift.image, status: 'ready', imageRef },
+            image: { ...gift.image, status: 'ready', imageRef, references },
         });
         if (updated) await syncGiftCardStatus(updated);
         return updated;
@@ -272,10 +249,10 @@ async function executeGiftSendLocked(opts: ExecuteGiftSendOptions & { eventKey: 
         // Hotfix Phase1：显式请求 or 自主机会（24h 自主 cooldown 推导用）
         triggerSource: opts.explicitGiftRequest ? 'explicit' : 'autonomous',
         gift: { name: intent.name, description: intent.description, note: intent.note },
-        image: { origin: 'ai_generated', status: 'pending', prompt: intent.imagePrompt },
+        image: { origin: 'ai_generated', status: 'pending', prompt: intent.imagePrompt,
+            includeCharacter: intent.includeCharacter, includePlayer: intent.includePlayer, style: intent.style },
         status: 'pending',
     });
-    sendIntentMeta.set(record.id, { includeCharacter: intent.includeCharacter, style: intent.style });
     try {
         await projectGiftToChat(record);
     } catch (e) {

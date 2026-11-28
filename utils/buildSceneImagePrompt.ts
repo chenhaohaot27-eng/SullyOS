@@ -1,3 +1,4 @@
+import { narrativePhotoSubjects } from './photoSubjects';
 /**
  * Scene Image Prompt Builder（两阶段导演 · 阶段二：视觉导演 + 基础直生成）
  *
@@ -123,6 +124,7 @@ ${describeSceneImageOptions(options)}
   "version": 1,
   "mode": "scene-snapshot" | "duo-photo",
   "subjects": ["画面主体（按主次排序）"],
+  "photoSubjects": "按实际入镜者填 player（仅玩家）、character（仅当前角色）、both（双方）或 other（均未入镜）",
   "characterState": "当前动作和情绪状态的简短描述",
   "playerVisibility": "none" | "back" | "profile" | "partial" | "blur" | "full",
   "environment": "当前环境的简短描述",
@@ -265,6 +267,7 @@ export function buildBasicShotPlan(input: {
   narrativeText: string;
   characterName: string;
   options: SceneImageOptions;
+  playerName?: string;
   fallbackReason?: string;
   sceneAnalysis?: SceneAnalysis;
 }): SceneCameraShotPlan {
@@ -273,6 +276,8 @@ export function buildBasicShotPlan(input: {
     version: 1,
     mode,
     subjects: [characterName],
+    photoSubjects: narrativePhotoSubjects(narrativeText, characterName, input.playerName)
+      ?? (mode === 'duo-photo' || options.subjectFocus === 'duo' ? 'both' : undefined),
     characterState: '以原文描述为准',
     playerVisibility: mode === 'duo-photo' ? 'partial' : 'none',
     environment: '以原文描述为准',

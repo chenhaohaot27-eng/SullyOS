@@ -66,6 +66,7 @@ const ChatPhotoBubble: React.FC<{
                     <ChatPhotoViewer
                         content={content}
                         displayUrl={imageUrl}
+                        references={meta.references}
                         caption={meta.caption}
                         onClose={() => setViewerOpen(false)}
                     />

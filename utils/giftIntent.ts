@@ -140,6 +140,7 @@ export interface GiftSendIntent {
     imagePrompt: string;
     /** 礼物图片中是否允许出现送礼角色本人（true 时生图附带角色参考图） */
     includeCharacter: boolean;
+    includePlayer?: boolean;
     /** 透传给 generateImage 的 style 提示（≤400 chars） */
     style: string;
 }
@@ -184,6 +185,7 @@ function parseGiftSendPayload(raw: string): GiftSendIntent | null {
             ? obj.note.trim().slice(0, MAX_SEND_NOTE) : undefined,
         imagePrompt: obj.imagePrompt.trim().slice(0, MAX_SEND_IMAGE_PROMPT),
         includeCharacter: obj.includeCharacter === true,
+        ...(typeof obj.includePlayer === "boolean" ? { includePlayer: obj.includePlayer } : {}),
         style: typeof obj.style === 'string' ? obj.style.trim().slice(0, MAX_SEND_STYLE) : '',
     };
 }
@@ -227,7 +229,7 @@ export function isGiftSendTagEnabled(storage: Pick<Storage, 'getItem'> = localSt
 
 /** 注入 system prompt「可用动作」一节的 GIFT_SEND 指南（与 SEND_PHOTO 指南同构）。 */
 export function buildGiftSendTagGuide(): string {
-    return `   - **送给对方一份真实礼物**: 只有当你此刻**真的决定送给对方一份具体的礼物**（实物、纪念物等有明确礼物语义的物件），并希望它成为系统里真实存在的礼物记录时才使用。先用符合语境的话自然表达（比如"给你买了条围巾"），再在**单独一行**输出**恰好一次**: \`[[GIFT_SEND: {"name":"礼物名","description":"一句话描述","note":"随礼附言","imagePrompt":"英文或中文的画面描述，用于生成礼物图片","includeCharacter":false,"style":"风格"}]]\`。imagePrompt 是礼物本身的画面描述（物件特写、摆放、包装等）；只有画面里应当出现你自己（手持礼物递过去、自拍式送礼）时 includeCharacter 才写 true; style 可省略。**区分**：随手自拍/拍环境给对方看用 SEND_PHOTO；只有真正的"送礼"才用 GIFT_SEND。开玩笑、假设、讨论想送什么、"以后送你"、回忆过去送过的东西，都**不要**使用 GIFT_SEND，也不要用文字"[图片]"、假链接或 Markdown 假装送了礼物。送礼应是偶发且符合情境的行为，不要频繁使用。`;
+    return `   - **送给对方一份真实礼物**: 只有当你此刻**真的决定送给对方一份具体的礼物**（实物、纪念物等有明确礼物语义的物件），并希望它成为系统里真实存在的礼物记录时才使用。先用符合语境的话自然表达（比如"给你买了条围巾"），再在**单独一行**输出**恰好一次**: \`[[GIFT_SEND: {"name":"礼物名","description":"一句话描述","note":"随礼附言","imagePrompt":"英文或中文的画面描述，用于生成礼物图片","includeCharacter":false,"includePlayer":false,"style":"风格"}]]\`。imagePrompt 是礼物本身的画面描述（物件特写、摆放、包装等）；只有画面里应当出现你自己（手持礼物递过去、自拍式送礼）时 includeCharacter 才写 true; includePlayer 表示玩家档案中的本人入镜；includeCharacter 表示发图角色本人入镜。两人同框时两项均为 true，仅物品或风景时均为 false。style 可省略。**区分**：随手自拍/拍环境给对方看用 SEND_PHOTO；只有真正的"送礼"才用 GIFT_SEND。开玩笑、假设、讨论想送什么、"以后送你"、回忆过去送过的东西，都**不要**使用 GIFT_SEND，也不要用文字"[图片]"、假链接或 Markdown 假装送了礼物。送礼应是偶发且符合情境的行为，不要频繁使用。`;
 }
 
 // ─── 回应生成用的指令文本 ─────────────────────────────────────────────────────

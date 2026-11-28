@@ -22,6 +22,7 @@ import { dataUrlToBlob, getBlobForRef, isBlobRef } from '../../utils/blobRef';
 import { canShareChatPhotoFile, prepareChatPhotoFile, saveChatPhotoFile } from '../../utils/chatPhotoViewer';
 
 export interface ChatPhotoViewerProps {
+    references?: import('../../utils/sceneCameraReferences').CameraReference[];
     /** 消息 content：blobref 令牌 / data URL / http(s) URL（决定能否取回 Blob 做文件分享）。 */
     content: string;
     /** 气泡已解析好的显示 URL（useBlobRefUrl 的 object URL，生命周期归气泡管，这里只读）。 */
@@ -43,7 +44,7 @@ async function resolveChatPhotoBlob(content: string): Promise<Blob | null> {
     return null;
 }
 
-const ChatPhotoViewer: React.FC<ChatPhotoViewerProps> = ({ content, displayUrl, caption, onClose }) => {
+const ChatPhotoViewer: React.FC<ChatPhotoViewerProps> = ({ content, displayUrl, caption, references, onClose }) => {
     // 分享用的 File：预览打开后就异步准备，备好才启用保存按钮（保证 share 在点击事件内触发）。
     const [shareFile, setShareFile] = useState<File | null>(null);
     const [preparing, setPreparing] = useState(true);
@@ -156,6 +157,17 @@ const ChatPhotoViewer: React.FC<ChatPhotoViewerProps> = ({ content, displayUrl, 
                 style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0))' }}
                 onClick={(e) => e.stopPropagation()}
             >
+                {references && (
+                    <details className="max-w-full px-2 text-xs text-white/80">
+                        <summary>本次使用的参考图 · {references.length} 张</summary>
+                        <div className="mt-1 flex gap-2 overflow-x-auto">
+                            {references.map(ref => <figure key={ref.label} className="w-16 shrink-0">
+                                {ref.data && <img src={ref.data} alt={ref.label} className="h-12 w-full object-contain" />}
+                                <figcaption>{ref.label}</figcaption>
+                            </figure>)}
+                        </div>
+                    </details>
+                )}
                 {!!caption?.trim() && (
                     <div className="mb-0.5 max-w-[86%] truncate text-center text-[12px] text-white/60">{caption}</div>
                 )}

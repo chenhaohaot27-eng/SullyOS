@@ -25,6 +25,7 @@ import type { CameraReference } from './sceneCameraReferences';
 import type { DirectorApiConfig } from './sceneCameraPrompt';
 import { generateShotPlanOnly, renderShotPlan } from './sceneCameraService';
 import { DEFAULT_SCENE_IMAGE_OPTIONS } from './imageGenerationOptions';
+import { narrativePhotoSubjects } from './photoSubjects';
 import { buildBasicShotPlan } from './buildSceneImagePrompt';
 
 /** 两阶段加载：Director 理解场景 → Renderer 成像。 */
@@ -127,7 +128,8 @@ export class SceneCameraSession {
   /** 「重拍同一镜头」前手动微调最终 prompt（导演思路预览区可编辑）。 */
   updateFinalPrompt(prompt: string): void {
     if (this.busy || !this.state.shotPlan || !prompt.trim()) return;
-    this.patch({ shotPlan: { ...this.state.shotPlan, finalPrompt: prompt } });
+    const subjects = narrativePhotoSubjects(prompt, this.deps.getCharacter().name, this.deps.getPlayer?.().name);
+    this.patch({ shotPlan: { ...this.state.shotPlan, finalPrompt: prompt, photoSubjects: subjects ?? this.state.shotPlan.photoSubjects } });
   }
 
   /** 完整流程：Director 理解场景 → Renderer 成像。 */
@@ -198,6 +200,7 @@ export class SceneCameraSession {
             mode: this.state.mode,
             narrativeText: selectedText || sceneContext,
             characterName: this.deps.getCharacter().name,
+            playerName: this.deps.getPlayer?.().name,
             options: imageOptions,
           });
           this.patch({

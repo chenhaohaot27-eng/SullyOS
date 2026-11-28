@@ -11,21 +11,22 @@ import type { VisualIdentity } from '../types';
  * - 不覆盖原始剧情 prompt，只作为身份约束前置/合并
  * - 避免把参考图里的服装、背景、姿势误当固定身份
  */
-export function buildVisualIdentityPrompt(vi: VisualIdentity | undefined): string {
+export function buildVisualIdentityPrompt(vi: VisualIdentity | undefined, owner?: string): string {
     if (!vi || !vi.enabled || vi.references.length === 0) return '';
 
     const parts: string[] = [];
 
     // 简易模式基础约束
     if (vi.mode === 'simple') {
-        parts.push('参考图定义的是同一角色身份；保持脸、基础体型和核心外貌一致；服装、表情、动作、发型细节、环境可随当前情节变化。');
+        const scope = owner ? '此组图片仅定义' + owner + '的身份' : '参考图定义的是同一角色身份';
+        parts.push(scope + '；保持脸、基础体型和核心外貌一致；服装、表情、动作、发型细节、环境可随当前情节变化。');
     }
 
     // 精细模式额外内容
     if (vi.mode === 'advanced') {
         // 外观总结
         if (vi.appearanceSummary?.trim()) {
-            parts.push(`角色外观总结：${vi.appearanceSummary.trim()}`);
+            parts.push(`${owner ?? "角色"}外观总结：${vi.appearanceSummary.trim()}`);
         }
 
         // 固定特征（必须保持）

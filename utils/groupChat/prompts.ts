@@ -267,7 +267,8 @@ export interface AutonomyInstructionOptions {
 export function buildAutonomyInstruction(opts: AutonomyInstructionOptions): string {
     const photoBlock = opts.photoAllowed
         ? `#### 自主发图（最多 1 张）
-- 本轮**最多允许一位成员**分享一张真实照片：把 \`[[SEND_PHOTO: {"prompt":"画面描述","caption":"随图一句话","includeCharacter":false,"style":"风格"}]]\` 单独一行写进**该成员自己的 content 字符串内部**（HTML 属性同理注意转义，payload 用合法 JSON）。
+- 本轮**最多允许一位成员**分享一张真实照片：把 \`[[SEND_PHOTO: {"prompt":"画面描述","caption":"随图一句话","includeCharacter":false,"includePlayer":false,"style":"风格"}]]\` 单独一行写进**该成员自己的 content 字符串内部**（HTML 属性同理注意转义，payload 用合法 JSON）。
+includePlayer 表示玩家档案中的本人入镜；includeCharacter 表示发图角色本人入镜。两人同框时两项均为 true，仅物品或风景时均为 false。
 - 是否发、由谁发，必须由**这位成员自己的性格、近况、此刻的处境和群聊话题**决定——自拍、生活日常、环境、食物、宠物、旅行见闻或符合剧情的画面都行；画面必须真实存在于该成员当下的处境，严禁编造。
 - **严禁**所有成员形成统一的「自拍/发图」习惯；不适合发就一个都别发。整轮最多 1 张，多出的标签会被丢弃。
 - 严禁用文字、「[图片]」或表情包冒充照片；不想发就不带标签。`

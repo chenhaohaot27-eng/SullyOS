@@ -24,6 +24,7 @@ import { trackEvent } from '../utils/analytics';
 type GiftTab = 'all' | 'received' | 'sent';
 
 interface ViewerState {
+    references?: GiftRecord['image']['references'];
     content: string;
     displayUrl: string;
     caption: string;
@@ -93,8 +94,8 @@ const Gift: React.FC = () => {
     const charNameOf = useCallback((id: string, fallback = '角色') =>
         characters.find(c => c.id === id)?.name || fallback, [characters]);
 
-    const openViewer = (content: string, displayUrl: string, caption: string) =>
-        setViewer({ content, displayUrl, caption });
+    const openViewer = (content: string, displayUrl: string, caption: string, references?: GiftRecord['image']['references']) =>
+        setViewer({ content, displayUrl, caption, references });
 
     // 手动重试角色 AI 礼物图（仅点击触发；同一 gift 只重跑生成，不建新礼物）。
     const handleRetryCharGift = async (gift: GiftRecord) => {
@@ -216,7 +217,7 @@ const Gift: React.FC = () => {
         return (
             <div key={g.id} className="bg-white dark:bg-slate-800/80 rounded-2xl p-3.5 shadow-sm ring-1 ring-black/5 flex gap-3">
                 {g.image.imageRef && g.image.status === 'ready'
-                    ? <GiftImageThumb imageRef={g.image.imageRef} onOpen={url => openViewer(g.image.imageRef!, url, g.gift.name)} />
+                    ? <GiftImageThumb imageRef={g.image.imageRef} onOpen={url => openViewer(g.image.imageRef!, url, g.gift.name, g.image.references)} />
                     : (
                         <div className={`w-20 h-20 rounded-xl shrink-0 flex items-center justify-center text-2xl ${sent ? 'bg-rose-50 dark:bg-rose-500/10' : 'bg-indigo-50 dark:bg-indigo-500/10'}`}>
                             {charAiImage && (imageStatus === 'pending' || imageStatus === 'failed')
@@ -501,6 +502,7 @@ const Gift: React.FC = () => {
                 <ChatPhotoViewer
                     content={viewer.content}
                     displayUrl={viewer.displayUrl}
+                    references={viewer.references}
                     caption={viewer.caption}
                     onClose={() => setViewer(null)}
                 />

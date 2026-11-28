@@ -56,7 +56,7 @@ import { resolveEmojiByModelReference } from './emojiResolver';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
 import { collectVoiceTexts, isDuplicateVoiceTranscriptChunk } from './chatVoiceHistory';
-import { extractChatPhotoIntent, extractVerbalPhotoCommitment, isChatPhotoTagEnabled } from './chatPhotoIntent';
+import { applyPlayerPhotoRequest, extractChatPhotoIntent, extractVerbalPhotoCommitment, isChatPhotoTagEnabled } from './chatPhotoIntent';
 import { executeChatPhotoIntent } from './chatPhotoGeneration';
 import { extractGiftReactIntent, extractGiftSendIntent } from './giftIntent';
 import { executeMeetInvite, extractMeetInviteIntent, extractMeetReplyIntent, findPendingMeetInvitation, validateMeetInviteTiming, applyMeetReply } from './meetingInvite';
@@ -2163,10 +2163,13 @@ export async function applyAssistantPostProcessing(
     // 成功后占位被替换成真实图片消息。executeChatPhotoIntent 内部有 claim（一轮一次），
     // 流式重放 / 重渲染 / StrictMode 双调用不会重复落占位、也不会重复扣费；失败只落原因 +
     // 手动重试入口（MessageItem ChatPhotoBubble），不做自动重试。
+    const lastPhotoTurn = contextMsgs.at(-1);
+    const playerPhotoRequest = !mcdInheritMeta?.source && lastPhotoTurn?.role === 'user' && typeof lastPhotoTurn.content === 'string'
+        ? lastPhotoTurn.content : undefined;
     if (chatPhotoExtraction.intent) {
         await executeChatPhotoIntent({
             char,
-            intent: chatPhotoExtraction.intent,
+            intent: applyPlayerPhotoRequest(chatPhotoExtraction.intent, playerPhotoRequest),
             persistMessage,
             refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
             onToast: addToast,
@@ -2189,7 +2192,7 @@ export async function applyAssistantPostProcessing(
             console.info('[ChatPhoto] 检测到口头视觉分享承诺，落实为真实照片', { charId: char.id });
             await executeChatPhotoIntent({
                 char,
-                intent: verbalIntent,
+                intent: applyPlayerPhotoRequest(verbalIntent, playerPhotoRequest),
                 persistMessage,
                 refresh: async () => { setMessages(await DB.getRecentMessagesByCharId(char.id, 200)); },
                 onToast: addToast,

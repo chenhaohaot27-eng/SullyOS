@@ -157,9 +157,10 @@ export async function runTwoStageDirector(input: TwoStageDirectorInput): Promise
     // 完全回退：基础 prompt 生成模式（原文 + 基础设定 + 选项取向），生图流程不被阻断。
     const shotPlan = buildBasicShotPlan({
       mode,
-      narrativeText,
+      narrativeText: trimmedSelection || sceneContext,
       characterName,
       options,
+      playerName: input.playerName,
       fallbackReason: DIRECTOR_FALLBACK_NOTICE,
       sceneAnalysis,
     });

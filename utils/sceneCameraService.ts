@@ -27,7 +27,9 @@ import type {
 import type { DirectorApiConfig } from './sceneCameraPrompt';
 import { callDirector } from './sceneCameraDirector';
 import { generateImage } from './imageGenerationService';
-import { prepareCameraReferences, type CameraReference } from './sceneCameraReferences';
+import { bindPhotoIdentity } from './photoIdentityBinding';
+import { narrativePhotoSubjects } from './photoSubjects';
+import type { CameraReference } from './sceneCameraReferences';
 import { getActiveVisualIdentity, getActiveVisualIdentityPreset } from './visualIdentityPresets';
 
 /** Scene Camera 生成请求参数。 */
@@ -161,14 +163,16 @@ export async function renderShotPlan(request: {
 }): Promise<SceneCameraResult> {
   const { shotPlan, character, rendererConfig, aspectRatio, signal } = request;
 
-  const { references, instructions } = await prepareCameraReferences(character, request.player, rendererConfig);
-  const imageResult = await generateImage({
-    prompt: [shotPlan.finalPrompt, instructions].filter(Boolean).join('\n\n'),
-    referenceImages: references.map(ref => ref.data),
-    ...(references.length ? { identityActive: true } : {}),
-    aspectRatio,
-    signal,
-  }, rendererConfig);
+  const namedSubjects = shotPlan.subjects.join(' ');
+  const playerVisible = shotPlan.playerVisibility !== 'none' || namedSubjects.includes('玩家');
+  const characterVisible = namedSubjects.includes(character.name) || namedSubjects.includes('角色');
+  const subjects = shotPlan.photoSubjects
+    ?? (shotPlan.finalPrompt.includes('--- Narrative source text ---') ? 'unspecified' : undefined)
+    ?? (playerVisible ? (characterVisible ? 'both' : 'player') : undefined)
+    ?? narrativePhotoSubjects(namedSubjects, character.name, request.player?.name)
+    ?? (characterVisible ? 'character' : 'other');
+  const { references, options } = await bindPhotoIdentity(subjects, shotPlan.finalPrompt, character, request.player, rendererConfig);
+  const imageResult = await generateImage({ ...options, aspectRatio, signal }, rendererConfig);
   const imageUrl = extractImageUrl(imageResult);
 
   const updatedShotPlan: SceneCameraShotPlan = {

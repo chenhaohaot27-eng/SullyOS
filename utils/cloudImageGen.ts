@@ -22,7 +22,9 @@ import { putImageBlob } from './blobRef';
 import { DB } from './db';
 import { syncAssistantPhotoToGallery } from './gallerySync';
 import type { ChatPhotoIntent } from './chatPhotoIntent';
-import { collectCharacterReferenceImages, type ChatPhotoMeta } from './chatPhotoGeneration';
+import { bindMessagePhoto, fitCloudPhotoReferences, photoReferencePreviews } from './photoIdentityBinding';
+import type { CameraReference } from './sceneCameraReferences';
+import type { ChatPhotoMeta } from './chatPhotoGeneration';
 
 export const CLOUD_IMAGE_GEN_CONFIG_KEY = 'cloud_image_gen_config_v1';
 export const CLOUD_IMAGE_GEN_CONFIG_EVENT = 'cloud-image-gen-config-changed';
@@ -112,22 +114,22 @@ export async function submitCloudPhotoTask(args: CloudPhotoSubmitArgs): Promise<
     const { char, intent, groupId, messageId, onToast } = args;
     const taskId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `imgtask-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     let template;
+    let references: CameraReference[];
     try {
-        const legacyReferenceImages = intent.includeCharacter ? await collectCharacterReferenceImages(char) : [];
-        template = await buildCloudImageGenTemplate({
-            prompt: intent.prompt,
-            style: intent.style || undefined,
-            characterId: intent.includeCharacter ? char.id : undefined,
-            referenceImages: legacyReferenceImages,
-        });
+        const config = loadImageGenerationConfig();
+        if (!config.enabled) throw new Error('生图 API 未启用，请先在设置中开启');
+        const binding = await bindMessagePhoto(char, intent, config);
+        const fitted = await fitCloudPhotoReferences(binding.references);
+        template = await buildCloudImageGenTemplate({ ...binding.options, referenceImages: fitted.map(ref => ref.data) }, config);
+        references = await photoReferencePreviews(fitted);
     } catch (error) {
         await markCloudPhotoFailed(messageId, error instanceof Error ? error.message : String(error));
-        onToast?.('云端生图任务没能建立（本地模板构建失败）', 'error');
+        onToast?.(error instanceof Error ? error.message : '云端生图任务没能建立', 'error');
         return null;
     }
     try {
         // Save the id before POST so a lost acknowledgement can be reconciled without issuing another job.
-        await DB.updateMessageMetadata(messageId, prev => ({ ...prev, cloudImageTaskId: taskId }));
+        await DB.updateMessageMetadata(messageId, prev => ({ ...prev, cloudImageTaskId: taskId, chatPhoto: { ...prev?.chatPhoto, references } }));
         await ActiveMsgClient.submitImageGenTask(taskId, template);
     } catch (error) {
         await markCloudPhotoFailed(messageId, error instanceof Error ? error.message : String(error));

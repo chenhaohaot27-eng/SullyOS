@@ -587,7 +587,7 @@ const ImageGenerationSettings: React.FC<Props> = ({ addToast }) => {
 
                 {draft.allowReferenceImages && draft.provider !== 'openai-images' && (
                     <label className="flex items-center justify-between gap-3 text-xs text-slate-600">
-                        此预设仅支持单张参考图（摄影机）
+                        此预设仅支持单张参考图
                         <input type="checkbox" checked={!!draft.singleReferenceOnly}
                             onChange={event => patchDraft('singleReferenceOnly', event.target.checked)} />
                     </label>

@@ -142,6 +142,7 @@ const GiftChatCard: React.FC<{
                 <ChatPhotoViewer
                     content={record?.image.imageRef || snapshot.imageRef || ''}
                     displayUrl={viewerUrl}
+                    references={record?.image.references}
                     caption={name}
                     onClose={() => setViewerUrl(null)}
                 />

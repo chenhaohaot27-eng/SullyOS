@@ -6,7 +6,7 @@
  *
  * 协议复用仓库既有的 `[[...]]` 结构化动作词汇表（SEND_EMOJI / ACTION / MUSIC_ACTION 同族），
  * 不另建解析器：模型在回复里单独一行输出
- *   [[SEND_PHOTO: {"prompt":"视觉画面描述","caption":"随图一句话","includeCharacter":false,"style":"风格"}]]
+ *   [[SEND_PHOTO: {"prompt":"视觉画面描述","caption":"随图一句话","includeCharacter":false,"includePlayer":false,"style":"风格"}]]
  * applyAssistantPostProcessing 在 Step 1.5 拦截并剥掉标签（意图控制内容绝不进气泡），
  * 再交给 utils/chatPhotoGeneration.ts 调统一 imageGenerationService 真出图。
  *
@@ -19,6 +19,7 @@
  */
 
 import { loadImageGenerationConfig } from './imageGenerationConfig';
+import { mentionsPlayerPortrait, photoSubjects } from './photoSubjects';
 import { stripChatPhotoCommands } from './stripChatPhotoCommands';
 
 export interface ChatPhotoIntent {
@@ -28,8 +29,21 @@ export interface ChatPhotoIntent {
     caption: string;
     /** 照片里是否应出现角色本人（true 时才附加角色参考图） */
     includeCharacter: boolean;
+    includePlayer?: boolean;
     /** 生图风格（可空，透传给 imageGenerationService.style） */
     style: string;
+}
+
+// A request written by the player uses “我” for the player. “发我一张你的自拍” asks for the character.
+export function applyPlayerPhotoRequest(intent: ChatPhotoIntent, request?: string): ChatPhotoIntent {
+    if (!request || !/(?:发|拍|画|生成|想看|看看|来一张)/.test(request)) return intent;
+    if (/(?:别|不要|不想|不用|不许|不需要)(?:给我)?(?:发|拍|画|生成)|不要.*(?:我入镜|我的脸)/.test(request)) return intent;
+    const duo = /(?:我和你|你和我|我们俩|咱俩|我们两人)(?:的)?(?:合照|合影|自拍|照片)/.test(request);
+    if (duo) return { ...intent, includePlayer: true, includeCharacter: true };
+    if (/(?:我(?:自己|本人|今天)?的(?:自拍|日常照|生活照|肖像|照片)|(?:画|拍)(?:一张|一下)?我本人)/.test(request)) {
+        return { ...intent, includePlayer: true, includeCharacter: false };
+    }
+    return intent;
 }
 
 export interface ChatPhotoExtraction {
@@ -84,6 +98,7 @@ function parsePayload(raw: string): ChatPhotoIntent | null {
         prompt: obj.prompt.trim().slice(0, MAX_PROMPT_LENGTH),
         caption: typeof obj.caption === 'string' ? obj.caption.trim().slice(0, MAX_CAPTION_LENGTH) : '',
         includeCharacter: obj.includeCharacter === true,
+        ...(typeof obj.includePlayer === "boolean" ? { includePlayer: obj.includePlayer } : {}),
         style: typeof obj.style === 'string' ? obj.style.trim().slice(0, MAX_STYLE_LENGTH) : '',
     };
 }
@@ -106,7 +121,14 @@ export function extractChatPhotoIntent(content: string): ChatPhotoExtraction {
         // 「标签原来占的那几行」的残影留给下游日志/预览）。
         .replace(/\n[ \t]*\n+/g, '\n')
         .trim();
-    return { intent, cleanedContent, invalidTagFound: tagCount > 0 && !intent, tagCount };
+    // Some models put the identification in the accompanying bubble only.
+    const photo = intent as ChatPhotoIntent | null;
+    if (photo && mentionsPlayerPortrait(cleanedContent)) {
+        const subjects = photoSubjects({ ...photo, caption: [photo.caption, cleanedContent].join('\n') });
+        photo.includePlayer = true;
+        photo.includeCharacter = subjects === 'both';
+    }
+    return { intent: photo, cleanedContent, invalidTagFound: tagCount > 0 && !intent, tagCount };
 }
 
 // ─── 一轮只拍一次的 claim（防流式重放 / StrictMode / 重渲染重复扣费） ─────────
@@ -117,7 +139,7 @@ const claimedTurns = new Map<string, number>();
 /** 轻量指纹：同角色同意图（prompt + 是否带角色）视为同一轮 */
 export function chatPhotoIntentKey(charId: string, intent: ChatPhotoIntent): string {
     let hash = 5381;
-    const seed = `${intent.prompt}\n${intent.includeCharacter}`;
+    const seed = `${intent.prompt}\n${intent.includeCharacter}\n${intent.includePlayer ?? false}`;
     for (let i = 0; i < seed.length; i++) hash = ((hash << 5) + hash + seed.charCodeAt(i)) >>> 0;
     return `${charId}:${hash.toString(36)}`;
 }
@@ -164,7 +186,7 @@ export function buildChatPhotoAutonomyPrompt(): string {
 
 /** 注入 system prompt「可用动作」一节的拍照指南（单行，保持与既有条目同构）。 */
 export function buildChatPhotoTagGuide(): string {
-    return `   - **拍照给对方看（真实照片）**: 当对方明确要求你拍照/自拍/发照片/拍环境/拍某样东西给你看时必须使用；除此之外，你也可以基于自己的性格、当下场景和聊天内容**自主决定**分享真实照片——自拍、生活日常、所在的环境、吃到的东西、旅行见到的风景、宠物等自然场景都算，是否发、多久发一次完全由你按角色性格和语境自然判断，不设固定频率、也不要为了发而发。先用一两句符合语境的话回应，再在**单独一行**输出**恰好一次**: \`[[SEND_PHOTO: {"prompt":"画面描述","caption":"随图一句话","includeCharacter":false,"style":"风格"}]]\`。prompt 是你根据最近对话、你的外貌设定、所在地点、时间天气和世界观**凝练出的视觉画面描述**（英文或中文皆可，不要照抄聊天原文、不要塞大段对话）; caption 是随图发给对方的一句话; 照片里应当出现你自己时 includeCharacter 才写 true; style 可省略。一轮回复最多一个 SEND_PHOTO。除非对方明确要求，不要把对方或你自己没提到的人画进照片; 更**严禁**用文字、表情包或"[图片]"字样假装发了照片——不想发或觉得此刻不合适时就正常聊天，什么也不说。**尤其注意：只要你这轮文字里说出"我拍给你看/发你看/给你看看这个"这类分享的意思，就必须真的带上 SEND_PHOTO 动作落实它，绝不能只停在口头描述。**`;
+    return `   - **拍照给对方看（真实照片）**: 当对方明确要求你拍照/自拍/发照片/拍环境/拍某样东西给你看时必须使用；除此之外，你也可以基于自己的性格、当下场景和聊天内容**自主决定**分享真实照片——自拍、生活日常、所在的环境、吃到的东西、旅行见到的风景、宠物等自然场景都算，是否发、多久发一次完全由你按角色性格和语境自然判断，不设固定频率、也不要为了发而发。先用一两句符合语境的话回应，再在**单独一行**输出**恰好一次**: \`[[SEND_PHOTO: {"prompt":"画面描述","caption":"随图一句话","includeCharacter":false,"includePlayer":false,"style":"风格"}]]\`。prompt 是你根据最近对话、你的外貌设定、所在地点、时间天气和世界观**凝练出的视觉画面描述**（英文或中文皆可，不要照抄聊天原文、不要塞大段对话）; caption 是随图发给对方的一句话; 照片里应当出现你自己时 includeCharacter 才写 true; includePlayer 表示玩家档案中的本人入镜；includeCharacter 表示发图角色本人入镜。两人同框时两项均为 true，仅物品或风景时均为 false。style 可省略。一轮回复最多一个 SEND_PHOTO。除非对方明确要求，不要把对方或你自己没提到的人画进照片; 更**严禁**用文字、表情包或"[图片]"字样假装发了照片——不想发或觉得此刻不合适时就正常聊天，什么也不说。**尤其注意：只要你这轮文字里说出"我拍给你看/发你看/给你看看这个"这类分享的意思，就必须真的带上 SEND_PHOTO 动作落实它，绝不能只停在口头描述。**`;
 }
 
 // ─── 口头视觉分享承诺 → 落实为真实 SEND_PHOTO（Phase：主动发图自然化） ────────

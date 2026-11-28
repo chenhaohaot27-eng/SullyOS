@@ -173,6 +173,7 @@ const GroupChatPhotoBubble: React.FC<{
                             <ChatPhotoViewer
                                 content={msg.content}
                                 displayUrl={imageUrl}
+                                references={meta.references}
                                 caption={meta.caption}
                                 onClose={() => setViewerOpen(false)}
                             />
@@ -1862,6 +1863,7 @@ ${memberTimeline || '(暂无互动记录)'}
                                 status: 'pending',
                                 caption: photo.intent.caption,
                                 includeCharacter: photo.intent.includeCharacter,
+                                includePlayer: photo.intent.includePlayer,
                                 style: photo.intent.style,
                                 prompt: photo.intent.prompt,
                                 createdAt: Date.now(),

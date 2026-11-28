@@ -15,13 +15,13 @@
  */
 
 import type { CharacterProfile, Message } from '../types';
+import { bindMessagePhoto, photoReferencePreviews } from './photoIdentityBinding';
+import type { CameraReference } from './sceneCameraReferences';
 import { DB } from './db';
-import { putImageBlob, resolveRefToDataUrl } from './blobRef';
+import { putImageBlob } from './blobRef';
 import {
     generateImage,
     generatedImageToBlob,
-    ImageGenerationError,
-    type ReferenceImageInput,
 } from './imageGenerationService';
 import { loadImageGenerationConfig } from './imageGenerationConfig';
 import { chatPhotoIntentKey, claimChatPhotoTurn, type ChatPhotoIntent } from './chatPhotoIntent';
@@ -36,6 +36,8 @@ export interface ChatPhotoMeta {
     status: ChatPhotoStatus;
     caption: string;
     includeCharacter: boolean;
+    includePlayer?: boolean;
+    references?: CameraReference[];
     style: string;
     prompt: string;
     /** 失败/中断原因（已脱敏，可展示给玩家） */
@@ -62,22 +64,6 @@ const redactReason = (reason: string, secret?: string): string => {
     text = text.slice(0, 300);
     return text || '生图失败';
 };
-
-/**
- * 角色参考图兼容接口：当前档案没有专门的「角色参考图」字段，先用头像兜底（data URL /
- * http(s) / blobref 都能喂给统一服务）。后续新增参考图字段时只改这里，不新增管理 UI。
- * includeCharacter=false 时调用方根本不会调它。
- */
-export async function collectCharacterReferenceImages(char: CharacterProfile): Promise<ReferenceImageInput[]> {
-    const avatar = (char as { avatar?: unknown }).avatar;
-    if (!avatar || typeof avatar !== 'string') return [];
-    if (avatar.startsWith('data:') || /^https?:\/\//i.test(avatar)) return [avatar];
-    if (avatar.startsWith('blobref:')) {
-        const dataUrl = await resolveRefToDataUrl(avatar);
-        return dataUrl ? [dataUrl] : [];
-    }
-    return [];
-}
 
 export interface ChatPhotoRunOutcome {
     status: 'ready' | 'failed' | 'pending';
@@ -131,51 +117,15 @@ async function runChatPhotoGenerationInner({ char, messageId, intent, onToast }:
         return fail('生图 API 未启用，请先在「设置 → 生图」中开启并测试通过', 'config-disabled');
     }
 
-    // ─── Phase 2C：优先使用 characterId（自动处理 visualIdentity），兜底旧头像 ─────
-    let characterId: string | undefined;
-    let legacyReferenceImages: ReferenceImageInput[] = [];
-
-    if (intent.includeCharacter) {
-        characterId = char.id;
-        // 兜底：若角色没有 visualIdentity，仍尝试读取头像作为参考图
-        try {
-            legacyReferenceImages = await collectCharacterReferenceImages(char);
-        } catch (e) {
-            console.warn('[ChatPhoto] 角色头像读取失败，继续生成:', e);
-        }
-    }
-
     let result;
+    let previews: CameraReference[];
     try {
-        stageLog('调用生图服务');
-        result = await generateImage({
-            prompt: intent.prompt,
-            style: intent.style || undefined,
-            characterId,
-            // 若 visualIdentity 启用，服务层会优先使用 visualIdentity 参考图；
-            // 否则兜底使用头像（向后兼容旧角色）
-            referenceImages: legacyReferenceImages,
-        });
+        const binding = await bindMessagePhoto(char, intent, config);
+        stageLog('调用生图服务', { referenceCount: binding.references.length });
+        result = await generateImage(binding.options, config);
+        previews = await photoReferencePreviews(binding.references);
     } catch (e) {
-        // 不支持参考图的接口（openai-images 等）：去掉参考图与角色身份后重试一次，
-        // 保证仍然只成功出一张图（既有测试锁定：拒绝一次 → 无参考图重试成功一次）。
-        // 其他错误：服务层已处理跳过逻辑，这里直接落失败原因。
-        const referenceBlocked = e instanceof ImageGenerationError && e.code === 'REFERENCE_NOT_SUPPORTED';
-        const usedReferences = !!characterId || legacyReferenceImages.length > 0;
-        if (referenceBlocked && usedReferences) {
-            stageLog('接口不支持参考图，去掉参考图重试');
-            try {
-                result = await generateImage({
-                    prompt: intent.prompt,
-                    style: intent.style || undefined,
-                    referenceImages: [],
-                });
-            } catch (e2) {
-                return fail(errMessage(e2), 'generate');
-            }
-        } else {
-            return fail(errMessage(e), 'generate');
-        }
+        return fail(errMessage(e), 'generate');
     }
 
     try {
@@ -186,7 +136,7 @@ async function runChatPhotoGenerationInner({ char, messageId, intent, onToast }:
         await DB.updateMessage(messageId, blobRef);
         await DB.updateMessageMetadata(messageId, prev => ({
             ...(prev || {}),
-            chatPhoto: { ...(prev?.chatPhoto || {}), status: 'ready' },
+            chatPhoto: { ...(prev?.chatPhoto || {}), status: 'ready', references: previews },
         }));
         // canonical 成功落图点：所有真正成为 assistant image message 的拍照图片统一经
         // gallerySync 入相册（id=chatphoto-<messageId> 幂等；失败路径在上方 fail 提前返回，
@@ -229,6 +179,7 @@ export async function executeChatPhotoIntent(args: ExecuteChatPhotoArgs): Promis
         status: 'pending',
         caption: intent.caption,
         includeCharacter: intent.includeCharacter,
+        includePlayer: intent.includePlayer,
         style: intent.style,
         prompt: intent.prompt,
         createdAt: Date.now(),
@@ -277,6 +228,7 @@ export async function retryChatPhotoMessage(
         prompt: meta.prompt,
         caption: meta.caption || '',
         includeCharacter: meta.includeCharacter === true,
+        includePlayer: meta.includePlayer,
         style: meta.style || '',
     };
     let claimed = false;

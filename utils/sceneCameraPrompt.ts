@@ -221,6 +221,7 @@ export function parseShotPlanFromJson(jsonText: string, mode: SceneCameraMode): 
     const shotPlan: SceneCameraShotPlan = {
       version: SHOT_PLAN_VERSION,
       mode: parsed.mode || mode,
+      ...(['player', 'character', 'both', 'other'].includes(parsed.photoSubjects) ? { photoSubjects: parsed.photoSubjects } : {}),
       subjects: Array.isArray(parsed.subjects) ? parsed.subjects : [parsed.characterName || '角色'],
       characterState: parsed.characterState || '当前状态',
       playerVisibility: parsed.playerVisibility || defaultPlayerVisibility(mode),

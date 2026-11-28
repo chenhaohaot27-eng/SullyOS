@@ -79,6 +79,10 @@ export type GiftMemoryImportance =
     | 'highly_meaningful';
 
 export interface GiftImageData {
+    includePlayer?: boolean;
+    includeCharacter?: boolean;
+    style?: string;
+    references?: import('./sceneCameraReferences').CameraReference[];
     /** `blobref:<id>` 令牌；一张礼物图片只存一个 Blob，Gift 卡与 GiftRecord 同源。 */
     imageRef?: string;
     origin: GiftImageOrigin;
