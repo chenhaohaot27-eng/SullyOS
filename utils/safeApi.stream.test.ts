@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { safeFetchJson } from './safeApi';
+import { readBodyWithStreaming, safeFetchJson } from './safeApi';
+import { assembleUpgradedResponse } from './streamUpgrade';
+import { SSE_FINISH_GRACE_MS } from './openAiStream';
 
 // 锁住流式读取路径 (readBodyWithStreaming) 与整包路径的行为一致性：
 //  - SSE 增量正文触发 onDelta，最终拼出与非流式相同结构的 completion 对象
@@ -22,6 +24,37 @@ const sseResponse = (events: string[]) => new Response(sseBody(events), {
 afterEach(() => vi.restoreAllMocks());
 
 describe('safeFetchJson streaming', () => {
+    it.each(['DONE', 'finish-only'])('finishes both real Response.clone branches at %s without waiting for tee cancellation', async terminal => {
+        const cancel = vi.fn(() => new Promise<void>(() => {}));
+        const response = new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+                const wire = [
+                    'data: {"choices":[{"delta":{"content":"完整🙂","reasoning_content":"private-draft"},"finish_reason":"stop"}]}\r\n\r\n',
+                    'data: {"choices":[],"usage":{"prompt_tokens":9,"completion_tokens":3,"total_tokens":12}}\r\n\r\n',
+                    terminal === 'DONE' ? 'data: [DONE]\r\n\r\n' : '',
+                ].join('');
+                // Split UTF-8 characters, SSE field names and CRLF across real byte chunks.
+                for (const byte of new TextEncoder().encode(wire)) controller.enqueue(Uint8Array.of(byte));
+            },
+            cancel,
+        }), { headers: { 'content-type': 'text/event-stream' } });
+        const usageClone = response.clone();
+        const onDelta = vi.fn();
+        const [visible, loggedResponse] = await Promise.all([
+            readBodyWithStreaming(response, { onDelta }),
+            assembleUpgradedResponse(usageClone),
+        ]);
+        const logged = await loggedResponse.json();
+        for (const data of [visible, logged]) {
+            expect(data.choices[0].message.content).toBe('完整🙂');
+            expect(data.usage.total_tokens).toBe(12);
+            expect(JSON.stringify(data)).not.toContain('private-draft');
+        }
+        expect(onDelta).toHaveBeenCalledOnce();
+        expect(onDelta).toHaveBeenCalledWith('完整🙂', '完整🙂');
+        expect(cancel).toHaveBeenCalledOnce();
+    }, SSE_FINISH_GRACE_MS + 1_000);
+
     it('completes at DONE even if the proxy holds the socket open', async () => {
         const cancel = vi.fn();
         const response = new Response(new ReadableStream({
@@ -39,6 +72,18 @@ describe('safeFetchJson streaming', () => {
         }), { headers: { 'content-type': 'text/event-stream' } }));
         vi.stubGlobal('fetch', fetcher);
         await expect(safeFetchJson('https://fixture.invalid/v1/chat/completions', {}, 2, 30, undefined, {})).rejects.toThrow(/未收到完整回复/);
+        expect(fetcher).toHaveBeenCalledOnce();
+    });
+    it('does not release display text when a terminal frame reports an interrupted reply', async () => {
+        const onDelta = vi.fn();
+        const fetcher = vi.fn(async () => sseResponse([
+            'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":"content_filter"}]}\n\n',
+            'data: [DONE]\n\n',
+        ]));
+        vi.stubGlobal('fetch', fetcher);
+        const data = await safeFetchJson('https://fixture.invalid/v1/chat/completions', {}, 2, 0, undefined, { onDelta });
+        expect(data.choices[0].finish_reason).toBe('content_filter');
+        expect(onDelta).not.toHaveBeenCalled();
         expect(fetcher).toHaveBeenCalledOnce();
     });
     it('SSE 增量触发 onDelta 且最终 completion 与整包解析一致', async () => {

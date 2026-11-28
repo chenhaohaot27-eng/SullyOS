@@ -1,0 +1,172 @@
+{
+  "format": "lemuria-amsg-artifact-derivative",
+  "formatVersion": 1,
+  "release": {
+    "version": "2026-11-28",
+    "fileName": "amsg-worker-2026-11-28.bundle.js",
+    "sha256": "3523da5c27d66dfe3958dfc27fdad461544138688c896cc9bba965da36dd5c55",
+    "bytes": 1095731,
+    "channel": "lemuria-amsg",
+    "schemaProtocol": "3.2.0-lease-token",
+    "sdkVersion": "3.2.0-next.2",
+    "replyBoundaryVersion": 2
+  },
+  "base": {
+    "repository": "chenhaohaot27-eng/SullyOS",
+    "repositoryCommit": "5f9edaed2e5a078508f6ec8f031367399b60d51b",
+    "fileName": "amsg-worker-2026-11-26.bundle.js",
+    "sha256": "e376c8e8db133332717757d7f11e191ad5cf6883c37eac9421fcbc8259e10359",
+    "bytes": 1091465,
+    "claimedSourceCommit": "e9252af6b295a3f67f22f9f911aaff4e8ba918f9",
+    "fullSourceAvailable": false
+  },
+  "build": {
+    "script": "scripts/build-amsg-reply-hotfix.mjs",
+    "scriptSha256": "be2c1598a09cba3a7d7d3bd566778444c25906c8c3c70a732c3f27e597bd3983",
+    "compilers": {
+      "esbuild": "0.21.5",
+      "typescript": "5.9.3"
+    },
+    "network": false,
+    "command": "node scripts/build-amsg-reply-hotfix.mjs"
+  },
+  "modules": [
+    {
+      "path": "utils/replyBoundary.ts",
+      "originalBlockSha256": "3d3d9674834e8b617465e43ce70e12e5f15d2d1d47346c88361cad62cb6f271d",
+      "sourceSha256": "6c8b1b1eab6eaa7a15878675da0015e26c4fe8c7cc640b28a442af3b69a5b95d",
+      "replacementBlockSha256": "15078ac9705343580d20c9c7eeb6659ca5012012818b7604eba2c45cb8ccd99a",
+      "imports": {},
+      "exports": [
+        "ReplyBoundaryError",
+        "finalizeReply",
+        "frameReplyMessages",
+        "isThoughtPart",
+        "publicMessageText",
+        "publicPartText",
+        "readReply"
+      ]
+    },
+    {
+      "path": "utils/openAiStream.ts",
+      "originalBlockSha256": "02ca1a9613574e2642ae0fe7e86e2352bceb6b00f3419ec395033efc08d2afd9",
+      "sourceSha256": "6a7eba636430332126f0c9cc0be89d14b4f6ceb6f5475729ab75eba32a3f6234",
+      "replacementBlockSha256": "f381543dec649869e423a0e615f5a795c08557b7a2fb44b7ab014b576505965e",
+      "imports": {
+        "./replyBoundary": [
+          "isThoughtPart",
+          "publicMessageText"
+        ]
+      },
+      "exports": [
+        "SSE_FINISH_GRACE_MS",
+        "SseAssembler",
+        "isSseResponseText",
+        "parseSseToCompletion",
+        "readOpenAiResponse"
+      ]
+    },
+    {
+      "path": "utils/characterTransport.ts",
+      "originalBlockSha256": "8d9f124763c43752858c3edf0d5a63d0786d09084bd16bd880f6db7a14886981",
+      "sourceSha256": "c47b1969bae99a7da3f663352c3db29db16101e000522cc27b46c66fee86d5d0",
+      "replacementBlockSha256": "f45b121ceac3628450ca3988540e5bb49d91f497cba10bc3313e4487763b649b",
+      "imports": {
+        "./completionOutcome": [
+          "assertCompletionDelivered"
+        ],
+        "./openAiStream": [
+          "readOpenAiResponse"
+        ],
+        "./replyBoundary": [
+          "ReplyBoundaryError",
+          "finalizeReply",
+          "frameReplyMessages"
+        ]
+      },
+      "exports": [
+        "characterTransport"
+      ]
+    }
+  ],
+  "replacements": [
+    {
+      "name": "utils/replyBoundary.ts",
+      "baseStart": 1198,
+      "baseBytes": 4115,
+      "resultStart": 1198,
+      "resultBytes": 4365,
+      "beforeSha256": "3d3d9674834e8b617465e43ce70e12e5f15d2d1d47346c88361cad62cb6f271d",
+      "afterSha256": "15078ac9705343580d20c9c7eeb6659ca5012012818b7604eba2c45cb8ccd99a"
+    },
+    {
+      "name": "utils/openAiStream.ts",
+      "baseStart": 5313,
+      "baseBytes": 4923,
+      "resultStart": 5563,
+      "resultBytes": 9060,
+      "beforeSha256": "02ca1a9613574e2642ae0fe7e86e2352bceb6b00f3419ec395033efc08d2afd9",
+      "afterSha256": "f381543dec649869e423a0e615f5a795c08557b7a2fb44b7ab014b576505965e"
+    },
+    {
+      "name": "utils/characterTransport.ts",
+      "baseStart": 10236,
+      "baseBytes": 1544,
+      "resultStart": 14623,
+      "resultBytes": 1388,
+      "beforeSha256": "8d9f124763c43752858c3edf0d5a63d0786d09084bd16bd880f6db7a14886981",
+      "afterSha256": "f45b121ceac3628450ca3988540e5bb49d91f497cba10bc3313e4487763b649b"
+    },
+    {
+      "name": "bundle-version",
+      "baseStart": 682023,
+      "baseBytes": 39,
+      "resultStart": 686254,
+      "resultBytes": 39,
+      "beforeSha256": "e700fbac6187fc6c9beca50369ed80f9c4427ee9f4d5608916652e1e0c6d8808",
+      "afterSha256": "d691e7c771ae0e19938198307419ee3a3c2796e204cb8081a1f899e781a19bf8"
+    },
+    {
+      "name": "reply-boundary-capability",
+      "baseStart": 1078931,
+      "baseBytes": 87,
+      "resultStart": 1083162,
+      "resultBytes": 122,
+      "beforeSha256": "17db1529096ec2b64acead025d219934331abbe88e182740751271d209afda13",
+      "afterSha256": "82d322b4b086a5d6cb078ecc34fe797104f04b4b3f03ba253681a52b3ee9dd9c"
+    }
+  ],
+  "unchangedRegions": [
+    {
+      "baseStart": 0,
+      "resultStart": 0,
+      "bytes": 1198,
+      "sha256": "19bab938301b61f8b64decbccff073814282b56fc358ad92e9177c65461fd6ea"
+    },
+    {
+      "baseStart": 11780,
+      "resultStart": 16011,
+      "bytes": 670243,
+      "sha256": "7684db11b2f9e323d7048c00ef18e90d34a01f825a154ac96041e4aeed1e50ef"
+    },
+    {
+      "baseStart": 682062,
+      "resultStart": 686293,
+      "bytes": 396869,
+      "sha256": "be8f3552e5a6e1645f649d69d8a2287a61e7e522b13e0e0d4013e8c30699a97b"
+    },
+    {
+      "baseStart": 1079018,
+      "resultStart": 1083284,
+      "bytes": 12447,
+      "sha256": "d1447efc671b26d8adf04c2ab5662716772f97b8e64ee95f8671788826496228"
+    }
+  ],
+  "unchangedBytes": 1080757,
+  "limitations": [
+    "Artifact derivative; not a recovered-source rebuild of the unavailable claimed release commit.",
+    "SDK, D1 schema/migrations, lease handling, auth, secrets/bindings and Worker hooks are retained byte-for-byte outside the five listed replacements.",
+    "Publishing the frontend pin does not update an existing Worker. Install this verified artifact or update its server AMSG_BUNDLE_URL and AMSG_BUNDLE_SHA256 before self-update.",
+    "Offline fixtures do not attest the version installed on a user Worker or live provider behavior."
+  ]
+}

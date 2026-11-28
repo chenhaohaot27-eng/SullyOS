@@ -7,6 +7,7 @@ import {
     getApiRequestCaptureSectionContent,
     getApiRequestCaptureSectionSource,
     isApiRequestCaptureArmed,
+    isApiRequestCaptureRedacted,
     isSameCoreModel,
     isFixedPromptBlockLabel,
     setApiRequestCaptureArmed,
@@ -234,13 +235,15 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                     {entries.map((e) => {
                         const { day, time } = formatTime(e.timestamp);
                         const hasBreakdown = !!e.promptBreakdown?.length;
+                        const replyRejected = e.replyValidation === 'failed';
+                        const failed = e.ok === false || replyRejected;
                         const expanded = expandedId === e.id;
                         return (
                             <div
                                 key={e.id}
                                 onClick={hasBreakdown ? () => { if (!expanded) trackEvent('展开单条输入构成'); setExpandedId(expanded ? null : e.id); } : undefined}
                                 className={`rounded-2xl border p-3 ${
-                                    e.ok ? 'bg-white/70 border-slate-200/60' : 'bg-rose-50/60 border-rose-200/60'
+                                    failed ? 'bg-rose-50/60 border-rose-200/60' : 'bg-white/70 border-slate-200/60'
                                 } ${hasBreakdown ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
                             >
                                 <div className="flex items-center justify-between gap-2 mb-1.5">
@@ -260,12 +263,14 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                                             className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                                 e.superseded ? 'bg-slate-100 text-slate-500'
                                                     : e.pending ? 'bg-amber-100 text-amber-600'
-                                                        : e.ok ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
+                                                        : failed ? 'bg-rose-100 text-rose-600' : e.ok ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'
                                             }`}
                                         >
                                             {e.superseded ? '已顶替'
                                                 : e.pending ? '生成中'
-                                                    : e.ok ? '成功' : `失败${e.status ? ` ${e.status}` : ''}`}
+                                                    : replyRejected ? '正文校验失败'
+                                                        : e.ok === undefined ? '状态待补齐'
+                                                            : e.ok ? '成功' : `失败${e.status ? ` ${e.status}` : ''}`}
                                         </span>
                                     </div>
                                 </div>
@@ -293,9 +298,10 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                                             </div>
                                         );
                                     })()}
-                                    {!e.ok && e.errorDetail && (
-                                        <div className="col-span-2"><Field label="上游错误" value={e.errorDetail} wrap /></div>
+                                    {failed && e.errorDetail && (
+                                        <div className="col-span-2"><Field label={replyRejected ? '回复处理' : '上游错误'} value={e.errorDetail} wrap /></div>
                                     )}
+                                    {replyRejected && e.status != null && <Field label="HTTP" value={String(e.status)} />}
                                     {e.durationMs != null && (
                                         <Field label="耗时" value={e.durationMs >= 1000 ? `${(e.durationMs / 1000).toFixed(1)}s` : `${e.durationMs}ms`} />
                                     )}
@@ -436,12 +442,13 @@ const OneShotCapturePanel: React.FC<{
         : capture.promptTokens != null
             ? fmt(capture.promptTokens)
             : capture.usageStatus === 'pending'
-                ? '等待响应…'
+                ? '等待用量…'
                 : capture.usageStatus === 'failed'
-                    ? '请求失败'
+                    ? '请求失败，未取得用量'
                     : capture.usageStatus == null
                         ? '旧记录未采集'
-                        : '接口未返回';
+                        : '未取得用量';
+    const redacted = !!capture && (isApiRequestCaptureRedacted(capture) || capture.binaryPlaceholders > 0);
     const fixedSections = useMemo(
         () => capture?.sections.filter(section => section.kind === 'system') || [],
         [capture],
@@ -578,24 +585,31 @@ const OneShotCapturePanel: React.FC<{
                             </div>
                             <div className="mt-2 border-t border-emerald-100/70 pt-2 text-[9px] leading-relaxed text-slate-400">
                                 辅助计数：{capture.lengthBasis === 'original' ? '请求 JSON' : '旧版保存副本（原始总长未记录）'} {fmt(capture.totalChars)} 字符（非 Token） · {capture.messageCount} 条消息 · {capture.sections.length} 个分区
+                                <div>用量状态不能单独判断回复是否成功。</div>
                             </div>
                         </div>
 
                         {capture.peekReport && <p className="mt-2 text-xs text-slate-600">导出 TXT 可查看陪伴开场组件、占比和 SHA-256 重复明细。</p>}
+                        {capture.replyValidation && <p className={`mt-2 text-[10px] ${capture.replyValidation === 'failed' ? 'text-rose-600' : 'text-slate-500'}`}>
+                            {capture.replyValidation === 'failed' ? '回复正文校验未通过，未交给显示层。' : '回复正文校验已通过，后续显示与保存状态请查看对应会话。'}
+                        </p>}
                         {!capture.peekReport && duplicateSummary && (
                             <div className={`mt-3 border-l-2 py-1.5 pl-3 ${
-                                duplicateSummary.groups === 0 ? 'border-emerald-400' : 'border-amber-400'
+                                duplicateSummary.status === 'unavailable' || duplicateSummary.comparedSections === 0 ? 'border-slate-300' : duplicateSummary.groups === 0 ? 'border-emerald-400' : 'border-amber-400'
                             }`}>
                                 <div className={`text-[10px] font-bold ${
-                                    duplicateSummary.groups === 0 ? 'text-emerald-700' : 'text-amber-700'
+                                    duplicateSummary.status === 'unavailable' || duplicateSummary.comparedSections === 0 ? 'text-slate-600' : duplicateSummary.groups === 0 ? 'text-emerald-700' : 'text-amber-700'
                                 }`}>
-                                    {duplicateSummary.groups === 0
-                                        ? '✓ 客户端发出前未发现完全重复的大段内容'
+                                    {duplicateSummary.status === 'unavailable'
+                                        ? '正文已隐藏，重复情况未验证'
+                                        : duplicateSummary.comparedSections === 0 ? '本次没有可比对的长文本分区'
+                                        : duplicateSummary.groups === 0 ? '已保留的长文本分区未发现完全重复'
                                         : `! 客户端请求内发现 ${duplicateSummary.groups} 组重复大段`}
                                 </div>
                                 <p className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
-                                    {duplicateSummary.groups === 0
-                                        ? '若服务商后台仍显示同一提示词出现两份，重复发生在请求离开客户端之后。'
+                                    {duplicateSummary.status === 'unavailable'
+                                        ? '这份报告仅保留内容摘要，无法判断原始请求是否重复。'
+                                        : duplicateSummary.groups === 0 ? '仅比较完整保留的长文本；局部重复、语义重复和服务商的后续处理仍需另行核对。'
                                         : `重复内容额外占用 ${fmt(duplicateSummary.extraChars)} 字符；请在下方逐段核对来源。`}
                                 </p>
                             </div>
@@ -701,15 +715,15 @@ const OneShotCapturePanel: React.FC<{
                                     onClick={() => setExpandedSectionId(expandedSectionId === rawId ? null : rawId)}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left"
                                 >
-                                    <span className="shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-[9px] font-semibold text-white">原始</span>
-                                    <span className="min-w-0 flex-1 truncate text-[10px] text-slate-600">完整请求 JSON（核对所有字段）</span>
+                                    <span className="shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-[9px] font-semibold text-white">{redacted ? '摘要' : '副本'}</span>
+                                    <span className="min-w-0 flex-1 truncate text-[10px] text-slate-600">{redacted ? '脱敏请求摘要 JSON' : '请求副本 JSON'}</span>
                                     <span className="shrink-0 text-[9px] text-slate-300">{expandedSectionId === rawId ? '▲' : '▼'}</span>
                                 </button>
                                 {expandedSectionId === rawId && (
                                     <CaptureSectionContent
                                         content={JSON.stringify(capture.payload, null, 2)}
                                         mono
-                                        onCopy={value => copy(value, '完整请求已复制')}
+                                        onCopy={value => copy(value, redacted ? '请求摘要已复制' : '请求副本已复制')}
                                     />
                                 )}
                             </div>

@@ -86,8 +86,10 @@ export interface ApiCallLogEntry extends ApiCallMeta {
     status?: number;
     errorDetail?: string;
     finishReason?: string;
-    /** 请求是否成功拿到 JSON */
-    ok: boolean;
+    /** Whether transport/parsing succeeded; absent when only a later-stage patch exists. */
+    ok?: boolean;
+    /** Kept separate so a delayed HTTP/usage log cannot overwrite a reply rejection. */
+    replyValidation?: 'passed' | 'failed';
     /** 输入 token（prompt_tokens），来自响应 usage，拿不到则空 */
     promptTokens?: number;
     /** 输出 token（completion_tokens） */
@@ -158,12 +160,16 @@ export interface ApiRequestCapture {
     totalChars: number;
     /** Older captures measured the sanitized copy instead of the request. */
     lengthBasis?: 'original';
+    /** Character captures retain sizes and roles, not the original message bodies. */
+    contentVisibility?: 'redacted';
     peekReport?: PeekReport;
     /** 模型/中转响应 usage 中自报的真实输入 Token；对方不返回时为空。 */
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
     usageStatus?: 'pending' | 'reported' | 'not-reported' | 'failed';
+    requestId?: string;
+    replyValidation?: 'passed' | 'failed';
     messageCount: number;
     binaryPlaceholders: number;
     sections: ApiRequestCaptureSection[];
@@ -664,12 +670,15 @@ const CAPTURE_SOURCE_DESCRIPTIONS: Record<ApiRequestCaptureSectionKind, string> 
     group: '近期群聊、群聊场景或公共聊天背景注入的内容',
     history: '随请求发送给模型的既往用户与角色对话内容',
     context: '角色资料、关系状态或实时环境上下文',
-    user: '本轮用户输入，或功能发起任务时使用的用户提示词',
+    user: '随请求发送的历史与本轮用户消息，以及功能任务的用户提示词',
     assistant: '随上下文一起发送的历史角色回复',
     tool: '上一轮工具执行后返回给模型的结果',
 };
 
 export function getApiRequestCaptureSectionSource(section: ApiRequestCaptureSection): string {
+    if (section.kind === 'user' && section.source === '本轮用户输入，或功能发起任务时使用的用户提示词') {
+        return CAPTURE_SOURCE_DESCRIPTIONS.user;
+    }
     return section.source || CAPTURE_SOURCE_DESCRIPTIONS[section.kind] || '请求中的其他内容';
 }
 
@@ -683,6 +692,7 @@ export function buildApiRequestCapture(input: {
     body?: unknown;
     meta?: ApiCallMeta;
     capturedAt?: number;
+    requestId?: string;
 }, onPeek?: (report: Promise<PeekReport>) => void): ApiRequestCapture {
     let parsed: unknown = input.body;
     if (typeof input.body === 'string') {
@@ -799,7 +809,9 @@ export function buildApiRequestCapture(input: {
         payload,
         totalChars,
         lengthBasis: 'original',
+        ...(framed ? { contentVisibility: 'redacted' as const } : {}),
         usageStatus: 'pending',
+        requestId: input.requestId,
         messageCount: messages.length,
         binaryPlaceholders: stats.binaryPlaceholders,
         sections,
@@ -834,10 +846,20 @@ export function getApiRequestCaptureSectionContent(
 }
 
 export interface ApiRequestCaptureDuplicateSummary {
+    status: 'checked' | 'unavailable';
+    comparedSections: number;
     groups: number;
     repeatedSections: number;
     extraChars: number;
     examples: Array<{ label: string; occurrences: number; chars: number }>;
+}
+
+/** Older redacted captures predate contentVisibility; recognize their placeholders too. */
+export function isApiRequestCaptureRedacted(capture: ApiRequestCapture): boolean {
+    if (capture.contentVisibility === 'redacted' || capture.peekReport) return true;
+    const messages = (capture.payload as any)?.messages;
+    return Array.isArray(messages) && messages.some(message =>
+        typeof message?.content === 'string' && /^\[已隐藏，[\d,]+\s*字符\]$/.test(message.content));
 }
 
 /**
@@ -848,7 +870,12 @@ export function summarizeApiRequestCaptureDuplicates(
     capture: ApiRequestCapture,
     minChars = 160,
 ): ApiRequestCaptureDuplicateSummary {
+    // Comparing redaction placeholders cannot establish what the original request contained.
+    if (isApiRequestCaptureRedacted(capture) || capture.binaryPlaceholders > 0) {
+        return { status: 'unavailable', comparedSections: 0, groups: 0, repeatedSections: 0, extraChars: 0, examples: [] };
+    }
     const byContent = new Map<string, Array<ApiRequestCaptureSection>>();
+    let comparedSections = 0;
     capture.sections.forEach(section => {
         if (section.kind === 'request' || section.kind === 'tools' || section.chars < minChars) return;
         const content = getApiRequestCaptureSectionContent(capture, section)
@@ -856,6 +883,7 @@ export function summarizeApiRequestCaptureDuplicates(
             .replace(/[ \t]+$/gm, '')
             .trim();
         if (content.length < minChars) return;
+        comparedSections++;
         const matches = byContent.get(content) || [];
         matches.push(section);
         byContent.set(content, matches);
@@ -871,6 +899,8 @@ export function summarizeApiRequestCaptureDuplicates(
         .sort((a, b) => (b.chars * (b.occurrences - 1)) - (a.chars * (a.occurrences - 1)));
 
     return {
+        status: 'checked',
+        comparedSections,
         groups: duplicates.length,
         repeatedSections: duplicates.reduce((sum, item) => sum + item.occurrences, 0),
         extraChars: duplicates.reduce((sum, item) => sum + item.chars * (item.occurrences - 1), 0),
@@ -920,7 +950,9 @@ export function formatApiRequestCaptureTxt(capture: ApiRequestCapture): string {
         `角色：${capture.meta.charName || '—'}`,
         `API：${capture.presetName || capture.baseUrl || '—'}`,
         `模型：${capture.model || '—'}`,
-        `输入 Token（模型响应自报）：${capture.promptTokens != null ? fmt(capture.promptTokens) : capture.usageStatus === 'pending' ? '等待响应' : capture.usageStatus === 'failed' ? '请求失败，无法取得' : '接口未返回 usage'}`,
+        `回复正文校验：${capture.replyValidation === 'failed' ? '未通过，回复未交给显示层' : capture.replyValidation === 'passed' ? '已通过（不代表后续显示或保存已经完成）' : '未记录'}`,
+        `输入 Token（模型响应自报）：${capture.promptTokens != null ? fmt(capture.promptTokens) : capture.usageStatus === 'pending' ? '等待用量' : capture.usageStatus === 'failed' ? '请求失败，未取得用量' : capture.usageStatus == null ? '旧记录未采集' : '未取得用量（usage）'}`,
+        '用量状态仅表示是否取得 Token 统计，不能单独判断回复是否成功。',
         `输出 Token：${capture.completionTokens != null ? fmt(capture.completionTokens) : '—'}`,
         `总 Token：${capture.totalTokens != null ? fmt(capture.totalTokens) : '—'}`,
         capture.lengthBasis === 'original'
@@ -934,17 +966,20 @@ export function formatApiRequestCaptureTxt(capture: ApiRequestCapture): string {
         '',
         ...(capture.peekReport ? [formatPeekReport(capture.peekReport), ''] : []),
         '===== 客户端发出前重复检查 =====',
-        capture.peekReport ? '角色正文已隐藏，原始组件重复情况见上方 SHA-256 明细。' : duplicateSummary.groups === 0
-            ? '未发现完全相同的长文本被客户端重复发送。'
+        capture.peekReport ? '角色正文已隐藏，原始组件重复情况见上方 SHA-256 明细。' : duplicateSummary.status === 'unavailable'
+            ? '正文或二进制内容已隐藏，无法由这份报告判断原始请求是否重复。'
+            : duplicateSummary.comparedSections === 0 ? '本次没有可比对的长文本分区。'
+            : duplicateSummary.groups === 0 ? '已比较保存的长文本分区，未发现完全相同的重复内容。'
             : `发现 ${duplicateSummary.groups} 组完全相同的长文本；重复部分额外 ${fmt(duplicateSummary.extraChars)} 字符。`,
-        '说明：这里只能证明客户端实际发出了什么，无法检查中转站收到请求后的二次拼接。',
+        '说明：仅检查完整保留的长文本分区；无法排除局部重复、语义重复，也无法检查中转站的后续处理。',
         '',
         '===== 来源体积排行（按正文字符统计，不是 Token） =====',
         ...sourceRows,
         '',
         '===== 分区正文（按实际发送顺序） =====',
         ...sectionRows.flatMap(row => [row, '']),
-        capture.peekReport ? '===== 脱敏请求摘要 JSON =====' : '===== 完整原始请求 JSON =====',
+        isApiRequestCaptureRedacted(capture) || capture.binaryPlaceholders > 0
+            ? '===== 脱敏请求摘要 JSON =====' : '===== 请求副本 JSON =====',
         JSON.stringify(capture.payload, null, 2),
         '',
         '提示：内容可能包含聊天、记忆和角色隐私，分享前请检查。',
@@ -952,9 +987,9 @@ export function formatApiRequestCaptureTxt(capture: ApiRequestCapture): string {
 }
 
 /** 抢占并保存下一次请求；成功时返回抓包 ID，未开启时返回 null。 */
-let captureSaveInFlight: { id: string; promise: Promise<void> } | null = null;
+let captureSaveInFlight: { id: string; requestId?: string; promise: Promise<void> } | null = null;
 
-export function captureApiRequestOnce(input: { url: string; body?: unknown; meta?: ApiCallMeta }): string | null {
+export function captureApiRequestOnce(input: { url: string; body?: unknown; meta?: ApiCallMeta; requestId?: string }): string | null {
     if (!claimApiRequestCapture()) return null;
     try {
         let reportPromise: Promise<PeekReport | undefined> | undefined;
@@ -965,7 +1000,7 @@ export function captureApiRequestOnce(input: { url: string; body?: unknown; meta
             if (report) capture.peekReport = report;
             return DB.saveApiRequestCapture(capture);
         });
-        captureSaveInFlight = { id: capture.id, promise: savePromise };
+        captureSaveInFlight = { id: capture.id, requestId: input.requestId, promise: savePromise };
         savePromise.then(
             () => emitCaptureChange('saved'),
             () => emitCaptureChange('error'),
@@ -1017,7 +1052,8 @@ export function recordApiCall(input: {
     url: string;
     body?: unknown;
     status?: number;
-    ok: boolean;
+    ok?: boolean;
+    replyValidation?: 'passed' | 'failed';
     errorDetail?: string;
     response?: unknown;
     /** 响应原始文本（JSON.parse 失败时传入，供 SSE 兜底解析 model / usage） */
@@ -1051,13 +1087,14 @@ export function recordApiCall(input: {
             status: input.status,
             ...(input.errorDetail ? { errorDetail: input.errorDetail } : {}),
             ok: input.ok,
+            replyValidation: input.replyValidation,
             finishReason: completionOutcome(input.response).reason ?? undefined,
             promptTokens: usage.prompt,
             completionTokens: usage.completion,
             totalTokens: usage.total,
             durationMs: input.durationMs,
             // Block labels can include the first line of a prompt. Keep failed diagnostics content-free.
-            promptBreakdown: buildPromptBreakdown(input.body, !!input.errorDetail),
+            promptBreakdown: input.replyValidation ? undefined : buildPromptBreakdown(input.body, !!input.errorDetail),
             appId: meta.appId,
             appName: meta.appName,
             charId: meta.charId,
@@ -1068,6 +1105,15 @@ export function recordApiCall(input: {
         import('./db')
             .then(({ DB }) => DB.appendApiCallLog(entry))
             .catch(() => {});
+        const capture = captureSaveInFlight;
+        if (input.replyValidation && input.requestId && input.requestId === capture?.requestId) {
+            const replyValidation = input.replyValidation;
+            capture.promise.catch(() => {})
+                .then(() => import('./db'))
+                .then(({ DB }) => DB.patchApiRequestCapture(capture.id, { replyValidation }))
+                .then(updated => { if (updated) emitCaptureChange('saved'); })
+                .catch(() => {});
+        }
     } catch {
         // best-effort：任何异常都不影响主请求
     }

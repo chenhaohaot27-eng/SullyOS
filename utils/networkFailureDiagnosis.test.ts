@@ -357,14 +357,23 @@ describe('probeOriginReachability', () => {
 
 describe('describeReachabilityProbe', () => {
     it('通了 → 只确认域名可达，并警告生成后失败仍可能计费', () => {
-        const text = describeReachabilityProbe('reachable', 'sullymeow.ccwu.cc');
+        const text = describeReachabilityProbe('reachable', 'sullymeow.ccwu.cc', true);
         expect(text).toContain('域名当前可达');
-        expect(text).toContain('原 POST');
+        expect(text).toContain('模型请求');
         expect(text).toContain('CORS');
         expect(text).toContain('可能计费');
         expect(text).toContain('不要连续重发');
         expect(text).not.toContain('问题出在响应本身');
         expect(text).not.toContain('梯子的分流规则');
+    });
+
+    it('资讯 GET 的域名复检不推断模型生成或计费', () => {
+        const text = describeReachabilityProbe('reachable', 'news.orz.ai');
+        expect(text).toContain('域名当前可达');
+        expect(text).toContain('无法确认原请求');
+        expect(text).not.toContain('POST');
+        expect(text).not.toContain('模型');
+        expect(text).not.toContain('计费');
     });
 
     it('没通 → 指向线路，不能再提 CORS 把人带偏', () => {

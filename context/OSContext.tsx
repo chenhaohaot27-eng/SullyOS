@@ -1151,11 +1151,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           let apiRequestCaptureId: string | null = null;
           if (urlStr.includes('/chat/completions')) {
               const captureMeta = (sendArgs[1] as any)?.__sullyMeta || ambientMetaAtStart;
-              apiRequestCaptureId = captureApiRequestOnce({ url: urlStr, body: (sendArgs[1] as any)?.body, meta: captureMeta });
+              apiRequestCaptureId = captureApiRequestOnce({ url: urlStr, body: (sendArgs[1] as any)?.body,
+                  meta: captureMeta, requestId: (sendArgs[1] as any)?.__sullyApiCallId });
           }
 
+          let receivedResponse: Response | undefined;
           try {
               let response = await originalFetch(...sendArgs);
+              receivedResponse = response;
               if (matrix) {
                   const wireBody = JSON.parse(String(sendArgs[1]?.body || '{}'));
                   const sampling = wireBody.generationConfig ?? wireBody;
@@ -1283,6 +1286,28 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               }
               return response;
           } catch (err: any) {
+              if (receivedResponse) {
+                  // Fetch already returned headers. A body/normalization failure must
+                  // not be diagnosed as failure to connect to the provider's domain.
+                  const replyRejected = err?.code === 'LLM_REPLY_BOUNDARY';
+                  const errorDetail = replyRejected
+                      ? '正文校验失败（LLM_REPLY_BOUNDARY），本轮正文与动作未释放。'
+                      : '已收到 HTTP 响应，响应体读取或解析失败。';
+                  if (urlStr.includes('/chat/completions')) {
+                      updateApiRequestCaptureUsage({ captureId: apiRequestCaptureId, ok: receivedResponse.ok });
+                      recordApiCall({ requestId: (config as any)?.__sullyApiCallId, url: urlStr,
+                          body: (sendArgs[1] as any)?.body, status: receivedResponse.status,
+                          ok: replyRejected ? receivedResponse.ok : false, ...(replyRejected ? { replyValidation: 'failed' as const } : {}),
+                          errorDetail, meta: (config as any)?.__sullyMeta || ambientMetaAtStart,
+                          durationMs: Date.now() - fetchStartedAt });
+                  }
+                  setSystemLogs(prev => [{
+                      id: `log-${Date.now()}-response`, timestamp: Date.now(), type: 'error',
+                      source: 'Response Processing', message: errorDetail,
+                      detail: `HTTP ${receivedResponse!.status} 已收到；${errorDetail}`,
+                  }, ...prev.slice(0, 49)]);
+                  throw err;
+              }
               // Network Failure
               if (urlStr.includes('/chat/completions')) {
                   updateApiRequestCaptureUsage({ captureId: apiRequestCaptureId, ok: false });
@@ -1323,7 +1348,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   if (shouldProbeReachability(classifyFetchFailure({ url: urlStr, error: err }))) {
                       void (async () => {
                           const verdict = await probeOriginReachability(urlStr, originalFetch);
-                          const line = describeReachabilityProbe(verdict, parseTargetUrl(urlStr).host);
+                          const line = describeReachabilityProbe(verdict, parseTargetUrl(urlStr).host,
+                              urlStr.includes('/chat/completions') || /:(?:stream)?generateContent/i.test(urlStr));
                           if (!line) return;
                           setSystemLogs(prev => prev.map(log => (
                               log.id === logId ? { ...log, detail: `${log.detail || ''}\n${line}` } : log

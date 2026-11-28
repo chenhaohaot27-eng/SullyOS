@@ -87,6 +87,7 @@ export function matrixStations(active: APIConfig, presets: ApiPreset[], log: Api
       log.some(
         (e) =>
           e.ok &&
+          e.replyValidation !== 'failed' &&
           !e.pending &&
           !e.superseded &&
           gemini(e.model) &&
